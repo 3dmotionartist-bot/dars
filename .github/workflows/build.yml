@@ -75,7 +75,8 @@ jobs:
           name: Dars test build ${{ github.run_number }}
           body: Install Dars.apk on Android (allow "install unknown apps"). Website and web app are on GitHub Pages.
           files: Dars.apk
-          prerelease: true
+          prerelease: false
+          make_latest: true
 
   site:
     name: Next.js website
@@ -105,7 +106,8 @@ jobs:
   pages:
     name: Publish to GitHub Pages
     needs: [app, site]
-    # Free GitHub Pages needs a public repo; on a private repo this job is skipped (APK still builds).
+    # Website: /  ·  Web app: /app/  ·  Dashboard: /admin/  ·  Android APK: /Dars.apk
+    # (Free GitHub Pages needs a public repo; on a private repo this job is skipped.)
     if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     environment:
@@ -120,6 +122,17 @@ jobs:
         with:
           name: web-app
           path: _site/app
+      # Android app download: https://<user>.github.io/<repo>/Dars.apk
+      - uses: actions/download-artifact@v4
+        with:
+          name: Dars-apk
+          path: _site
+      # Admin dashboard: https://<user>.github.io/<repo>/admin/
+      - uses: actions/checkout@v4
+        with:
+          path: src
+          sparse-checkout: my_tutor_admin
+      - run: cp -r src/my_tutor_admin _site/admin && rm -rf src
       - run: touch _site/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with:
