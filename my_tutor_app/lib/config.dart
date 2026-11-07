@@ -11,8 +11,8 @@
 ///   flutter build apk --dart-define=SUPABASE_URL=https://xxxx.supabase.co --dart-define=SUPABASE_ANON_KEY=eyJ...
 class DarsConfig {
   // ▼ Paste your values here (or leave empty for demo mode).
-  static const _url = '';
-  static const _anonKey = '';
+  static const _url = 'https://upfaylwpfnqplmqqngoj.supabase.co';
+  static const _anonKey = 'sb_publishable_e4P1x5mV9AWkdWJGJKfvXg_W5_6ex2h';
 
   static const _envUrl = String.fromEnvironment('SUPABASE_URL');
   static const _envKey = String.fromEnvironment('SUPABASE_ANON_KEY');

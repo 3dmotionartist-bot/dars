@@ -762,7 +762,11 @@
         const { data } = await sb.auth.getSession();
         if (data.session) await afterLogin(data.session.user); else render();
         return;
-      } catch (e) { console.warn("Falling back to demo mode:", e.message); }
+      } catch (e) {
+        // Connected dashboard: never fall back to sample data.
+        S.ready = true; S.user = null; S.loginError = (e && e.message) || "Could not reach the backend"; render();
+        return;
+      }
     }
     S.mode = "demo"; api = demoApi(); S.ready = true;
     S.user = { id: "demo", name: S.lang === "ar" ? "مدير تجريبي" : "Demo admin" };

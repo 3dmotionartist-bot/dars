@@ -213,3 +213,10 @@ select q.*, p.full_name as student_name,
 from live_requests q join profiles p on p.id = q.student_id;
 
 grant select on public_tutors to anon, authenticated;
+
+-- ---------- API access ----------
+-- Supabase normally grants these by default; stated explicitly so the project works even when
+-- "Automatically expose new tables" is switched off. Row Level Security above still decides which rows.
+grant usage on schema public to anon, authenticated, service_role;
+grant select, insert, update, delete on all tables in schema public to anon, authenticated, service_role;
+grant usage, select on all sequences in schema public to anon, authenticated, service_role;

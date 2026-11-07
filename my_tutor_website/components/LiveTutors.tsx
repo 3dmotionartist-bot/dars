@@ -17,7 +17,7 @@ export function useTutors(fallback: Tutor[]) {
     let alive = true;
     fetchLiveTutors()
       .then((x) => alive && x && setList(x))
-      .catch(() => alive && setList(fallback))
+      .catch(() => alive && setList([])) // connected site: never show sample tutors
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;

@@ -3,6 +3,6 @@
    Supabase → Project Settings → API.  The anon key is safe in the browser — every
    admin action is checked on the server by Row Level Security and the is_admin() rule. */
 window.DARS_CONFIG = {
-  supabaseUrl: "",
-  supabaseAnonKey: "",
+  supabaseUrl: "https://upfaylwpfnqplmqqngoj.supabase.co",
+  supabaseAnonKey: "sb_publishable_e4P1x5mV9AWkdWJGJKfvXg_W5_6ex2h",
 };

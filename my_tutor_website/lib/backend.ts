@@ -10,8 +10,8 @@
  */
 import type { T, Tutor } from './data';
 
-const FILE_URL = '';
-const FILE_KEY = '';
+const FILE_URL = 'https://upfaylwpfnqplmqqngoj.supabase.co';
+const FILE_KEY = 'sb_publishable_e4P1x5mV9AWkdWJGJKfvXg_W5_6ex2h';
 
 const API_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL || FILE_URL).replace(/\/$/, '');
 const KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || FILE_KEY;
