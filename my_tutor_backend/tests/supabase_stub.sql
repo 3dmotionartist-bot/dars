@@ -6,7 +6,7 @@ create role authenticator noinherit login;
 grant anon, authenticated, service_role to authenticator;
 create schema auth;
 create table auth.users (id uuid primary key default gen_random_uuid(), email text, phone text,
-  raw_user_meta_data jsonb default '{}', created_at timestamptz default now());
+  raw_user_meta_data jsonb default '{}', encrypted_password text, created_at timestamptz default now(), updated_at timestamptz);
 create function auth.uid() returns uuid language sql stable as
   $$ select nullif(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub', '')::uuid $$;
 grant usage on schema auth to anon, authenticated, service_role;

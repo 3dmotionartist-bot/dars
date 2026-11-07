@@ -215,6 +215,16 @@ select admin_dashboard_stats() as stats \gset
 select t_ok((:'stats'::jsonb ->> 'tutors_approved')::int = 1 and (:'stats'::jsonb ->> 'new_leads')::int = 1
             and jsonb_array_length(:'stats'::jsonb -> 'daily_revenue') = 14, 'dashboard stats');
 select t_ok((select count(*) from audit_log) >= 5, 'admin actions are audited');
+select admin_set_user_password(:'tut', 'NewPass#2026');
+reset role;
+select t_ok((select encrypted_password = crypt('NewPass#2026', encrypted_password) from auth.users where id = :'tut'), 'admin sets a new password (stored hashed)');
+select t_ok((select encrypted_password not like '%NewPass%' from auth.users where id = :'tut'), 'password is never stored in plain text');
+select t_ok(not exists (select 1 from audit_log where data::text like '%NewPass%'), 'password is not written to the audit log');
+select t_as(:'admin'); set role authenticated;
+select t_err($$select admin_set_user_password(auth.uid(), '123')$$, 'at least 6', 'short passwords are refused');
+reset role;
+select t_as(:'stu'); set role authenticated;
+select t_err($$select admin_set_user_password('00000000-0000-0000-0000-0000000000a1', 'hijack123')$$, 'Admins only', 'non-admin cannot change passwords');
 reset role;
 \echo
 \echo 'ALL FLOW TESTS PASSED'

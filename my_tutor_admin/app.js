@@ -51,6 +51,7 @@
       saved: "تم الحفظ", done: "تم", error: "حدث خطأ", login_t: "دخول الإدارة", email: "البريد الإلكتروني", password: "كلمة المرور", signin: "دخول",
       not_admin: "هذا الحساب ليس حساب مدير", menu: "القائمة", ago_now: "الآن", ago_m: "د", ago_h: "س", ago_d: "يوم",
       wallet_hint: "يظهر في محفظة المستخدم مع السبب", lessons_count: "دروس", open_tutor: "فتح الملف",
+      set_password: "تغيير كلمة المرور", new_password: "كلمة المرور الجديدة (6 أحرف على الأقل)", pw_hint: "كلمات المرور محفوظة مشفّرة ولا يمكن لأحد عرضها — اكتب كلمة جديدة وأرسلها للمستخدم.", pw_saved: "تم تغيير كلمة المرور", email: "البريد الإلكتروني",
     },
     en: {
       brand: "Dars", console: "Admin console", demo: "Demo mode — sample data", live: "Connected to Supabase",
@@ -96,6 +97,7 @@
       saved: "Saved", done: "Done", error: "Something went wrong", login_t: "Admin sign in", email: "Email", password: "Password", signin: "Sign in",
       not_admin: "This account is not an admin", menu: "Menu", ago_now: "now", ago_m: "m", ago_h: "h", ago_d: "d",
       wallet_hint: "Shows in the user's wallet with the reason", lessons_count: "lessons", open_tutor: "Open profile",
+      set_password: "Change password", new_password: "New password (at least 6 characters)", pw_hint: "Passwords are stored encrypted and can't be viewed by anyone — type a new one and send it to the user.", pw_saved: "Password changed", email: "Email",
     },
   };
 
@@ -200,6 +202,7 @@
       },
       async verifyTutor(id, status, reason) { const x = find("tutors", id, "user_id"); x.verification = status; x.rejection_reason = status === "rejected" ? reason : null; return wait(); },
       async setUserStatus(id, status) { const x = find("students", id) || find("tutors", id, "user_id"); if (x.account_status !== undefined) x.account_status = status; else x.status = status; return wait(); },
+      async setPassword() { return wait(); },
       async walletAdjust(id, amount, note) { const x = find("students", id); x.balance = Math.round((x.balance + amount) * 100) / 100; return wait(note); },
       async refundLesson(id) {
         const l = find("lessons", id); l.status = "cancelled";
@@ -265,6 +268,7 @@
       verifyTutor: (id, status, reason) => rpc("admin_set_tutor_verification", { p_tutor: id, p_status: status, p_reason: reason || null }),
       setUserStatus: (id, status) => rpc("admin_set_user_status", { p_user: id, p_status: status }),
       walletAdjust: (id, amount, note) => rpc("admin_wallet_adjust", { p_user: id, p_amount: amount, p_note: note }),
+      setPassword: (id, password) => rpc("admin_set_user_password", { p_user: id, p_password: password }),
       refundLesson: (id, note) => rpc("admin_refund_lesson", { p_lesson: id, p_note: note || null }),
       releaseLesson: (id, note) => rpc("admin_release_lesson", { p_lesson: id, p_note: note || null }),
       confirmPayment: (id) => rpc("confirm_payment", { p_payment: id, p_provider: "manual", p_ref: null }),
@@ -367,7 +371,7 @@
     return `<section class="panel"><div class="panel-head">${tabsBar("tutors", ["pending", "approved", "rejected", "all"], countBy(rows, "verification", ["pending", "approved", "rejected"]))}<span style="flex:1"></span>${searchBox("tutors")}</div>
       ${table([{ label: t("name") }, { label: t("subjects"), cls: "hide-sm" }, { label: t("price") }, { label: t("rating"), cls: "hide-sm" }, { label: t("joined"), cls: "hide-sm" }, { label: t("status") }, { label: "" }],
         list.map((r) => `<tr class="clickable" data-act="tutor" data-id="${esc(r.user_id)}">
-          <td>${person(r.full_name, r.phone)}</td>
+          <td>${person(r.full_name || "—", r.phone || r.email)}</td>
           <td class="hide-sm">${(r.subject_ids || []).map((s) => `<span class="tag">${esc(subjName(s))}</span>`).join("")}</td>
           <td class="num">${money(r.hourly_price)}</td>
           <td class="hide-sm num">${r.rating_count ? `★ ${Number(r.rating_avg).toFixed(1)} <span class="muted">(${r.rating_count})</span>` : "—"}</td>
@@ -381,7 +385,7 @@
     const r = (S.data.tutors || []).find((x) => x.user_id === id);
     if (!r) return "";
     const langs = (r.languages || []).map((l) => (l.code || "").toUpperCase() + (l.level ? " · " + l.level : "")).join(S.lang === "ar" ? "، " : ", ");
-    return `<div class="drawer-head">${person(r.full_name, r.phone)}<span style="flex:1"></span>${pill(r.verification)}</div>
+    return `<div class="drawer-head">${person(r.full_name || "—", r.phone || r.email)}<span style="flex:1"></span>${pill(r.verification)}</div>
       <div class="drawer-body">
         <dl class="kv">
           <dt>${t("headline")}</dt><dd>${esc(r.headline || "—")}</dd>
@@ -391,6 +395,7 @@
           <dt>${t("experience")}</dt><dd>${r.years_experience} ${t("years")}</dd>
           <dt>${t("mode")}</dt><dd>${t("online")}${r.teaches_in_person ? " · " + t("in_person") : ""}</dd>
           <dt>${t("languages")}</dt><dd>${esc(langs || "—")}</dd>
+          <dt>${t("email")}</dt><dd style="direction:ltr;unicode-bidi:plaintext">${esc(r.email || "—")}</dd>
           <dt>${t("country")}</dt><dd>${esc([r.city, r.country].filter(Boolean).join("، ") || "—")}</dd>
           <dt>${t("rating")}</dt><dd class="num">${r.rating_count ? `★ ${Number(r.rating_avg).toFixed(1)} (${r.rating_count})` : "—"}</dd>
           <dt>${t("hours_taught")}</dt><dd class="num">${Math.round((r.minutes_taught || 0) / 60)}</dd>
@@ -404,6 +409,7 @@
         ${r.verification !== "approved" ? `<button class="btn primary" data-act="approve" data-id="${esc(r.user_id)}">${t("approve")}</button>` : ""}
         ${r.verification !== "rejected" ? `<button class="btn bad" data-act="reject" data-id="${esc(r.user_id)}">${t("reject")}</button>` : ""}
         <button class="btn" data-act="block" data-id="${esc(r.user_id)}" data-status="${r.account_status === "blocked" ? "active" : "blocked"}">${t(r.account_status === "blocked" ? "unblock" : "block")}</button>
+        <button class="btn" data-act="password" data-id="${esc(r.user_id)}">${t("set_password")}</button>
         <span style="flex:1"></span><button class="btn" data-act="close">${t("close")}</button>
       </div>`;
   }
@@ -415,10 +421,10 @@
     return `<section class="panel"><div class="panel-head">${tabsBar("students", ["all", "active", "blocked"], countBy(rows, "status", ["active", "blocked"]))}<span style="flex:1"></span>${searchBox("students")}</div>
       ${table([{ label: t("name") }, { label: t("role") }, { label: t("level"), cls: "hide-sm" }, { label: t("city"), cls: "hide-sm" }, { label: t("balance") }, { label: t("joined"), cls: "hide-sm" }, { label: t("status") }, { label: "" }],
         list.map((r) => `<tr>
-          <td>${person(r.full_name || "—", r.phone)}</td><td>${t(r.role)}</td><td class="hide-sm">${esc(levelName(r.level_id))}</td>
+          <td>${person(r.full_name || "—", r.phone || r.email)}</td><td>${t(r.role)}</td><td class="hide-sm">${esc(levelName(r.level_id))}</td>
           <td class="hide-sm">${esc(r.city || "—")}</td><td class="num">${money(r.balance)}</td><td class="hide-sm">${fmtDate(r.created_at)}</td>
           <td>${pill(r.status)}</td>
-          <td class="actions"><button class="btn" data-act="adjust" data-id="${esc(r.id)}">${t("adjust")}</button><button class="btn ${r.status === "blocked" ? "good" : "bad"}" data-act="block" data-id="${esc(r.id)}" data-status="${r.status === "blocked" ? "active" : "blocked"}">${t(r.status === "blocked" ? "unblock" : "block")}</button></td>
+          <td class="actions"><button class="btn" data-act="password" data-id="${esc(r.id)}">${t("set_password")}</button><button class="btn" data-act="adjust" data-id="${esc(r.id)}">${t("adjust")}</button><button class="btn ${r.status === "blocked" ? "good" : "bad"}" data-act="block" data-id="${esc(r.id)}" data-status="${r.status === "blocked" ? "active" : "blocked"}">${t(r.status === "blocked" ? "unblock" : "block")}</button></td>
         </tr>`))}</section>`;
   }
 
@@ -614,7 +620,9 @@
     return `<div class="scrim" data-act="dialog-cancel"></div><form class="dialog" id="dialog-form" role="dialog" aria-modal="true">
       <h3>${esc(d.title)}</h3>
       ${d.amount ? `<label class="field"><span>${t("adjust_amount")}</span><input class="input" id="dlg-amount" type="number" step="0.01" required></label>` : ""}
-      <label class="field"><span>${esc(d.label)}</span><textarea class="input" id="dlg-text" rows="3" ${d.required ? "required" : ""}></textarea>${d.hint ? `<small class="muted">${esc(d.hint)}</small>` : ""}</label>
+      <label class="field"><span>${esc(d.label)}</span>${d.pw
+        ? `<input class="input" id="dlg-text" type="text" minlength="6" required autocomplete="new-password" dir="ltr" spellcheck="false">`
+        : `<textarea class="input" id="dlg-text" rows="3" ${d.required ? "required" : ""}></textarea>`}${d.hint ? `<small class="muted">${esc(d.hint)}</small>` : ""}</label>
       <div class="row" style="justify-content:flex-end"><button class="btn" type="button" data-act="dialog-cancel">${t("cancel")}</button><button class="btn ${d.danger ? "bad" : "primary"}" type="submit">${esc(d.confirm)}</button></div>
     </form>`;
   }
@@ -671,6 +679,7 @@
       case "approve": act(() => api.verifyTutor(id, "approved"), ["tutors"]); break;
       case "reject": ask({ title: t("reject"), label: t("reject_reason"), confirm: t("reject"), danger: true, required: true, run: (v) => act(() => api.verifyTutor(id, "rejected", v), ["tutors"]) }); break;
       case "block": act(() => api.setUserStatus(id, el.dataset.status), ["students", "tutors"]); break;
+      case "password": ask({ title: t("set_password"), label: t("new_password"), hint: t("pw_hint"), confirm: t("save"), pw: true, required: true, run: (v) => act(() => api.setPassword(id, v), [], t("pw_saved")) }); break;
       case "adjust": ask({ title: t("adjust"), label: t("adjust_note"), hint: t("wallet_hint"), confirm: t("save"), amount: true, required: true, run: (v, amt) => act(() => api.walletAdjust(id, amt, v), ["students"]) }); break;
       case "refund": ask({ title: t("refund"), label: t("refund_note"), confirm: t("refund"), danger: true, run: (v) => act(() => api.refundLesson(id, v), ["lessons", "reports", "payments"]) }); break;
       case "release": ask({ title: t("release"), label: t("release_note"), confirm: t("release"), run: (v) => act(() => api.releaseLesson(id, v), ["lessons", "reports"]) }); break;
