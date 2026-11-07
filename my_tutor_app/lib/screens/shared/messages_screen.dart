@@ -39,6 +39,7 @@ class MessagesScreen extends StatelessWidget {
                         preview = switch (last.type) {
                           MsgType.voice => '🎤 ${context.tr('voice_msg')}',
                           MsgType.file => '📎 ${context.tr('file_msg')}',
+                          MsgType.call => '📞 ${context.tr(last.text.startsWith('video') ? 'video_call' : 'voice_call')}',
                           _ => last.text,
                         };
                         if (last.mine) preview = '${context.isAr ? 'أنت' : 'You'}: $preview';

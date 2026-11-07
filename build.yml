@@ -44,6 +44,9 @@ jobs:
           # Release builds need this to reach the backend
           grep -q 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml || \
             sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' android/app/src/main/AndroidManifest.xml
+          # Calls open in the browser: let the app find one
+          grep -q 'android:scheme="https"' android/app/src/main/AndroidManifest.xml || \
+            sed -i 's#<queries>#<queries>\n        <intent><action android:name="android.intent.action.VIEW"/><data android:scheme="https"/></intent>#' android/app/src/main/AndroidManifest.xml
 
       - run: flutter pub get
 
@@ -127,12 +130,14 @@ jobs:
         with:
           name: Dars-apk
           path: _site
-      # Admin dashboard: https://<user>.github.io/<repo>/admin/
+      # Admin dashboard: https://<user>.github.io/<repo>/admin/ — call page: /call/
       - uses: actions/checkout@v4
         with:
           path: src
-          sparse-checkout: my_tutor_admin
-      - run: cp -r src/my_tutor_admin _site/admin && rm -rf src
+          sparse-checkout: |
+            my_tutor_admin
+            my_tutor_call
+      - run: cp -r src/my_tutor_admin _site/admin && cp -r src/my_tutor_call _site/call && rm -rf src
       - run: touch _site/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with:

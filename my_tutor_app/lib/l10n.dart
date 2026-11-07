@@ -407,6 +407,9 @@ const Map<String, List<String>> _strings = {
   'profile_rejected_t': ['ملفك يحتاج تعديلات', 'Your profile needs changes'],
   'profile_pending_b': ['سيظهر ملفك للطلاب بعد اعتماده من فريق درس.', 'Your profile will be visible to students once the Dars team approves it.'],
   'refresh': ['تحديث', 'Refresh'],
+  'voice_call': ['مكالمة صوتية', 'Voice call'],
+  'video_call': ['مكالمة فيديو', 'Video call'],
+  'join_call': ['انضم للمكالمة', 'Join call'],
   'lead_need_contact': ['اكتب الاسم ورقم واتساب صحيح', 'Please enter your name and a valid WhatsApp number'],
 };
 

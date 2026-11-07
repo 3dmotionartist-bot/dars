@@ -149,7 +149,7 @@ class HoursPackage {
   double get remaining => totalHours - usedHours;
 }
 
-enum MsgType { text, voice, file, system }
+enum MsgType { text, voice, file, system, call }
 
 class Message {
   final bool mine;

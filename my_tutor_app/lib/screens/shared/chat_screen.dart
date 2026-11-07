@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../data/models.dart';
 import '../../l10n.dart';
+import '../../services/calls.dart';
 import '../../state/app_state.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
@@ -109,8 +110,14 @@ class _ChatScreenState extends State<ChatScreen> {
         ]),
         actions: [
           IconButton(
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(name: c.name, color: c.color))),
+            tooltip: context.tr('voice_call'),
+            onPressed: () => app.live ? app.startCall(c, video: false) : Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(name: c.name, color: c.color))),
             icon: const Icon(Icons.call_outlined, color: AppColors.primary),
+          ),
+          IconButton(
+            tooltip: context.tr('video_call'),
+            onPressed: () => app.live ? app.startCall(c, video: true) : Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(name: c.name, color: c.color))),
+            icon: const Icon(Icons.videocam_outlined, color: AppColors.primary),
           ),
           PopupMenuButton<String>(
             onSelected: (_) => toast(context, context.tr('report_sent')),
@@ -250,6 +257,35 @@ class _Bubble extends StatelessWidget {
             ),
           const SizedBox(width: 8),
           Text('0:${two(m.seconds)}', style: TextStyle(color: fg, fontSize: 12)),
+        ]);
+        break;
+      case MsgType.call:
+        final inv = Calls.parse(m.text);
+        final video = inv?.video ?? false;
+        content = Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(video ? Icons.videocam_rounded : Icons.call_rounded, color: fg),
+            const SizedBox(width: 8),
+            Text(context.tr(video ? 'video_call' : 'voice_call'), style: TextStyle(color: fg, fontWeight: FontWeight.w800)),
+          ]),
+          if (inv != null) ...[
+            const SizedBox(height: 8),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: m.mine ? Colors.white : AppColors.primary,
+                foregroundColor: m.mine ? AppColors.primary : Colors.white,
+                minimumSize: const Size(0, 38),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+              ),
+              onPressed: () {
+                final app = context.read<AppState>();
+                final c = app.activeConversation;
+                app.joinCall(room: inv.room, video: inv.video, peer: c == null ? '' : c.name.of(context));
+              },
+              icon: const Icon(Icons.login_rounded, size: 18),
+              label: Text(context.tr('join_call')),
+            ),
+          ],
         ]);
         break;
       case MsgType.file:

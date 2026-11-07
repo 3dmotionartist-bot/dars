@@ -290,6 +290,7 @@ class Backend {
         'voice' => MsgType.voice,
         'file' || 'image' => MsgType.file,
         'system' => MsgType.system,
+        'call' => MsgType.call,
         _ => MsgType.text,
       };
 

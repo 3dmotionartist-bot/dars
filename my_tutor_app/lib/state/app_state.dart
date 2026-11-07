@@ -9,9 +9,13 @@ import '../data/backend.dart';
 import '../data/mock_data.dart';
 import '../data/models.dart';
 import '../l10n.dart';
+import '../services/calls.dart';
 
 /// Lets the state show short messages (errors, confirmations) from anywhere.
 final messengerKey = GlobalKey<ScaffoldMessengerState>();
+
+/// Lets the state show the incoming-call pop-up from anywhere.
+final navigatorKey = GlobalKey<NavigatorState>();
 
 /// Single app-wide store.
 /// DEMO mode (config.dart empty): works offline with sample data.
@@ -421,6 +425,7 @@ class AppState extends ChangeNotifier {
       }
     }
     c.messages.add(m);
+    if (m.type == MsgType.call && !m.mine && DateTime.now().difference(m.time).inMinutes < 2) _incomingCall(c, m);
     if (!m.mine) {
       if (identical(c, activeConversation)) {
         _b.markRead(c.id).catchError((_) {});
@@ -885,12 +890,71 @@ class AppState extends ChangeNotifier {
   Future<void> _push(Conversation c, Message m) async {
     try {
       final id = await _ensure(c);
-      final kind = switch (m.type) { MsgType.voice => 'voice', MsgType.file => 'file', _ => 'text' };
+      final kind = switch (m.type) { MsgType.voice => 'voice', MsgType.file => 'file', MsgType.call => 'call', _ => 'text' };
       final text = m.type == MsgType.voice ? '🎤' : m.text;
       await _b.sendMessage(id, text, kind: kind, seconds: m.seconds > 0 ? m.seconds : null);
     } catch (e) {
       _error(e);
     }
+  }
+
+  // =====================================================================
+  // calls (voice & video)
+  // =====================================================================
+  String _nameOf(L n) => locale.languageCode == 'ar' ? n.ar : n.en;
+
+  /// Opens a call room in the browser. Both people open the same room to talk.
+  Future<void> joinCall({required String room, required bool video, String peer = ''}) async {
+    final ok = await Calls.open(Calls.link(room: room, video: video, peer: peer, name: name, lang: locale.languageCode));
+    if (!ok) say(_t('تعذّر فتح المكالمة. تأكد من وجود متصفح على الجهاز.', 'Could not open the call. Make sure a browser is installed.'), bad: true);
+  }
+
+  /// Calls the other person in a chat: sends them a "join call" message (and a pop-up if their app is open),
+  /// then opens the call for me.
+  Future<void> startCall(Conversation c, {required bool video}) async {
+    final room = Calls.newRoom();
+    final m = Message(mine: true, text: Calls.invite(room, video: video), time: DateTime.now(), type: MsgType.call);
+    c.messages.add(m);
+    if (conversations.remove(c)) conversations.insert(0, c);
+    notifyListeners();
+    if (live) await _push(c, m);
+    await joinCall(room: room, video: video, peer: _nameOf(c.name));
+  }
+
+  /// Video room for a booked lesson — the student and the tutor both join from "Join lesson".
+  Future<void> joinLesson(Lesson l) {
+    final other = role == UserRole.tutor ? _nameOf(l.studentName) : _nameOf(l.tutor.name);
+    return joinCall(room: 'lesson-${l.id}', video: true, peer: other);
+  }
+
+  void _incomingCall(Conversation c, Message m) {
+    final inv = Calls.parse(m.text);
+    final ctx = navigatorKey.currentContext;
+    if (inv == null || ctx == null) return;
+    final who = _nameOf(c.name);
+    showDialog<void>(
+      context: ctx,
+      builder: (d) => AlertDialog(
+        icon: Icon(inv.video ? Icons.videocam_rounded : Icons.call_rounded, color: const Color(0xFF0E8F7E), size: 40),
+        title: Text(who, textAlign: TextAlign.center),
+        content: Text(
+          inv.video ? _t('مكالمة فيديو واردة', 'Incoming video call') : _t('مكالمة صوتية واردة', 'Incoming voice call'),
+          textAlign: TextAlign.center,
+        ),
+        actionsAlignment: MainAxisAlignment.spaceEvenly,
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d), child: Text(_t('رفض', 'Decline'), style: const TextStyle(color: Color(0xFFE5484D)))),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.pop(d);
+              joinCall(room: inv.room, video: inv.video, peer: who);
+            },
+            icon: const Icon(Icons.call_rounded),
+            label: Text(_t('انضم', 'Join')),
+          ),
+        ],
+      ),
+    );
   }
 
   // =====================================================================

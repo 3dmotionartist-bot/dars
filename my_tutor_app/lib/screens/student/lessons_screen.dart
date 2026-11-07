@@ -214,7 +214,7 @@ class LessonCard extends StatelessWidget {
       case LessonStatus.upcoming:
         if (tutorView) return [];
         return [
-          btn(context.tr('join_lesson'), Icons.videocam_rounded, () => Navigator.push(context, MaterialPageRoute(builder: (_) => ClassroomScreen(lesson: l))), primary: soon),
+          btn(context.tr('join_lesson'), Icons.videocam_rounded, () => app.live ? app.joinLesson(l) : Navigator.push(context, MaterialPageRoute(builder: (_) => ClassroomScreen(lesson: l))), primary: soon),
           btn(context.tr('message_tutor'), Icons.chat_bubble_outline_rounded, chat),
           btn(context.tr('reschedule'), Icons.edit_calendar_rounded, () async {
             final d = await showDatePicker(context: context, firstDate: DateTime.now(), lastDate: DateTime.now().add(const Duration(days: 60)), initialDate: l.start.isAfter(DateTime.now()) ? l.start : DateTime.now());

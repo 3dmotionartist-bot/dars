@@ -360,7 +360,9 @@ class _LiveHelpScreenState extends State<LiveHelpScreen> with SingleTickerProvid
                 Expanded(
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(minimumSize: const Size(0, 44)),
-                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(name: t.name, color: t.color))),
+                    onPressed: () => app.live
+                        ? app.startCall(app.conversationFor(t), video: false)
+                        : Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(name: t.name, color: t.color))),
                     icon: const Icon(Icons.call_rounded),
                     label: Text(context.tr('call')),
                   ),

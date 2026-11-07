@@ -51,7 +51,7 @@ class TutorLessonsScreen extends StatelessWidget {
                               Wrap(spacing: 8, runSpacing: 8, children: [
                                 ElevatedButton.icon(
                                   style: ElevatedButton.styleFrom(minimumSize: const Size(0, 40)),
-                                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ClassroomScreen(lesson: l))),
+                                  onPressed: () => app.live ? app.joinLesson(l) : Navigator.push(context, MaterialPageRoute(builder: (_) => ClassroomScreen(lesson: l))),
                                   icon: const Icon(Icons.videocam_rounded, size: 18),
                                   label: Text(context.tr('join_lesson')),
                                 ),

@@ -34,6 +34,7 @@ class DarsApp extends StatelessWidget {
       title: 'Dars | درس',
       debugShowCheckedModeBanner: false,
       scaffoldMessengerKey: messengerKey,
+      navigatorKey: navigatorKey,
       theme: buildTheme(),
       locale: app.locale,
       supportedLocales: const [Locale('ar'), Locale('en')],
