@@ -41,14 +41,19 @@ jobs:
         run: |
           flutter create --org com.dars --project-name my_tutor_app --platforms=android,web .
           sed -i 's/android:label="my_tutor_app"/android:label="Dars"/' android/app/src/main/AndroidManifest.xml
+          # Release builds need this to reach the backend
+          grep -q 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml || \
+            sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' android/app/src/main/AndroidManifest.xml
 
       - run: flutter pub get
 
+      # Backend connection: set repository variables SUPABASE_URL and SUPABASE_ANON_KEY
+      # (GitHub → Settings → Secrets and variables → Actions → Variables). Empty = demo mode.
       - name: Build APK (test build, debug-signed)
-        run: flutter build apk --release
+        run: flutter build apk --release --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}
 
       - name: Build web app
-        run: flutter build web --release --base-href "/${{ github.event.repository.name }}/app/"
+        run: flutter build web --release --base-href "/${{ github.event.repository.name }}/app/" --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}
 
       - name: Collect APK
         run: cp build/app/outputs/flutter-apk/app-release.apk ../Dars.apk
@@ -90,6 +95,8 @@ jobs:
           BASE_PATH: /${{ github.event.repository.name }}
           NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}
           NEXT_PUBLIC_APP_URL: /${{ github.event.repository.name }}/app/
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
       - uses: actions/upload-artifact@v4
         with:
           name: website
