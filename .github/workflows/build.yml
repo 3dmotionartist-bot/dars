@@ -1,0 +1,121 @@
+# Builds the Android APK + Flutter web app + Next.js website on every push,
+# attaches the APK to a GitHub Release, and publishes both web builds to GitHub Pages.
+name: Build Dars (APK + web app + website)
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: dars-build
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: Flutter app (APK + web)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: my_tutor_app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.27.4'
+          channel: stable
+          cache: true
+
+      - name: Generate Android & web platform folders
+        run: |
+          flutter create --org com.dars --project-name my_tutor_app --platforms=android,web .
+          sed -i 's/android:label="my_tutor_app"/android:label="Dars"/' android/app/src/main/AndroidManifest.xml
+
+      - run: flutter pub get
+
+      - name: Build APK (test build, debug-signed)
+        run: flutter build apk --release
+
+      - name: Build web app
+        run: flutter build web --release --base-href "/${{ github.event.repository.name }}/app/"
+
+      - name: Collect APK
+        run: cp build/app/outputs/flutter-apk/app-release.apk ../Dars.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dars-apk
+          path: Dars.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-app
+          path: my_tutor_app/build/web
+
+      - name: Publish APK as a release (easy download on the phone)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Dars test build ${{ github.run_number }}
+          body: Install Dars.apk on Android (allow "install unknown apps"). Website and web app are on GitHub Pages.
+          files: Dars.apk
+          prerelease: true
+
+  site:
+    name: Next.js website
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: my_tutor_website
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --no-audit --no-fund
+      - name: Build static site
+        run: npm run build
+        env:
+          BASE_PATH: /${{ github.event.repository.name }}
+          NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}
+          NEXT_PUBLIC_APP_URL: /${{ github.event.repository.name }}/app/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: website
+          path: my_tutor_website/out
+
+  pages:
+    name: Publish to GitHub Pages
+    needs: [app, site]
+    # Free GitHub Pages needs a public repo; on a private repo this job is skipped (APK still builds).
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: website
+          path: _site
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-app
+          path: _site/app
+      - run: touch _site/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
