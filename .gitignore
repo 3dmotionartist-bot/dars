@@ -1,0 +1,6 @@
+node_modules/
+.next/
+out/
+.dart_tool/
+build/
+*.apk
