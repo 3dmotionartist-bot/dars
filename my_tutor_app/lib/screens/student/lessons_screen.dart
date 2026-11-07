@@ -118,9 +118,18 @@ class LessonsScreen extends StatelessWidget {
                   width: double.infinity,
                   child: OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
-                    onPressed: () {
-                      app.usePackageHour(p, 1);
-                      toast(context, '${context.tr('success_t')} · ${p.tutor.name.of(context)}');
+                    onPressed: () async {
+                      if (!app.live) {
+                        app.usePackageHour(p, 1);
+                        toast(context, '${context.tr('success_t')} · ${p.tutor.name.of(context)}');
+                        return;
+                      }
+                      final now = DateTime.now();
+                      final d = await showDatePicker(context: context, firstDate: now, lastDate: now.add(const Duration(days: 60)), initialDate: now.add(const Duration(days: 1)));
+                      if (d == null || !context.mounted) return;
+                      final tm = await showTimePicker(context: context, initialTime: const TimeOfDay(hour: 18, minute: 0));
+                      if (tm == null) return;
+                      app.usePackageHour(p, 1, start: DateTime(d.year, d.month, d.day, tm.hour, tm.minute));
                     },
                     icon: const Icon(Icons.event_available_rounded),
                     label: Text(context.tr('pkg_book_from')),
@@ -225,8 +234,16 @@ class LessonCard extends StatelessWidget {
               ? Pill(context.tr('rated'), icon: Icons.check_rounded, bg: AppColors.successSoft, fg: AppColors.success)
               : btn(context.tr('rate_lesson'), Icons.star_outline_rounded, () => _review(context, app), primary: true),
           btn(context.tr('book_again'), Icons.replay_rounded, () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookingScreen(tutor: l.tutor, hourPrice: l.tutor.pricePerHour.toDouble())))),
-          btn(context.tr('not_satisfied'), Icons.sentiment_dissatisfied_outlined, () => toast(context, context.tr('report_sent'))),
-          btn(context.tr('no_show'), Icons.person_off_outlined, () => toast(context, context.tr('report_sent'))),
+          if (!l.reviewed || !app.live) ...[
+            btn(context.tr('not_satisfied'), Icons.sentiment_dissatisfied_outlined, () {
+              app.disputeLesson(l, 'Student not satisfied with the lesson (first-hour guarantee)');
+              toast(context, context.tr('report_sent'));
+            }),
+            btn(context.tr('no_show'), Icons.person_off_outlined, () {
+              app.disputeLesson(l, 'Tutor did not show up');
+              toast(context, context.tr('report_sent'));
+            }),
+          ],
         ];
       case LessonStatus.cancelled:
         return [btn(context.tr('book_again'), Icons.replay_rounded, () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookingScreen(tutor: l.tutor, hourPrice: l.tutor.pricePerHour.toDouble()))))];
@@ -255,6 +272,7 @@ class LessonCard extends StatelessWidget {
 
   void _review(BuildContext context, AppState app) {
     int stars = 5;
+    final comment = TextEditingController();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -274,13 +292,13 @@ class LessonCard extends StatelessWidget {
                 IconButton(onPressed: () => set(() => stars = i), icon: Icon(Icons.star_rounded, size: 38, color: i <= stars ? AppColors.accent : AppColors.line)),
             ]),
             const SizedBox(height: 8),
-            TextField(maxLines: 3, decoration: InputDecoration(hintText: context.tr('review_hint'))),
+            TextField(controller: comment, maxLines: 3, decoration: InputDecoration(hintText: context.tr('review_hint'))),
             const SizedBox(height: 14),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: () {
-                  app.markReviewed(lesson);
+                  app.markReviewed(lesson, stars: stars, comment: comment.text);
                   Navigator.pop(sheet);
                   toast(context, context.tr('thanks_review'));
                 },

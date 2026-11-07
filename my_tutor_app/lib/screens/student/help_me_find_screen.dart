@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../../data/backend.dart';
 import '../../data/mock_data.dart';
 import '../../l10n.dart';
+import '../../state/app_state.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 
@@ -20,6 +23,48 @@ class _HelpMeFindScreenState extends State<HelpMeFindScreen> {
   String _reason = 'hm_r2';
   String _mode = 'online';
   bool _done = false;
+  bool _sending = false;
+  final _name = TextEditingController();
+  final _whatsapp = TextEditingController();
+  final _city = TextEditingController();
+  final _notes = TextEditingController();
+
+  static const _reasons = {'hm_r1': 'Better grades', 'hm_r2': 'Exam preparation', 'hm_r3': 'Homework help', 'hm_r4': 'Research & projects'};
+
+  @override
+  void dispose() {
+    for (final c in [_name, _whatsapp, _city, _notes]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    final app = context.read<AppState>();
+    if (_name.text.trim().isEmpty || _whatsapp.text.replaceAll(RegExp(r'[^0-9]'), '').length < 8) {
+      app.say(context.tr('lead_need_contact'), bad: true);
+      return;
+    }
+    setState(() => _sending = true);
+    try {
+      await app.submitLead(
+        fullName: _name.text,
+        whatsapp: _whatsapp.text,
+        city: _city.text,
+        who: _who,
+        levelId: _level,
+        subjectId: _subject,
+        reason: _reasons[_reason] ?? _reason,
+        mode: _mode,
+        notes: _notes.text,
+      );
+      if (mounted) setState(() => _done = true);
+    } catch (e) {
+      app.say(Backend.errorText(e), bad: true);
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -71,13 +116,13 @@ class _HelpMeFindScreenState extends State<HelpMeFindScreen> {
           ),
       ]),
       'hm_contact': Column(children: [
-        TextField(decoration: InputDecoration(hintText: context.tr('full_name'), prefixIcon: const Icon(Icons.person_outline))),
+        TextField(controller: _name, decoration: InputDecoration(hintText: context.tr('full_name'), prefixIcon: const Icon(Icons.person_outline))),
         const SizedBox(height: 10),
-        TextField(keyboardType: TextInputType.phone, decoration: InputDecoration(hintText: context.tr('whatsapp_number'), prefixIcon: const Icon(Icons.chat_outlined))),
+        TextField(controller: _whatsapp, keyboardType: TextInputType.phone, textDirection: TextDirection.ltr, decoration: InputDecoration(hintText: context.tr('whatsapp_number'), prefixIcon: const Icon(Icons.chat_outlined))),
         const SizedBox(height: 10),
-        TextField(decoration: InputDecoration(hintText: context.tr('city'), prefixIcon: const Icon(Icons.location_city_outlined))),
+        TextField(controller: _city, decoration: InputDecoration(hintText: context.tr('city'), prefixIcon: const Icon(Icons.location_city_outlined))),
         const SizedBox(height: 10),
-        TextField(maxLines: 3, decoration: InputDecoration(hintText: context.tr('notes_opt'))),
+        TextField(controller: _notes, maxLines: 3, decoration: InputDecoration(hintText: context.tr('notes_opt'))),
       ]),
     };
     final keys = steps.keys.toList();
@@ -107,13 +152,15 @@ class _HelpMeFindScreenState extends State<HelpMeFindScreen> {
               ],
               Expanded(
                 child: ElevatedButton(
-                  onPressed: () => setState(() {
-                    if (_step < keys.length - 1) {
-                      _step++;
-                    } else {
-                      _done = true;
-                    }
-                  }),
+                  onPressed: _sending
+                      ? null
+                      : () {
+                          if (_step < keys.length - 1) {
+                            setState(() => _step++);
+                          } else {
+                            _send();
+                          }
+                        },
                   child: Text(_step < keys.length - 1 ? context.tr('next') : context.tr('send')),
                 ),
               ),

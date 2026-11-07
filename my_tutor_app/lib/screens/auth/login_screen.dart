@@ -3,8 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:provider/provider.dart';
+
+import '../../config.dart';
+import '../../data/backend.dart';
 import '../../data/models.dart';
 import '../../l10n.dart';
+import '../../state/app_state.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../onboarding/student_wizard_screen.dart';
@@ -33,6 +38,26 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   String _code = '+963';
   final _phone = TextEditingController();
+  bool _sending = false;
+
+  String get _fullPhone => '$_code ${_phone.text.replaceAll(' ', '').replaceFirst(RegExp(r'^0+'), '')}';
+
+  Future<void> _send() async {
+    final app = context.read<AppState>();
+    if (app.live) {
+      setState(() => _sending = true);
+      try {
+        await app.sendCode(_fullPhone, widget.role);
+      } catch (e) {
+        if (mounted) setState(() => _sending = false);
+        app.say(Backend.errorText(e), bad: true);
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _sending = false);
+    }
+    Navigator.push(context, MaterialPageRoute(builder: (_) => OtpScreen(role: widget.role, phone: _fullPhone)));
+  }
 
   @override
   void dispose() {
@@ -100,10 +125,10 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
             const SizedBox(height: 24),
             ElevatedButton(
-              onPressed: valid
-                  ? () => Navigator.push(context, MaterialPageRoute(builder: (_) => OtpScreen(role: widget.role, phone: '$_code ${_phone.text}')))
-                  : null,
-              child: Text(context.tr('send_code')),
+              onPressed: valid && !_sending ? _send : null,
+              child: _sending
+                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white))
+                  : Text(context.tr('send_code')),
             ),
             const SizedBox(height: 22),
             Row(children: [
@@ -112,16 +137,21 @@ class _LoginScreenState extends State<LoginScreen> {
               const Expanded(child: Divider()),
             ]),
             const SizedBox(height: 16),
+            if (!DarsConfig.live) ...[
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(foregroundColor: AppColors.ink, side: const BorderSide(color: AppColors.line)),
+                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => OtpScreen(role: widget.role, phone: 'Google'))),
+                icon: const Text('G', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20, color: Color(0xFF4285F4))),
+                label: Text(context.tr('continue_google')),
+              ),
+              const SizedBox(height: 10),
+            ],
             OutlinedButton.icon(
               style: OutlinedButton.styleFrom(foregroundColor: AppColors.ink, side: const BorderSide(color: AppColors.line)),
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => OtpScreen(role: widget.role, phone: 'Google'))),
-              icon: const Text('G', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20, color: Color(0xFF4285F4))),
-              label: Text(context.tr('continue_google')),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(foregroundColor: AppColors.ink, side: const BorderSide(color: AppColors.line)),
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => OtpScreen(role: widget.role, phone: 'email'))),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => DarsConfig.live ? EmailAuthScreen(role: widget.role) : OtpScreen(role: widget.role, phone: 'email')),
+              ),
               icon: const Icon(Icons.mail_outline_rounded),
               label: Text(context.tr('continue_email')),
             ),
@@ -171,18 +201,41 @@ class _OtpScreenState extends State<OtpScreen> {
     super.dispose();
   }
 
+  Future<void> _verify() async {
+    final app = context.read<AppState>();
+    if (!app.live) {
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => PinScreen(role: widget.role, phone: widget.phone)));
+      return;
+    }
+    try {
+      final ready = await app.verifyCode(widget.phone, _ctrl.text);
+      if (!mounted) return;
+      afterSignIn(context, ready: ready, role: widget.role, phone: widget.phone);
+    } catch (e) {
+      app.say(Backend.errorText(e), bad: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final live = DarsConfig.live;
     return _CodeScaffold(
       title: context.tr('otp_title'),
       subtitle: '${context.tr('otp_sub')} ${widget.phone}',
       controller: _ctrl,
+      length: live ? DarsConfig.otpLength : 4,
       obscure: false,
       button: context.tr('verify'),
       footer: _seconds > 0
           ? Text('${context.tr('resend_in')} 0:${two(_seconds)}', textAlign: TextAlign.center, style: const TextStyle(color: AppColors.text3))
-          : TextButton(onPressed: () => setState(_start), child: Text(context.tr('resend'))),
-      onDone: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => PinScreen(role: widget.role, phone: widget.phone))),
+          : TextButton(
+              onPressed: () {
+                setState(_start);
+                if (live) context.read<AppState>().sendCode(widget.phone, widget.role).catchError((Object e) => context.read<AppState>().say(Backend.errorText(e), bad: true));
+              },
+              child: Text(context.tr('resend')),
+            ),
+      onDone: _verify,
     );
   }
 }
@@ -216,8 +269,9 @@ class _CodeScaffold extends StatefulWidget {
   final bool obscure;
   final String button;
   final Widget? footer;
-  final VoidCallback onDone;
-  const _CodeScaffold({required this.title, required this.subtitle, this.controller, required this.obscure, required this.button, required this.onDone, this.footer});
+  final int length;
+  final FutureOr<void> Function() onDone;
+  const _CodeScaffold({required this.title, required this.subtitle, this.controller, required this.obscure, required this.button, required this.onDone, this.footer, this.length = 4});
   @override
   State<_CodeScaffold> createState() => _CodeScaffoldState();
 }
@@ -225,6 +279,16 @@ class _CodeScaffold extends StatefulWidget {
 class _CodeScaffoldState extends State<_CodeScaffold> {
   final _focus = FocusNode();
   late final TextEditingController _ctrl = widget.controller ?? TextEditingController();
+  bool _busy = false;
+
+  Future<void> _done() async {
+    setState(() => _busy = true);
+    try {
+      await widget.onDone();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -256,7 +320,7 @@ class _CodeScaffoldState extends State<_CodeScaffold> {
                   focusNode: _focus,
                   autofocus: true,
                   keyboardType: TextInputType.number,
-                  maxLength: 4,
+                  maxLength: widget.length,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   onChanged: (_) => setState(() {}),
                 ),
@@ -266,11 +330,11 @@ class _CodeScaffoldState extends State<_CodeScaffold> {
                 child: Directionality(
                   textDirection: TextDirection.ltr,
                   child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    for (int i = 0; i < 4; i++)
+                    for (int i = 0; i < widget.length; i++)
                       Container(
-                        width: 62,
-                        height: 68,
-                        margin: const EdgeInsets.symmetric(horizontal: 6),
+                        width: widget.length > 4 ? 46 : 62,
+                        height: widget.length > 4 ? 56 : 68,
+                        margin: EdgeInsets.symmetric(horizontal: widget.length > 4 ? 4 : 6),
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           color: i < code.length ? AppColors.primarySoft : AppColors.surface,
@@ -287,9 +351,113 @@ class _CodeScaffoldState extends State<_CodeScaffold> {
               ),
             ]),
             const SizedBox(height: 28),
-            ElevatedButton(onPressed: code.length == 4 ? widget.onDone : null, child: Text(widget.button)),
+            ElevatedButton(
+              onPressed: code.length == widget.length && !_busy ? _done : null,
+              child: _busy ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white)) : Text(widget.button),
+            ),
             const SizedBox(height: 12),
             if (widget.footer != null) widget.footer!,
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+
+/// After a real sign-in: existing accounts go straight in; new ones finish their profile.
+void afterSignIn(BuildContext context, {required bool ready, required UserRole role, required String phone}) {
+  if (ready) {
+    Navigator.of(context).popUntil((r) => r.isFirst);
+    return;
+  }
+  // The account type stored on the server wins (it was chosen when the account was created).
+  final app = context.read<AppState>();
+  Navigator.pushReplacement(
+    context,
+    MaterialPageRoute(builder: (_) => app.role == UserRole.tutor ? TutorRegistrationScreen(phone: phone) : StudentWizardScreen(role: app.role, phone: phone)),
+  );
+}
+
+/// Live mode: email + password (for testing before SMS / WhatsApp codes are connected).
+class EmailAuthScreen extends StatefulWidget {
+  final UserRole role;
+  const EmailAuthScreen({super.key, required this.role});
+  @override
+  State<EmailAuthScreen> createState() => _EmailAuthScreenState();
+}
+
+class _EmailAuthScreenState extends State<EmailAuthScreen> {
+  final _email = TextEditingController();
+  final _password = TextEditingController();
+  bool _create = true;
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _email.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final app = context.read<AppState>();
+    setState(() => _busy = true);
+    try {
+      final ready = await app.emailAuth(_email.text, _password.text, widget.role, create: _create);
+      if (!mounted) return;
+      afterSignIn(context, ready: ready, role: widget.role, phone: _email.text.trim());
+    } catch (e) {
+      app.say(Backend.errorText(e), bad: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final valid = _email.text.contains('@') && _password.text.length >= 6;
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(backgroundColor: Colors.white, surfaceTintColor: Colors.white),
+      body: SafeArea(
+        child: MaxWidth(
+          max: 480,
+          child: ListView(padding: const EdgeInsets.all(24), children: [
+            Text(context.tr(_create ? 'email_create_t' : 'email_signin_t'), style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 6),
+            Text(context.tr('email_sub'), style: const TextStyle(color: AppColors.text2, fontSize: 15)),
+            const SizedBox(height: 24),
+            TextField(
+              controller: _email,
+              keyboardType: TextInputType.emailAddress,
+              textDirection: TextDirection.ltr,
+              autofillHints: const [AutofillHints.email],
+              decoration: InputDecoration(hintText: context.tr('email'), prefixIcon: const Icon(Icons.mail_outline_rounded)),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _password,
+              obscureText: true,
+              textDirection: TextDirection.ltr,
+              autofillHints: const [AutofillHints.password],
+              decoration: InputDecoration(hintText: context.tr('password_6'), prefixIcon: const Icon(Icons.lock_outline_rounded)),
+              onChanged: (_) => setState(() {}),
+              onSubmitted: (_) => valid && !_busy ? _submit() : null,
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: valid && !_busy ? _submit : null,
+              child: _busy
+                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white))
+                  : Text(context.tr(_create ? 'create_account' : 'sign_in')),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () => setState(() => _create = !_create),
+              child: Text(context.tr(_create ? 'email_have_account' : 'new_account')),
+            ),
           ]),
         ),
       ),

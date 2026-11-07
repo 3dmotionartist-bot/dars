@@ -105,6 +105,8 @@ class Lesson {
   final double price;
   String? link;
   bool reviewed;
+  final int number; // booking number shown to users (backend)
+  final double commission;
 
   Lesson({
     required this.id,
@@ -118,6 +120,8 @@ class Lesson {
     required this.price,
     this.link,
     this.reviewed = false,
+    this.number = 0,
+    this.commission = 0,
   });
 }
 
@@ -129,6 +133,7 @@ class HoursPackage {
   final int discount;
   final bool active;
   final double price;
+  final String? remoteId; // backend package id
 
   HoursPackage({
     required this.id,
@@ -138,6 +143,7 @@ class HoursPackage {
     required this.discount,
     required this.active,
     required this.price,
+    this.remoteId,
   });
 
   double get remaining => totalHours - usedHours;
@@ -151,19 +157,21 @@ class Message {
   final DateTime time;
   final MsgType type;
   final int seconds;
-  const Message({required this.mine, required this.text, required this.time, this.type = MsgType.text, this.seconds = 0});
+  final int remoteId; // backend message id (0 = local only)
+  const Message({required this.mine, required this.text, required this.time, this.type = MsgType.text, this.seconds = 0, this.remoteId = 0});
 }
 
 class Conversation {
-  final String id;
+  String id; // backend conversation id ('' until the chat is created on the server)
   final L name;
   final Color color;
   final Tutor? tutor;
+  final String? counterpartId; // the other person's user id (backend)
   final List<Message> messages;
   int unread;
   bool online;
 
-  Conversation({required this.id, required this.name, required this.color, this.tutor, required this.messages, this.unread = 0, this.online = false});
+  Conversation({required this.id, required this.name, required this.color, this.tutor, this.counterpartId, required this.messages, this.unread = 0, this.online = false});
 
   Message? get last => messages.isEmpty ? null : messages.last;
 }

@@ -45,6 +45,8 @@ export type Review = { by: T; stars: number; text: T; date: string };
 
 export type Tutor = {
   id: string;
+  /** true = loaded from the backend (approved in the admin dashboard) */
+  live?: boolean;
   name: T;
   headline: T;
   about: T;

@@ -32,7 +32,7 @@ class AccountScreen extends StatelessWidget {
             const SizedBox(width: 14),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(isTutor ? MockData.tutors.first.name.of(context) : app.name, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+                Text(isTutor ? app.me.name.of(context) : (app.name.isEmpty ? '—' : app.name), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
                 Text(app.phone.isEmpty ? '+963 9xx xxx xxx' : app.phone, textDirection: TextDirection.ltr, style: const TextStyle(color: AppColors.text2)),
                 const SizedBox(height: 4),
                 Pill(isTutor ? context.tr('role_tutor') : '${context.tr(app.role == UserRole.parent ? 'role_parent' : 'role_student')} · ${level.name.of(context)}',
@@ -58,7 +58,7 @@ class AccountScreen extends StatelessWidget {
         const SizedBox(height: 12),
         _group([
           if (isTutor) ...[
-            MenuRow(icon: Icons.badge_outlined, title: context.tr('public_profile'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TutorProfileScreen(tutor: MockData.tutors.first)))),
+            MenuRow(icon: Icons.badge_outlined, title: context.tr('public_profile'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TutorProfileScreen(tutor: app.me)))),
             MenuRow(icon: Icons.schedule_rounded, title: context.tr('my_availability'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TutorSettingsScreen()))),
             MenuRow(icon: Icons.card_giftcard_rounded, title: context.tr('my_packages'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TutorSettingsScreen(initialTab: 1)))),
           ] else ...[
@@ -110,10 +110,11 @@ class AccountScreen extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         _group([
-          MenuRow(icon: Icons.swap_horiz_rounded, title: context.tr(isTutor ? 'switch_student' : 'switch_tutor'), onTap: () {
-            app.switchRole();
-            if (Navigator.canPop(context)) Navigator.popUntil(context, (r) => r.isFirst);
-          }),
+          if (!app.live)
+            MenuRow(icon: Icons.swap_horiz_rounded, title: context.tr(isTutor ? 'switch_student' : 'switch_tutor'), onTap: () {
+              app.switchRole();
+              if (Navigator.canPop(context)) Navigator.popUntil(context, (r) => r.isFirst);
+            }),
           MenuRow(icon: Icons.support_agent_rounded, title: context.tr('support'), onTap: () => toast(context, 'wa.me/963000000000', icon: Icons.chat_rounded)),
           MenuRow(icon: Icons.policy_outlined, title: context.tr('terms'), onTap: () => toast(context, 'dars.app/terms', icon: Icons.link_rounded)),
           MenuRow(icon: Icons.logout_rounded, title: context.tr('logout'), color: AppColors.danger, onTap: () {
@@ -171,7 +172,7 @@ class AccountScreen extends StatelessWidget {
   }
 
   void _favorites(BuildContext context, AppState app) {
-    final favs = MockData.tutors.where((t) => app.favorites.contains(t.id)).toList();
+    final favs = app.tutors.where((t) => app.favorites.contains(t.id)).toList();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,

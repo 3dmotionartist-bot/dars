@@ -51,17 +51,29 @@ lib/
   screens/{onboarding,auth,student,shared,tutor}/
 ```
 
-## Connecting a backend (next step)
+## Connected to the backend
 
-Recommended: **Supabase** (Postgres + Auth + Realtime + Storage) or **Firebase**.
+The app talks to the Supabase backend in `../my_tutor_backend` — the same data the admin dashboard
+(`../my_tutor_admin`) manages.
 
-| Feature | Service |
-|---|---|
-| WhatsApp OTP login | Twilio Verify / Meta WhatsApp Cloud API → custom auth |
-| Live requests (instant) | Supabase Realtime or Firestore listeners + FCM high-priority push + VoIP push on iOS |
-| Chat & voice notes | Realtime table + Storage bucket |
-| Calls & classroom | LiveKit / Agora / Jitsi (+ `flutter_callkit_incoming`) |
-| Payments | Stripe / Checkout.com / Tap / Moyasar (Mada, Apple Pay), Tamara/Tabby BNPL |
-| Push | Firebase Cloud Messaging |
+- **Demo mode** (default): `lib/config.dart` is empty → sample data, works offline.
+- **Live mode**: paste your Supabase *Project URL* and *anon/publishable key* into `lib/config.dart`
+  (or set the GitHub repository variables `SUPABASE_URL` and `SUPABASE_ANON_KEY` — the cloud build passes them in).
 
-Replace the mock lists in `AppState` with repository calls; the UI won't need changes.
+What is live:
+
+| In the app | What happens on the server | Seen in the dashboard |
+|---|---|---|
+| Sign in with phone code (SMS / WhatsApp) or email + password | Supabase Auth account + profile | Students & parents / Tutors |
+| Tutor sign-up (name, subjects, curricula, fees per level, headline, about) | Tutor application | Tutors → **Pending** (approve / reject) |
+| Tutor list, profiles, reviews | Only **approved** tutors are shown | — |
+| Book a lesson / buy a package (wallet credit used first) | `book_lesson` / `buy_package` — price, commission and free slot checked by the server | Lessons, Payments |
+| Cancel, reschedule, rate, "not satisfied", "tutor didn't show" | Refund rules, reviews, disputes | Lessons, Reviews, Reports |
+| Live help ("speak to a tutor now") | Sent to online tutors; accepting opens a chat with the question | Live help |
+| Chat (real time, contact-info filter) | Messages table | Reports (if flagged) |
+| Tutor: availability, lesson links, mark delivered, no-show, payout request | Earnings go to the tutor's wallet after delivery | Tutor payouts |
+| "Help me find a tutor" | Lead | Help requests |
+| Notifications | Written by the server (push via Firebase if configured) | — |
+
+Not live yet (still demo UI): card payment gateway (bookings wait for admin confirmation — use *Payments → Confirm*),
+voice notes / files / photos upload, video classroom and in-app calls, favourites sync.

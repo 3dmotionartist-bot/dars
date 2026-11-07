@@ -63,7 +63,7 @@ class _TutorListScreenState extends State<TutorListScreen> {
 
   List<Tutor> _results(BuildContext context) {
     final q = _query.text.trim().toLowerCase();
-    final list = MockData.tutors.where((t) {
+    final list = context.read<AppState>().tutors.where((t) {
       if (_subject != null && !t.subjectIds.contains(_subject)) return false;
       if (q.isNotEmpty) {
         final hay = [

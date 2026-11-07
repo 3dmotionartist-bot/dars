@@ -26,9 +26,20 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _recording = false;
   int _secs = 0;
   Timer? _timer;
+  late final AppState _app;
+
+  @override
+  void initState() {
+    super.initState();
+    _app = context.read<AppState>();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _app.openConversation(widget.conversation);
+    });
+  }
 
   @override
   void dispose() {
+    _app.closeConversation(widget.conversation);
     _timer?.cancel();
     _ctrl.dispose();
     _scroll.dispose();
@@ -49,6 +60,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     _ctrl.clear();
     _toBottom();
+    if (app.live) return;
     // Demo auto-reply
     Future.delayed(const Duration(seconds: 2), () {
       if (!mounted) return;
@@ -212,6 +224,16 @@ class _Bubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (m.type == MsgType.system) {
+      return Center(
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 24),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(color: AppColors.primarySoft, borderRadius: BorderRadius.circular(14)),
+          child: Text(m.text, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.primaryDark, fontSize: 13, height: 1.5)),
+        ),
+      );
+    }
     final fg = m.mine ? Colors.white : AppColors.ink;
     Widget content;
     switch (m.type) {

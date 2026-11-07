@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/backend.dart';
 import '../../data/mock_data.dart';
 import '../../data/models.dart';
 import '../../l10n.dart';
@@ -34,6 +35,8 @@ class _LiveHelpScreenState extends State<LiveHelpScreen> with SingleTickerProvid
   int _left = 90;
   final List<Tutor> _accepted = [];
   late final AnimationController _pulse;
+  String? _requestId; // live mode
+  bool _checking = false;
 
   @override
   void initState() {
@@ -71,6 +74,11 @@ class _LiveHelpScreenState extends State<LiveHelpScreen> with SingleTickerProvid
       return;
     }
     _timer?.cancel();
+    final app = context.read<AppState>();
+    if (app.live) {
+      _startLive(app);
+      return;
+    }
     final pool = MockData.tutors.where((t) => t.available).toList()
       ..sort((a, b) => (b.subjectIds.contains(_subject) ? 1 : 0).compareTo(a.subjectIds.contains(_subject) ? 1 : 0));
     setState(() {
@@ -94,6 +102,46 @@ class _LiveHelpScreenState extends State<LiveHelpScreen> with SingleTickerProvid
     });
   }
 
+  /// Live mode: send the request to online tutors, then check every 2 s who accepted.
+  Future<void> _startLive(AppState app) async {
+    setState(() {
+      _recording = false;
+      _stage = _Stage.searching;
+      _left = 90;
+      _accepted.clear();
+    });
+    try {
+      _requestId = await app.createLiveRequest(subject: _subject, text: _text.text, voiceSeconds: _voiceSeconds);
+    } catch (e) {
+      app.say(Backend.errorText(e), bad: true);
+      if (mounted) setState(() => _stage = _Stage.compose);
+      return;
+    }
+    _timer = Timer.periodic(const Duration(seconds: 1), (t) async {
+      if (!mounted) return;
+      setState(() => _left--);
+      if (_left <= 0) {
+        t.cancel();
+        setState(() => _stage = _Stage.results);
+        return;
+      }
+      if (_left % 2 == 0 && !_checking && _requestId != null) {
+        _checking = true;
+        try {
+          final got = await app.liveAccepted(_requestId!);
+          if (mounted && got.length != _accepted.length) {
+            setState(() => _accepted
+              ..clear()
+              ..addAll(got));
+          }
+        } catch (_) {
+        } finally {
+          _checking = false;
+        }
+      }
+    });
+  }
+
   void _stop() {
     _timer?.cancel();
     setState(() => _stage = _Stage.results);
@@ -101,6 +149,8 @@ class _LiveHelpScreenState extends State<LiveHelpScreen> with SingleTickerProvid
 
   void _reset() {
     _timer?.cancel();
+    if (_requestId != null && _stage == _Stage.searching && _accepted.isEmpty) context.read<AppState>().cancelLiveRequest(_requestId!);
+    _requestId = null;
     setState(() {
       _stage = _Stage.compose;
       _accepted.clear();
@@ -286,7 +336,16 @@ class _LiveHelpScreenState extends State<LiveHelpScreen> with SingleTickerProvid
                 Expanded(
                   child: OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
-                    onPressed: () {
+                    onPressed: () async {
+                      if (app.live) {
+                        // The tutor's acceptance already opened this chat (with your question) on the server.
+                        await app.refresh();
+                        if (!context.mounted) return;
+                        final c = app.conversationFor(t);
+                        app.openConversation(c);
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(conversation: c)));
+                        return;
+                      }
                       final c = app.conversationFor(t);
                       if (_text.text.trim().isNotEmpty) app.sendMessage(c, Message(mine: true, text: _text.text.trim(), time: DateTime.now()));
                       if (_voiceSeconds > 0) app.sendMessage(c, Message(mine: true, text: '', time: DateTime.now(), type: MsgType.voice, seconds: _voiceSeconds));

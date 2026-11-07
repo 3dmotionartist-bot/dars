@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../data/mock_data.dart';
 import '../../data/models.dart';
 import '../../l10n.dart';
 import '../../state/app_state.dart';
@@ -16,7 +15,7 @@ class TutorDashboardScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
-    final me = MockData.tutors.first;
+    final me = app.me;
     final wide = MediaQuery.of(context).size.width >= 900;
     final upcoming = app.tutorLessons.where((l) => l.status == LessonStatus.upcoming).toList()..sort((a, b) => a.start.compareTo(b.start));
 
@@ -44,6 +43,29 @@ class TutorDashboardScreen extends StatelessWidget {
                 ],
               ]),
               const SizedBox(height: 16),
+              if (app.live && app.tutorVerification != null && app.tutorVerification != 'approved') ...[
+                AppCard(
+                  color: app.tutorVerification == 'rejected' ? AppColors.dangerSoft : AppColors.accentSoft,
+                  borderColor: app.tutorVerification == 'rejected' ? AppColors.danger : AppColors.accent,
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Icon(app.tutorVerification == 'rejected' ? Icons.error_outline_rounded : Icons.hourglass_top_rounded,
+                        color: app.tutorVerification == 'rejected' ? AppColors.danger : AppColors.accent),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(context.tr(app.tutorVerification == 'rejected' ? 'profile_rejected_t' : 'treg_done_t'), style: const TextStyle(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 2),
+                        Text(
+                          app.tutorVerification == 'rejected' ? (app.rejectionReason ?? '') : context.tr('profile_pending_b'),
+                          style: const TextStyle(color: AppColors.text2, fontSize: 13.5, height: 1.5),
+                        ),
+                      ]),
+                    ),
+                    IconButton(onPressed: app.refresh, icon: const Icon(Icons.refresh_rounded), tooltip: context.tr('refresh')),
+                  ]),
+                ),
+                const SizedBox(height: 12),
+              ],
 
               // Availability switch — drives live requests
               AppCard(
@@ -199,10 +221,10 @@ class _EarningsScreenState extends State<EarningsScreen> {
           const SizedBox(height: 12),
           AppCard(
             child: Column(children: [
-              _row(context.isAr ? 'رسوم الدروس' : 'Lesson fees', money(700)),
-              _row('${context.tr('commission')} (15%)', '-${money(105)}'),
+              _row(context.isAr ? 'رسوم الدروس المكتملة' : 'Delivered lesson fees', money(double.parse(app.tutorGross.toStringAsFixed(2)))),
+              _row(context.tr('commission'), '-${money(double.parse(app.tutorCommission.toStringAsFixed(2)))}'),
               const Divider(),
-              _row(context.isAr ? 'الصافي' : 'Net', money(595), bold: true),
+              _row(context.isAr ? 'الصافي' : 'Net', money(double.parse((app.tutorGross - app.tutorCommission).toStringAsFixed(2))), bold: true),
             ]),
           ),
           SectionTitle(context.tr('payout_method')),
@@ -221,7 +243,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
             onPressed: app.tutorConfirmed <= 0
                 ? null
                 : () {
-                    app.requestPayout();
+                    app.requestPayout(method: _method);
                     toast(context, context.tr('payout_sent'));
                   },
             icon: const Icon(Icons.send_rounded),

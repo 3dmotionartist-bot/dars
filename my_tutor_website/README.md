@@ -21,6 +21,15 @@ npm run dev        # http://localhost:3000/ar/
 npm run build      # static site in ./out  → upload to Netlify, Vercel, Firebase Hosting, cPanel…
 ```
 
+## Connected to the backend
+
+`lib/backend.ts` — leave empty for the built-in sample tutors, or set `NEXT_PUBLIC_SUPABASE_URL` and
+`NEXT_PUBLIC_SUPABASE_ANON_KEY` (the cloud build passes the GitHub repository variables `SUPABASE_URL` / `SUPABASE_ANON_KEY`).
+
+When connected:
+- **Find a tutor**, the home page's featured tutors and tutor profiles (`/[lang]/tutor/?id=…`) show tutors approved in the admin dashboard.
+- **Contact** form messages arrive in the dashboard under **Help requests**.
+
 ## Edit content
 - All text (both languages): `lib/i18n.ts`
 - Tutors, subjects, levels: `lib/data.ts` (replace with your API / CMS later)

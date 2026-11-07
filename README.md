@@ -5,6 +5,8 @@
 | `ANALYSIS.md` | Full teardown of the Modarby reference app + ideas for Dars |
 | `my_tutor_app/` | Flutter mobile app + web app |
 | `my_tutor_website/` | Next.js marketing website |
+| `my_tutor_backend/` | Supabase backend: database, security rules, booking & payment logic, webhooks, tests |
+| `my_tutor_admin/` | Management dashboard (open `index.html`; demo mode until connected to Supabase) |
 | `previews/` | Screenshots of the website |
 | `.github/workflows/build.yml` | Cloud build: APK + web app + website, on every push |
 

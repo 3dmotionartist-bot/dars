@@ -21,7 +21,7 @@ class HomeScreen extends StatelessWidget {
     final shell = StudentShell.of(context);
     final wide = MediaQuery.of(context).size.width >= 900;
     final next = app.nextLesson;
-    final top = [...MockData.tutors]..sort((a, b) => b.matchScore.compareTo(a.matchScore));
+    final top = [...app.tutors]..sort((a, b) => b.matchScore.compareTo(a.matchScore));
 
     return SafeArea(
       child: ListView(padding: EdgeInsets.zero, children: [
@@ -175,7 +175,7 @@ class HomeScreen extends StatelessWidget {
                 height: 222,
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
-                  itemCount: 6,
+                  itemCount: top.length < 6 ? top.length : 6,
                   separatorBuilder: (_, __) => const SizedBox(width: 12),
                   itemBuilder: (_, i) {
                     final t = top[i];

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/backend.dart';
 import '../../data/mock_data.dart';
 import '../../data/models.dart';
 import '../../l10n.dart';
@@ -28,8 +29,64 @@ class _TutorRegistrationScreenState extends State<TutorRegistrationScreen> {
   bool _cv = false;
   bool _video = false;
   bool _pledge = false;
+  bool _saving = false;
+  final _name = TextEditingController();
+  final _city = TextEditingController();
+  final _headline = TextEditingController();
+  final _about = TextEditingController();
+  final _linkedin = TextEditingController();
 
   static const _stepKeys = ['treg_s1', 'treg_s2', 'treg_s3', 'treg_s4', 'treg_s5'];
+
+  @override
+  void dispose() {
+    for (final c in [_name, _city, _headline, _about, _linkedin]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  /// Sends the application (live mode → appears as "pending" in the admin dashboard).
+  Future<void> _submit() async {
+    final app = context.read<AppState>();
+    if (app.live) {
+      if (_name.text.trim().isEmpty) {
+        setState(() => _step = 0);
+        app.say(context.tr('name_required'), bad: true);
+        return;
+      }
+      if (_headline.text.trim().isEmpty) {
+        setState(() => _step = 3);
+        app.say(context.tr('headline_required'), bad: true);
+        return;
+      }
+      if (_subjects.isEmpty) {
+        setState(() => _step = 1);
+        return;
+      }
+    }
+    setState(() => _saving = true);
+    try {
+      await app.registerTutor(
+        fullName: _name.text,
+        gender: _gender,
+        city: _city.text,
+        subjects: _subjects,
+        curricula: _curricula,
+        online: _online,
+        inPerson: _inPerson,
+        fees: Map.of(_fees),
+        headline: _headline.text,
+        about: _about.text,
+        linkedin: _linkedin.text,
+      );
+      if (mounted) setState(() => _done = true);
+    } catch (e) {
+      app.say(Backend.errorText(e), bad: true);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
 
   void _finish() {
     final app = context.read<AppState>();
@@ -39,6 +96,7 @@ class _TutorRegistrationScreenState extends State<TutorRegistrationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final app = context.read<AppState>();
     if (_done) {
       return Scaffold(
         backgroundColor: Colors.white,
@@ -57,7 +115,7 @@ class _TutorRegistrationScreenState extends State<TutorRegistrationScreen> {
     switch (_step) {
       case 0:
         body = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          TextField(decoration: InputDecoration(hintText: context.tr('full_name'), prefixIcon: const Icon(Icons.person_outline))),
+          TextField(controller: _name, textCapitalization: TextCapitalization.words, decoration: InputDecoration(hintText: context.tr('full_name'), prefixIcon: const Icon(Icons.person_outline))),
           const SizedBox(height: 10),
           Row(children: [
             Expanded(child: ChoiceTile(title: context.tr('male'), selected: _gender == 'm', onTap: () => setState(() => _gender = 'm'))),
@@ -65,7 +123,7 @@ class _TutorRegistrationScreenState extends State<TutorRegistrationScreen> {
             Expanded(child: ChoiceTile(title: context.tr('female'), selected: _gender == 'f', onTap: () => setState(() => _gender = 'f'))),
           ]),
           const SizedBox(height: 10),
-          TextField(decoration: InputDecoration(hintText: context.tr('city'), prefixIcon: const Icon(Icons.location_city_outlined))),
+          TextField(controller: _city, decoration: InputDecoration(hintText: context.tr('city'), prefixIcon: const Icon(Icons.location_city_outlined))),
           const SizedBox(height: 16),
           Center(
             child: Column(children: [
@@ -148,14 +206,18 @@ class _TutorRegistrationScreenState extends State<TutorRegistrationScreen> {
         break;
       case 3:
         body = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          TextField(maxLength: 50, decoration: InputDecoration(hintText: context.tr('headline'))),
-          TextField(maxLines: 5, maxLength: 500, decoration: InputDecoration(hintText: context.tr('about_you'))),
+          TextField(controller: _headline, maxLength: 80, decoration: InputDecoration(hintText: context.tr('headline'))),
+          TextField(controller: _about, maxLines: 5, maxLength: 1000, decoration: InputDecoration(hintText: context.tr('about_you'))),
           const SizedBox(height: 6),
           ChoiceTile(title: _cv ? 'CV.pdf ✓' : context.tr('upload_cv'), icon: Icons.upload_file_rounded, color: AppColors.info, selected: _cv, onTap: () => setState(() => _cv = !_cv)),
           const SizedBox(height: 8),
           ChoiceTile(title: _video ? 'intro.mp4 ✓' : context.tr('upload_video'), icon: Icons.video_call_rounded, color: AppColors.lavenderInk, selected: _video, onTap: () => setState(() => _video = !_video)),
           const SizedBox(height: 10),
-          TextField(keyboardType: TextInputType.url, decoration: const InputDecoration(hintText: 'LinkedIn URL', prefixIcon: Icon(Icons.link_rounded))),
+          TextField(controller: _linkedin, keyboardType: TextInputType.url, textDirection: TextDirection.ltr, decoration: const InputDecoration(hintText: 'LinkedIn URL', prefixIcon: Icon(Icons.link_rounded))),
+          if (app.live) ...[
+            const SizedBox(height: 6),
+            Text(context.tr('files_later'), style: const TextStyle(color: AppColors.text3, fontSize: 12.5)),
+          ],
         ]);
         break;
       default:
@@ -229,16 +291,18 @@ class _TutorRegistrationScreenState extends State<TutorRegistrationScreen> {
           child: MaxWidth(
             max: 620,
             child: ElevatedButton(
-              onPressed: last && !_pledge
+              onPressed: (last && !_pledge) || _saving
                   ? null
-                  : () => setState(() {
-                        if (last) {
-                          _done = true;
-                        } else {
-                          _step++;
-                        }
-                      }),
-              child: Text(last ? context.tr('pledge_agree') : context.tr('next')),
+                  : () {
+                      if (last) {
+                        _submit();
+                      } else {
+                        setState(() => _step++);
+                      }
+                    },
+              child: _saving
+                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white))
+                  : Text(last ? context.tr('pledge_agree') : context.tr('next')),
             ),
           ),
         ),

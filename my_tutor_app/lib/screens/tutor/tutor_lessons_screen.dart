@@ -69,7 +69,10 @@ class TutorLessonsScreen extends StatelessWidget {
                                 ),
                                 OutlinedButton.icon(
                                   style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40), foregroundColor: AppColors.danger, side: const BorderSide(color: AppColors.line)),
-                                  onPressed: () => toast(context, context.tr('report_sent')),
+                                  onPressed: () {
+                                    app.reportStudentNoShow(l);
+                                    if (!app.live) toast(context, context.tr('report_sent'));
+                                  },
                                   icon: const Icon(Icons.person_off_outlined, size: 18),
                                   label: Text(context.tr('student_no_show')),
                                 ),

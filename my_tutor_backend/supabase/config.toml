@@ -1,0 +1,25 @@
+# Supabase CLI config (used by `supabase start` for local development and `supabase db push`).
+project_id = "dars"
+
+[api]
+port = 54321
+schemas = ["public"]
+
+[db]
+port = 54322
+major_version = 15
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[auth]
+site_url = "http://localhost:3000"
+enable_signup = true
+
+[auth.sms]
+enable_signup = true
+enable_confirmations = true
+
+[functions.payment-webhook]
+verify_jwt = false

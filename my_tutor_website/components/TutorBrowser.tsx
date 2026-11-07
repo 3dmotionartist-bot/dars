@@ -5,6 +5,7 @@ import type { Lang } from '@/lib/i18n';
 import { getDict } from '@/lib/i18n';
 import { subjects, t, tutors, WHATSAPP } from '@/lib/data';
 import Icon from './Icon';
+import { useTutors } from './LiveTutors';
 import { TutorCard } from './Ui';
 
 /** Client-side search, subject chips, filters and AI/price/rating sort. */
@@ -17,6 +18,7 @@ export default function TutorBrowser({ lang, initialSubject = '' }: { lang: Lang
   const [instantOnly, setInstantOnly] = useState(false);
   const [gender, setGender] = useState<'' | 'm' | 'f'>('');
   const [maxPrice, setMaxPrice] = useState(40);
+  const { list: allTutors, loading } = useTutors(tutors);
 
   // Read ?q= and ?subject= from the URL (works on a fully static export).
   useEffect(() => {
@@ -29,7 +31,7 @@ export default function TutorBrowser({ lang, initialSubject = '' }: { lang: Lang
 
   const results = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    const list = tutors.filter((x) => {
+    const list = allTutors.filter((x) => {
       if (subject && !x.subjects.includes(subject)) return false;
       if (availableNow && !x.available) return false;
       if (instantOnly && !x.instant) return false;
@@ -44,7 +46,7 @@ export default function TutorBrowser({ lang, initialSubject = '' }: { lang: Lang
       return true;
     });
     return list.sort((a, b) => (sort === 'price' ? a.price - b.price : sort === 'rating' ? b.rating - a.rating : b.match - a.match));
-  }, [q, subject, sort, availableNow, instantOnly, gender, maxPrice]);
+  }, [allTutors, q, subject, sort, availableNow, instantOnly, gender, maxPrice]);
 
   return (
     <div className="browser">
@@ -95,9 +97,9 @@ export default function TutorBrowser({ lang, initialSubject = '' }: { lang: Lang
           ))}
         </div>
         <p className="muted">
-          {results.length} {d.results}
+          {loading ? (lang === 'ar' ? 'جارٍ التحميل…' : 'Loading…') : `${results.length} ${d.results}`}
         </p>
-        {results.length === 0 ? (
+        {loading ? null : results.length === 0 ? (
           <div className="card empty">
             <Icon name="search" size={40} />
             <h3>{d.empty}</h3>

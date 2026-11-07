@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/backend.dart';
 import '../../data/mock_data.dart';
 import '../../data/models.dart';
 import '../../l10n.dart';
@@ -45,6 +46,7 @@ class _BookingScreenState extends State<BookingScreen> {
   bool _slotTaken(int day, String slot) {
     final h = int.parse(slot.substring(0, 2));
     if (day == 0 && h <= DateTime.now().hour) return true;
+    if (context.read<AppState>().live) return false; // the server checks the tutor's calendar when booking
     return (day * 3 + h) % 5 == 0;
   }
 
@@ -273,7 +275,19 @@ class _BookingScreenState extends State<BookingScreen> {
           ChoiceTile(title: context.tr('pm_bnpl'), subtitle: context.tr('pm_bnpl_d'), icon: Icons.splitscreen_rounded, color: AppColors.lavenderInk, selected: _method == 'bnpl', onTap: () => setState(() => _method = 'bnpl')),
           const SizedBox(height: 8),
           ChoiceTile(title: context.tr('pm_bank'), subtitle: context.tr('pm_bank_d'), icon: Icons.account_balance_rounded, color: AppColors.primary, selected: _method == 'bank', onTap: () => setState(() => _method = 'bank')),
-          if (_method == 'card') ...[
+          if (app.live) ...[
+            const SizedBox(height: 14),
+            AppCard(
+              color: AppColors.infoSoft,
+              borderColor: AppColors.infoSoft,
+              child: Row(children: [
+                const Icon(Icons.info_outline_rounded, color: AppColors.info),
+                const SizedBox(width: 10),
+                Expanded(child: Text(context.tr(_method == 'bank' ? 'pay_note_bank' : 'pay_note_live'), style: const TextStyle(fontSize: 13.5, height: 1.5))),
+              ]),
+            ),
+          ],
+          if (_method == 'card' && !app.live) ...[
             const SizedBox(height: 16),
             TextField(keyboardType: TextInputType.number, decoration: InputDecoration(hintText: context.tr('card_number'), prefixIcon: const Icon(Icons.credit_card_rounded))),
             const SizedBox(height: 10),
@@ -359,21 +373,33 @@ class _BookingScreenState extends State<BookingScreen> {
                             return;
                           }
                           setState(() => _processing = true);
-                          await Future.delayed(const Duration(milliseconds: 1600));
+                          if (!app.live) await Future.delayed(const Duration(milliseconds: 1600));
                           if (!mounted) return;
                           final start = _slot == null ? _dayDate(1).add(const Duration(hours: 18)) : _dayDate(_day).add(Duration(hours: int.parse(_slot!.substring(0, 2))));
-                          app.book(
-                            tutor: t,
-                            isPackage: _package,
-                            hours: _hours,
-                            minutes: _minutes,
-                            start: start,
-                            online: _online,
-                            total: total,
-                            balanceUsed: balanceUsed,
-                            subject: MockData.subject(t.subjectIds.first).name,
+                          try {
+                            await app.book(
+                              tutor: t,
+                              isPackage: _package,
+                              hours: _hours,
+                              minutes: _minutes,
+                              start: start,
+                              online: _online,
+                              total: total,
+                              balanceUsed: balanceUsed,
+                              subject: MockData.subject(t.subjectIds.first).name,
+                              subjectId: t.subjectIds.first,
+                              method: _method,
+                            );
+                          } catch (e) {
+                            if (mounted) setState(() => _processing = false);
+                            app.say(Backend.errorText(e), bad: true);
+                            return;
+                          }
+                          if (!mounted) return;
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(builder: (_) => BookingSuccessScreen(tutor: t, isPackage: _package, awaitingPayment: app.lastAmountDue > 0)),
                           );
-                          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => BookingSuccessScreen(tutor: t, isPackage: _package)));
                         },
                   child: _processing
                       ? Row(mainAxisSize: MainAxisSize.min, children: [
@@ -423,7 +449,8 @@ class _BookingScreenState extends State<BookingScreen> {
 class BookingSuccessScreen extends StatelessWidget {
   final Tutor tutor;
   final bool isPackage;
-  const BookingSuccessScreen({super.key, required this.tutor, required this.isPackage});
+  final bool awaitingPayment;
+  const BookingSuccessScreen({super.key, required this.tutor, required this.isPackage, this.awaitingPayment = false});
   @override
   Widget build(BuildContext context) {
     final app = context.read<AppState>();
@@ -439,13 +466,13 @@ class BookingSuccessScreen extends StatelessWidget {
               Container(
                 width: 110,
                 height: 110,
-                decoration: const BoxDecoration(color: AppColors.successSoft, shape: BoxShape.circle),
-                child: const Icon(Icons.check_rounded, color: AppColors.success, size: 64),
+                decoration: BoxDecoration(color: awaitingPayment ? AppColors.accentSoft : AppColors.successSoft, shape: BoxShape.circle),
+                child: Icon(awaitingPayment ? Icons.hourglass_top_rounded : Icons.check_rounded, color: awaitingPayment ? AppColors.accent : AppColors.success, size: 64),
               ),
               const SizedBox(height: 22),
-              Text(context.tr('success_t'), textAlign: TextAlign.center, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800)),
+              Text(context.tr(awaitingPayment ? 'reserved_t' : 'success_t'), textAlign: TextAlign.center, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800)),
               const SizedBox(height: 8),
-              Text(context.tr('success_b'), textAlign: TextAlign.center, style: const TextStyle(color: AppColors.text2, height: 1.6)),
+              Text(context.tr(awaitingPayment ? 'reserved_b' : 'success_b'), textAlign: TextAlign.center, style: const TextStyle(color: AppColors.text2, height: 1.6)),
               const Spacer(),
               SizedBox(
                 width: double.infinity,

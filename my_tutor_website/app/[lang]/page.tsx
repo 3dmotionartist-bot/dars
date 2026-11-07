@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import Icon from '@/components/Icon';
+import { FeaturedTutors } from '@/components/LiveTutors';
 import PhoneMock from '@/components/PhoneMock';
-import { Avatar, SectionHead, StoreButtons, TutorCard } from '@/components/Ui';
+import { Avatar, SectionHead, StoreButtons } from '@/components/Ui';
 import { APP_URL, BASE, popular, subjects, t, tutors } from '@/lib/data';
 import { getDict, type Lang } from '@/lib/i18n';
 
@@ -144,9 +145,7 @@ export default function Home({ params }: { params: { lang: Lang } }) {
             </Link>
           </div>
           <div className="grid-tutors">
-            {featured.map((x) => (
-              <TutorCard key={x.id} tutor={x} lang={lang} />
-            ))}
+            <FeaturedTutors lang={lang} fallback={featured} />
           </div>
         </div>
       </section>

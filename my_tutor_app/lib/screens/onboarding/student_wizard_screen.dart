@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/backend.dart';
 import '../../data/mock_data.dart';
 import '../../data/models.dart';
 import '../../l10n.dart';
@@ -22,10 +23,31 @@ class _StudentWizardScreenState extends State<StudentWizardScreen> {
   String _level = 'high';
   String _curriculum = 'syrian';
   final Set<String> _subjects = {};
+  final _name = TextEditingController();
+  bool _saving = false;
 
-  void _finish() {
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  Future<void> _finish() async {
     final app = context.read<AppState>();
-    app.setProfile(level: _level, curriculum: _curriculum, subjects: _subjects.isEmpty ? {'math'} : _subjects);
+    if (app.live && _name.text.trim().isEmpty) {
+      setState(() => _step = 0);
+      app.say(context.tr('name_required'), bad: true);
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      await app.setProfile(fullName: _name.text, level: _level, curriculum: _curriculum, subjects: _subjects.isEmpty ? {'math'} : _subjects);
+    } catch (e) {
+      if (mounted) setState(() => _saving = false);
+      app.say(Backend.errorText(e), bad: true);
+      return;
+    }
+    if (!mounted) return;
     Navigator.of(context).popUntil((r) => r.isFirst);
     app.login(asRole: widget.role, phoneNumber: widget.phone);
   }
@@ -38,6 +60,12 @@ class _StudentWizardScreenState extends State<StudentWizardScreen> {
     Widget body;
     if (_step == 0) {
       body = Column(children: [
+        TextField(
+          controller: _name,
+          textCapitalization: TextCapitalization.words,
+          decoration: InputDecoration(hintText: context.tr(widget.role == UserRole.parent ? 'parent_name' : 'your_name'), prefixIcon: const Icon(Icons.person_outline)),
+        ),
+        const SizedBox(height: 14),
         for (final l in MockData.levels)
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
@@ -89,7 +117,7 @@ class _StudentWizardScreenState extends State<StudentWizardScreen> {
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         leading: _step > 0 ? IconButton(icon: const BackButtonIcon(), onPressed: () => setState(() => _step--)) : null,
-        actions: [TextButton(onPressed: _finish, child: Text(context.tr('skip')))],
+        actions: [TextButton(onPressed: _saving ? null : _finish, child: Text(context.tr('skip')))],
       ),
       body: SafeArea(
         child: MaxWidth(
@@ -111,13 +139,15 @@ class _StudentWizardScreenState extends State<StudentWizardScreen> {
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: () {
-                    if (_step < 2) {
-                      setState(() => _step++);
-                    } else {
-                      _finish();
-                    }
-                  },
+                  onPressed: _saving
+                      ? null
+                      : () {
+                          if (_step < 2) {
+                            setState(() => _step++);
+                          } else {
+                            _finish();
+                          }
+                        },
                   child: Text(_step < 2 ? context.tr('next') : context.tr('finish')),
                 ),
               ),
