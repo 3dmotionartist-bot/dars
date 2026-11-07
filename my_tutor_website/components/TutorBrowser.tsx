@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Lang } from '@/lib/i18n';
 import { getDict } from '@/lib/i18n';
-import { subjects, t, tutors, WHATSAPP } from '@/lib/data';
+import { subjects, t, WHATSAPP } from '@/lib/data';
 import Icon from './Icon';
 import { useTutors } from './LiveTutors';
 import { TutorCard } from './Ui';
@@ -18,7 +18,7 @@ export default function TutorBrowser({ lang, initialSubject = '' }: { lang: Lang
   const [instantOnly, setInstantOnly] = useState(false);
   const [gender, setGender] = useState<'' | 'm' | 'f'>('');
   const [maxPrice, setMaxPrice] = useState(40);
-  const { list: allTutors, loading } = useTutors(tutors);
+  const { list: allTutors, loading } = useTutors([]);
 
   // Read ?q= and ?subject= from the URL (works on a fully static export).
   useEffect(() => {

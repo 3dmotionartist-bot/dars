@@ -37,7 +37,7 @@ export function Stars({ rating, count }: { rating: number; count?: number }) {
 export function TutorCard({ tutor, lang }: { tutor: Tutor; lang: Lang }) {
   const d = getDict(lang).tutor;
   return (
-    <Link href={tutor.live ? `/${lang}/tutor/?id=${tutor.id}` : `/${lang}/tutors/${tutor.id}/`} className="card tutor-card">
+    <Link href={`/${lang}/tutor/?id=${tutor.id}`} className="card tutor-card">
       <div className="tc-head">
         <Avatar name={t(tutor.name, lang)} color={tutor.color} size={64} online={tutor.available} />
         <div className="tc-main">

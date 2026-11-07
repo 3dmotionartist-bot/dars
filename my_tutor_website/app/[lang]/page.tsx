@@ -3,13 +3,14 @@ import Icon from '@/components/Icon';
 import { FeaturedTutors } from '@/components/LiveTutors';
 import PhoneMock from '@/components/PhoneMock';
 import { Avatar, SectionHead, StoreButtons } from '@/components/Ui';
-import { APP_URL, BASE, popular, subjects, t, tutors } from '@/lib/data';
+import { APP_URL, BASE, popular, subjects, t } from '@/lib/data';
+
+const RADAR = ['#2F6BFF', '#7B61FF', '#0E8F7E', '#F59E0B'];
 import { getDict, type Lang } from '@/lib/i18n';
 
 export default function Home({ params }: { params: { lang: Lang } }) {
   const lang = params.lang;
   const d = getDict(lang);
-  const featured = [...tutors].sort((a, b) => b.match - a.match).slice(0, 3);
 
   return (
     <>
@@ -50,10 +51,10 @@ export default function Home({ params }: { params: { lang: Lang } }) {
               <span>{d.guarantee.title}</span>
             </div>
             <div className="float-card fc-2">
-              <Avatar name={t(tutors[1].name, lang)} color={tutors[1].color} size={34} online />
+              <Avatar name={lang === 'ar' ? 'مدرس' : 'Tutor'} color="#7B61FF" size={34} online />
               <span>
-                <b>{t(tutors[1].name, lang)}</b>
-                <small>{lang === 'ar' ? 'قبلت طلبك ✓' : 'accepted your request ✓'}</small>
+                <b>{lang === 'ar' ? 'مدرس متاح' : 'A tutor'}</b>
+                <small>{lang === 'ar' ? 'قبِل طلبك ✓' : 'accepted your request ✓'}</small>
               </span>
             </div>
           </div>
@@ -93,9 +94,9 @@ export default function Home({ params }: { params: { lang: Lang } }) {
               <Icon name="mic" size={40} />
               <b>0:42</b>
             </div>
-            {tutors.slice(0, 4).map((x, i) => (
-              <span key={x.id} className={`radar-avatar ra-${i}`}>
-                <Avatar name={t(x.name, lang)} color={x.color} size={48} online />
+            {RADAR.map((c, i) => (
+              <span key={c} className={`radar-avatar ra-${i}`}>
+                <Avatar name={lang === 'ar' ? 'م' : 'T'} color={c} size={48} online />
               </span>
             ))}
           </div>
@@ -145,7 +146,7 @@ export default function Home({ params }: { params: { lang: Lang } }) {
             </Link>
           </div>
           <div className="grid-tutors">
-            <FeaturedTutors lang={lang} fallback={featured} />
+            <FeaturedTutors lang={lang} fallback={[]} />
           </div>
         </div>
       </section>
@@ -168,28 +169,6 @@ export default function Home({ params }: { params: { lang: Lang } }) {
                 </li>
               ))}
             </ul>
-          </div>
-        </div>
-      </section>
-
-      {/* TESTIMONIALS */}
-      <section className="section alt">
-        <div className="container">
-          <SectionHead title={d.testimonials.title} center />
-          <div className="grid-3">
-            {d.testimonials.items.map((x) => (
-              <figure key={x.n} className="card quote">
-                <div className="quote-stars">★★★★★</div>
-                <blockquote>“{x.q}”</blockquote>
-                <figcaption>
-                  <Avatar name={x.n} color="#0E8F7E" size={40} />
-                  <span>
-                    <b>{x.n}</b>
-                    <small>{x.r}</small>
-                  </span>
-                </figcaption>
-              </figure>
-            ))}
           </div>
         </div>
       </section>

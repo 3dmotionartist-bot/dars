@@ -12,7 +12,7 @@ const ar = {
   },
   nav: { home: 'الرئيسية', tutors: 'ابحث عن مدرس', become: 'انضم كمدرس', pricing: 'الباقات والأسعار', about: 'من نحن', faq: 'الأسئلة الشائعة', contact: 'تواصل معنا', getApp: 'حمّل التطبيق', signIn: 'تسجيل الدخول', menu: 'القائمة' },
   hero: {
-    badge: '42 مدرساً متصلاً الآن',
+    badge: 'مدرسون موثّقون · مساعدة فورية',
     title: 'مدرّسك الخاص،',
     titleAccent: 'متى ما احتجته',
     subtitle: 'دروس خصوصية أونلاين وحضورية مع مدرسين موثّقين، ومساعدة فورية في الواجبات والاختبارات خلال دقائق — لكل المراحل والمناهج.',
@@ -22,10 +22,10 @@ const ar = {
     popular: 'الأكثر طلباً:',
   },
   stats: [
-    { value: '+1,500', label: 'مدرس موثّق' },
-    { value: '+150', label: 'مادة ومهارة' },
-    { value: '4.8★', label: 'متوسط التقييم' },
-    { value: '٣ دقائق', label: 'متوسط وقت الاستجابة الفورية' },
+    { value: '12', label: 'مادة ومهارة' },
+    { value: '6', label: 'مراحل دراسية من الروضة للجامعة' },
+    { value: '100%', label: 'ضمان استرداد الساعة الأولى' },
+    { value: '90 ثانية', label: 'لإيصال سؤالك لكل المدرسين المتاحين' },
   ],
   live: {
     eyebrow: 'مساعدة فورية',
@@ -142,7 +142,7 @@ const en: Dict = {
   },
   nav: { home: 'Home', tutors: 'Find a tutor', become: 'Become a tutor', pricing: 'Pricing', about: 'About', faq: 'FAQ', contact: 'Contact', getApp: 'Get the app', signIn: 'Sign in', menu: 'Menu' },
   hero: {
-    badge: '42 tutors online now',
+    badge: 'Verified tutors · instant help',
     title: 'Your private tutor,',
     titleAccent: 'whenever you need',
     subtitle: 'Online and in-person lessons with verified tutors, plus instant help with homework and exams in minutes — for every level and curriculum.',
@@ -152,10 +152,10 @@ const en: Dict = {
     popular: 'Popular:',
   },
   stats: [
-    { value: '1,500+', label: 'verified tutors' },
-    { value: '150+', label: 'subjects & skills' },
-    { value: '4.8★', label: 'average rating' },
-    { value: '< 3 min', label: 'average live-help response' },
+    { value: '12', label: 'subjects & skills' },
+    { value: '6', label: 'study levels, pre-school to university' },
+    { value: '100%', label: 'first-hour money-back guarantee' },
+    { value: '90 sec', label: 'to reach every tutor online with your question' },
   ],
   live: {
     eyebrow: 'Live help',

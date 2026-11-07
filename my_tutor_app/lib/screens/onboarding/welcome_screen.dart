@@ -91,7 +91,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         Text(context.tr('tagline_sub'), style: const TextStyle(color: Color(0xE6FFFFFF), fontSize: 18, height: 1.6)),
         const SizedBox(height: 32),
         Wrap(spacing: 10, runSpacing: 10, children: [
-          _heroChip(Icons.verified_user_rounded, context.isAr ? '+1,500 مدرس موثّق' : '1,500+ verified tutors'),
+          _heroChip(Icons.verified_user_rounded, context.isAr ? 'مدرسون موثّقون' : 'Verified tutors'),
           _heroChip(Icons.bolt_rounded, context.isAr ? 'مساعدة خلال دقائق' : 'Help in minutes'),
           _heroChip(Icons.workspace_premium_rounded, context.tr('guarantee_t')),
         ]),

@@ -117,7 +117,14 @@ class HomeScreen extends StatelessWidget {
                         Row(children: [
                           Container(width: 9, height: 9, decoration: const BoxDecoration(color: AppColors.accent, shape: BoxShape.circle)),
                           const SizedBox(width: 6),
-                          Text(context.isAr ? '42 مدرساً متصلاً الآن' : '42 tutors online now', style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600)),
+                          Builder(builder: (context) {
+                            // Real count of tutors who switched "available" on (no invented numbers).
+                            final online = app.tutors.where((t) => t.available).length;
+                            final label = online > 0
+                                ? (context.isAr ? '$online متصل الآن' : '$online online now')
+                                : (context.isAr ? 'مدرسون موثّقون' : 'Verified tutors');
+                            return Text(label, style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600));
+                          }),
                         ]),
                         const SizedBox(height: 6),
                         Text(context.tr('live_banner_t'), style: const TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w800)),

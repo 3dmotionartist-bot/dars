@@ -1,12 +1,11 @@
 import type { Lang } from '@/lib/i18n';
-import { subjects, t, tutors } from '@/lib/data';
+import { subjects, t } from '@/lib/data';
 import Icon from './Icon';
-import { Avatar, Stars } from './Ui';
+import { Avatar } from './Ui';
 
 /** Pure-CSS phone showing the Dars app home — no screenshots needed. */
 export default function PhoneMock({ lang }: { lang: Lang }) {
   const ar = lang === 'ar';
-  const top = tutors[0];
   return (
     <div className="phone" aria-hidden="true">
       <div className="phone-notch" />
@@ -23,7 +22,7 @@ export default function PhoneMock({ lang }: { lang: Lang }) {
         </div>
         <div className="pm-live">
           <div>
-            <small>● {ar ? '42 مدرساً متصلاً' : '42 tutors online'}</small>
+            <small>● {ar ? 'مدرسون متاحون الآن' : 'Tutors online now'}</small>
             <b>{ar ? 'تكلّم مع مدرس الآن' : 'Speak to a tutor now'}</b>
             <span>{ar ? 'من المتاح الآن؟' : "Who's online?"}</span>
           </div>
@@ -40,12 +39,11 @@ export default function PhoneMock({ lang }: { lang: Lang }) {
           ))}
         </div>
         <div className="pm-card">
-          <Avatar name={t(top.name, lang)} color={top.color} size={40} online />
+          <Avatar name={ar ? 'مدرس' : 'Tutor'} color="#2F6BFF" size={40} online />
           <div>
-            <b>{t(top.name, lang)}</b>
-            <Stars rating={top.rating} count={top.reviews} />
+            <b>{ar ? 'مدرّس رياضيات' : 'Math tutor'}</b>
+            <small>{ar ? 'متاح الآن · أونلاين' : 'Available now · online'}</small>
           </div>
-          <strong>${top.price}</strong>
         </div>
         <div className="pm-nav">
           {['chat', 'clock', 'bolt', 'search', 'book'].map((n, i) => (
