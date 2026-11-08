@@ -47,6 +47,9 @@
       s_pending: "مهلة الدفع (ساعة)", s_pending_h: "تُلغى الحجوزات غير المدفوعة بعدها",
       s_referral: "عمولة الإحالة %", s_referral_h: "للمسوّقين",
       s_support: "واتساب الدعم", s_support_h: "يظهر في التطبيق والموقع",
+      s_turn_urls: "خادم ترحيل المكالمات (TURN) — الروابط", s_turn_urls_h: "يجعل مكالمات الفيديو تعمل على بيانات الجوال. مثال: turn:global.relay.metered.ca:80, turns:global.relay.metered.ca:443?transport=tcp",
+      s_turn_user: "TURN — اسم المستخدم", s_turn_user_h: "من حسابك المجاني في Metered أو Cloudflare",
+      s_turn_pass: "TURN — كلمة المرور (credential)", s_turn_pass_h: "تُرسل للتطبيق عند المكالمة فقط",
       s_guarantee: "ضمان الساعة الأولى", s_guarantee_h: "استرداد كامل عند عدم الرضا",
       saved: "تم الحفظ", done: "تم", error: "حدث خطأ", login_t: "دخول الإدارة", email: "البريد الإلكتروني", password: "كلمة المرور", signin: "دخول",
       not_admin: "هذا الحساب ليس حساب مدير", menu: "القائمة", ago_now: "الآن", ago_m: "د", ago_h: "س", ago_d: "يوم",
@@ -93,6 +96,9 @@
       s_pending: "Payment window (hours)", s_pending_h: "Unpaid bookings are cancelled after this",
       s_referral: "Referral commission %", s_referral_h: "For marketers",
       s_support: "Support WhatsApp", s_support_h: "Shown in the app and website",
+      s_turn_urls: "Call relay (TURN) server URLs", s_turn_urls_h: "Makes video calls work on mobile data. Example: turn:global.relay.metered.ca:80, turns:global.relay.metered.ca:443?transport=tcp",
+      s_turn_user: "TURN username", s_turn_user_h: "From your free Metered or Cloudflare account",
+      s_turn_pass: "TURN credential", s_turn_pass_h: "Sent to the app only when a call starts",
       s_guarantee: "First-hour guarantee", s_guarantee_h: "Full refund if not satisfied",
       saved: "Saved", done: "Done", error: "Something went wrong", login_t: "Admin sign in", email: "Email", password: "Password", signin: "Sign in",
       not_admin: "This account is not an admin", menu: "Menu", ago_now: "now", ago_m: "m", ago_h: "h", ago_d: "d",
@@ -563,6 +569,7 @@
     ["commission_rate", "s_commission", "pct"], ["vat_rate", "s_vat", "pct"], ["live_request_seconds", "s_live_seconds", "int"],
     ["live_max_tutors", "s_live_max", "int"], ["pending_payment_hours", "s_pending", "int"], ["referral_commission", "s_referral", "pct"],
     ["support_whatsapp", "s_support", "text"], ["first_hour_guarantee", "s_guarantee", "bool"],
+    ["turn_urls", "s_turn_urls", "text"], ["turn_username", "s_turn_user", "text"], ["turn_credential", "s_turn_pass", "text"],
   ];
   function pageConfig() {
     const s = S.data.settings || {};

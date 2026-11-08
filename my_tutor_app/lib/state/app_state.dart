@@ -14,6 +14,7 @@ import '../data/mock_data.dart';
 import '../data/models.dart';
 import '../l10n.dart';
 import '../screens/shared/incoming_call_screen.dart';
+import '../screens/shared/live_call_screen.dart';
 import '../services/calls.dart';
 import '../services/ringer.dart';
 
@@ -1027,10 +1028,21 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   // =====================================================================
   String _nameOf(L n) => locale.languageCode == 'ar' ? n.ar : n.en;
 
-  /// Opens a call room in the browser. Both people open the same room to talk.
+  bool _inCall = false;
+
+  /// Opens the call screen inside the app. Both people open the same room to talk.
   Future<void> joinCall({required String room, required bool video, String peer = ''}) async {
-    final ok = await Calls.open(Calls.link(room: room, video: video, peer: peer, name: name, lang: locale.languageCode));
-    if (!ok) say(_t('تعذّر فتح المكالمة. تأكد من وجود متصفح على الجهاز.', 'Could not open the call. Make sure a browser is installed.'), bad: true);
+    final nav = navigatorKey.currentState;
+    if (nav == null || _inCall) return;
+    _inCall = true;
+    try {
+      await nav.push(MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => LiveCallScreen(room: room, video: video, peerName: peer, myName: name),
+      ));
+    } finally {
+      _inCall = false;
+    }
   }
 
   /// Calls the other person in a chat: sends them a "join call" message (and a pop-up if their app is open),
@@ -1084,7 +1096,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _incomingCall(String who, String room, bool video) {
-    if (_ringing != null) return; // already ringing
+    if (_ringing != null || _inCall) return; // already ringing / already in a call
     _ringing = (room: room, video: video, who: who);
     Ringer.ring(
       title: who,

@@ -141,7 +141,7 @@
     pc.onconnectionstatechange = () => {
       const s = pc.connectionState;
       if (s === "connected") onConnected();
-      else if (s === "failed") { status(T.failed); note(T.failed); }
+      else if (s === "failed") { status(T.failed); note(T.failed); if (peerId && me < peerId) pc.restartIce && pc.restartIce(); }
       else if (s === "disconnected" && connected) status(T.connecting);
     };
     pendingIce = [];
@@ -149,7 +149,7 @@
 
   function onConnected() {
     if (connected) { status(T.connected); return; }
-    connected = true; clearTimeout(ringTimer); note("");
+    connected = true; clearTimeout(ringTimer); note(""); $("stage").classList.remove("ringing");
     $("stage").classList.remove("ringing");
     startedAt = Date.now();
     clock = setInterval(() => {
@@ -185,14 +185,32 @@
     newPeer();
 
     sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
-    ch = sb.channel("dars-call-" + room, { config: { broadcast: { self: false, ack: false }, presence: { key: me } } });
+    ch = sb.channel("dars-call-" + room, { config: { broadcast: { self: false, ack: false } } });
+    const joinedAt = Date.now();
+    let peerSeen = 0, helloTimer, connectTimer;
+    const hello = () => send("hello", { name: myName, video: wantVideo, at: joinedAt });
 
+    // Same protocol as the app: hello / offer / answer / ice / busy / bye.
+    ch.on("broadcast", { event: "hello" }, ({ payload: p }) => {
+      if (!p || !p.from || p.from === me || ended) return;
+      if (peerId && p.from !== peerId) { send("busy", { to: p.from }); return; }   // two people per call
+      peerSeen = Date.now();
+      if (peerId === p.from) return;
+      peerId = p.from;
+      clearTimeout(ringTimer);
+      hello();
+      status(T.connecting);
+      clearTimeout(connectTimer);
+      connectTimer = setTimeout(() => { if (!connected) { status(T.failed); note(T.failed); } }, 25000);
+      if (me < p.from) makeOffer();                    // exactly one side starts
+    });
     ch.on("broadcast", { event: "offer" }, async ({ payload: p }) => {
       if (p.to !== me) return;
-      peerId = p.from;
+      if (peerId && peerId !== p.from) newPeer();       // the other person rejoined
+      peerId = p.from; peerSeen = Date.now(); clearTimeout(ringTimer);
       const collision = makingOffer || pc.signalingState !== "stable";
       if (collision && me > p.from) return;            // polite/impolite: the smaller id wins
-      if (collision) await Promise.all([pc.setLocalDescription({ type: "rollback" }).catch(() => {})]);
+      if (collision) await pc.setLocalDescription({ type: "rollback" }).catch(() => {});
       await pc.setRemoteDescription(p.sdp);
       await flushIce();
       await pc.setLocalDescription(await pc.createAnswer());
@@ -206,38 +224,34 @@
       if (p.to !== me) return;
       if (pc.remoteDescription) { try { await pc.addIceCandidate(p.candidate); } catch (e) {} } else pendingIce.push(p.candidate);
     });
-    ch.on("broadcast", { event: "hangup" }, ({ payload: p }) => { if (p.from === peerId) finish(T.ended); });
+    ch.on("broadcast", { event: "busy" }, ({ payload: p }) => { if (p.to === me && !peerId) finish(T.full); });
+    const left = () => {
+      if (ended) return;
+      status(T.left); connected = false; clearInterval(clock); clock = null; peerId = null;
+      $("remote").style.display = "none"; document.body.classList.remove("video-on"); newPeer();
+    };
+    ch.on("broadcast", { event: "bye" }, ({ payload: p }) => { if (p.from === peerId) left(); });
+    ch.on("broadcast", { event: "hangup" }, ({ payload: p }) => { if (p.from === peerId) left(); });
 
-    ch.on("presence", { event: "sync" }, () => {
-      const state = ch.presenceState();
-      const joinedAt = (k) => Math.min(...(state[k] || []).map((m) => m.at || 0));
-      const order = Object.keys(state).sort((a, b) => joinedAt(a) - joinedAt(b) || (a < b ? -1 : 1));
-      if (!connected && order.length > 2 && order.indexOf(me) > 1) { finish(T.full); return; }
-      const ids = order.slice(0, 2).filter((k) => k !== me);
-      if (!ids.length) {
-        if (connected && !ended) { status(T.left); connected = false; clearInterval(clock); peerId = null; newPeer(); }
-        else if (!connected) status(T.waiting);
-        return;
-      }
-      const other = ids.sort()[0];
-      if (peerId === other) return;
-      peerId = other;
-      status(T.connecting);
-      if (me < other) makeOffer();                    // exactly one side starts
+    ch.subscribe((s) => {
+      if (s === "SUBSCRIBED") {
+        status(T.waiting); hello();
+        clearInterval(helloTimer);
+        helloTimer = setInterval(() => {
+          if (ended) return clearInterval(helloTimer);
+          if (!connected) hello();
+          if (peerId && !connected && Date.now() - peerSeen > 20000) left();
+        }, 3000);
+      } else if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") { if (!peerId) { status(T.offline); note(T.offline); } }
     });
 
-    ch.subscribe(async (s) => {
-      if (s === "SUBSCRIBED") { await ch.track({ name: myName, video: wantVideo, at: Date.now() }); status(T.waiting); }
-      else if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") { status(T.offline); note(T.offline); }
-    });
-
-    ringTimer = setTimeout(() => { if (!connected) { status(T.noAnswer); } }, RING_SECONDS * 1000);
+    ringTimer = setTimeout(() => { if (!peerId && !connected) status(T.noAnswer); }, RING_SECONDS * 1000);
   }
 
   function finish(msg) {
     if (ended) return; ended = true;
     clearInterval(clock); clearTimeout(ringTimer);
-    try { send("hangup", {}); } catch (e) {}
+    try { send("bye", {}); } catch (e) {}
     setTimeout(() => { try { ch && sb.removeChannel(ch); } catch (e) {} }, 300);
     try { pc && pc.close(); } catch (e) {}
     if (localStream) localStream.getTracks().forEach((t) => t.stop());
@@ -278,7 +292,7 @@
       $("local").srcObject = localStream; $("local").classList.toggle("back", facing !== "user");
     } catch (e) { facing = facing === "user" ? "environment" : "user"; }
   };
-  window.addEventListener("pagehide", () => { if (!ended) { try { send("hangup", {}); } catch (e) {} } });
+  window.addEventListener("pagehide", () => { if (!ended) { try { send("bye", {}); } catch (e) {} } });
 })();
 </script>
 </body>

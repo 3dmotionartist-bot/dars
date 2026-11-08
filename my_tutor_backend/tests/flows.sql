@@ -240,5 +240,19 @@ reset role;
 select t_as(:'tut'); set role authenticated;
 select t_ok((select count(*) from messages where kind = 'call') = 2, 'tutor receives the call invitation and the meeting link');
 reset role;
+-- call relay settings
+select t_as(:'admin'); set role authenticated;
+select admin_set_setting('turn_urls', '"turn:relay.example.com:80, turns:relay.example.com:443?transport=tcp"');
+select admin_set_setting('turn_username', '"u1"');
+select admin_set_setting('turn_credential', '"secret1"');
+reset role;
+select t_as(:'stu'); set role authenticated;
+select t_ok(jsonb_array_length(call_ice_servers() -> 0 -> 'urls') = 2 and call_ice_servers() -> 0 ->> 'credential' = 'secret1', 'signed-in users get the call relay');
+select t_ok((select count(*) from app_settings where key like 'turn%') = 0, 'relay secrets are not readable from the settings table');
+reset role;
+set role anon;
+select t_ok((select count(*) from app_settings where key like 'turn%') = 0 and (select count(*) from app_settings) > 0, 'visitors cannot see relay secrets');
+select t_err($$select call_ice_servers()$$, 'permission denied', 'visitors cannot ask for the relay');
+reset role;
 \echo
 \echo 'ALL FLOW TESTS PASSED'

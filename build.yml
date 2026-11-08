@@ -53,6 +53,16 @@ jobs:
             grep -q "android.permission.$p" android/app/src/main/AndroidManifest.xml || \
               sed -i "s#<application#<uses-permission android:name=\"android.permission.$p\"/>\n    <application#" android/app/src/main/AndroidManifest.xml
           done
+          # In-app voice / video calls (flutter_webrtc): camera + microphone, Android 6+, keep WebRTC classes in release
+          for p in CAMERA RECORD_AUDIO MODIFY_AUDIO_SETTINGS ACCESS_NETWORK_STATE CHANGE_NETWORK_STATE; do
+            grep -q "android.permission.$p\"" android/app/src/main/AndroidManifest.xml || \
+              sed -i "s#<application#<uses-permission android:name=\"android.permission.$p\"/>\n    <application#" android/app/src/main/AndroidManifest.xml
+          done
+          grep -q 'android.hardware.camera' android/app/src/main/AndroidManifest.xml || \
+            sed -i 's#<application#<uses-feature android:name="android.hardware.camera" android:required="false"/>\n    <application#' android/app/src/main/AndroidManifest.xml
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/' android/app/build.gradle* || true
+          grep -n "minSdk" android/app/build.gradle* || true
+          printf -- '-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**\n-keep class com.cloudwebrtc.webrtc.** { *; }\n' > android/app/proguard-rules.pro
           cat android/app/src/main/AndroidManifest.xml
 
       - run: flutter pub get

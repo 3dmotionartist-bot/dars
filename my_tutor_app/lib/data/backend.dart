@@ -185,6 +185,35 @@ class Backend {
   // ------------------------------------------------------------------ writes
   Future<dynamic> rpc(String fn, [Map<String, dynamic>? params]) => db.rpc(fn, params: params);
 
+  // ------------------------------------------------------------------ calls
+  /// Servers that help two phones find each other. STUN is public; the TURN relay (needed on most
+  /// mobile networks) is entered by the admin in the dashboard and handed out only to signed-in users.
+  Future<List<Map<String, dynamic>>> iceServers() async {
+    final list = <Map<String, dynamic>>[
+      {
+        'urls': ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'],
+      },
+    ];
+    try {
+      final r = await db.rpc('call_ice_servers');
+      if (r is List) {
+        for (final x in r) {
+          if (x is Map) list.add(Map<String, dynamic>.from(x));
+        }
+      }
+    } catch (_) {}
+    return list;
+  }
+
+  /// Realtime room the two sides of a call use to exchange connection details.
+  RealtimeChannel callChannel(String room) => db.channel('dars-call-$room', opts: const RealtimeChannelConfig(self: false));
+
+  Future<void> closeChannel(RealtimeChannel ch) async {
+    try {
+      await db.removeChannel(ch);
+    } catch (_) {}
+  }
+
   Future<void> updateProfile(Map<String, dynamic> values) => db.from('profiles').update(values).eq('id', uid!);
   Future<void> updateTutor(Map<String, dynamic> values) => db.from('tutor_profiles').update(values).eq('user_id', uid!);
 
