@@ -31,7 +31,12 @@ class Backend {
   /// The user id stored with the saved sign-in (known even while offline).
   String? savedUid;
 
-  Future<void> init() async {
+  Future<void>? _initOnce;
+
+  /// Safe to call many times / at the same time.
+  Future<void> init() => _initOnce ??= _init();
+
+  Future<void> _init() async {
     if (_ready || !DarsConfig.live) return;
     db = SupabaseClient(
       DarsConfig.supabaseUrl,

@@ -17,9 +17,10 @@ import '../../theme.dart';
 /// When a direct route is impossible (most mobile networks), the TURN relay set in the
 /// admin dashboard carries the call. The browser call page (my_tutor_call/) speaks the same protocol.
 class LiveCallScreen extends StatefulWidget {
-  const LiveCallScreen({super.key, required this.room, required this.video, this.peerName = '', this.myName = ''});
+  const LiveCallScreen({super.key, required this.room, required this.video, this.peerName = '', this.myName = '', this.testMode = false});
 
   final String room;
+  final bool testMode;
   final bool video;
   final String peerName;
   final String myName;
@@ -59,6 +60,12 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
   bool _closing = false;
   DateTime? _connectedAt;
 
+  // connection diagnostics (shown small at the bottom of the call screen)
+  int _sent = 0;
+  int _heard = 0;
+  String _chStatus = '…';
+  String _lastError = '';
+
   Timer? _hello;
   Timer? _ring;
   Timer? _connectTimer;
@@ -79,6 +86,7 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
 
   // ------------------------------------------------------------------ setup
   Future<void> _start() async {
+    await Backend.I.init();
     await _local.initialize();
     await _remote.initialize();
     try {
@@ -92,9 +100,12 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
               }
             : false,
       });
-    } catch (_) {
-      _set(_Phase.denied);
-      return;
+    } catch (e) {
+      _lastError = 'media: $e';
+      if (!widget.testMode) {
+        _set(_Phase.denied);
+        return;
+      }
     }
     if (!mounted) return _cleanup();
     _local.srcObject = _stream;
@@ -161,13 +172,19 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     final ch = Backend.I.callChannel(widget.room);
     _ch = ch;
     ch
-        .onBroadcast(event: 'hello', callback: (m) => _onHello(_body(m)))
+        .onBroadcast(event: 'hello', callback: (m) {
+          _heard++;
+          _onHello(_body(m));
+        })
         .onBroadcast(event: 'offer', callback: (m) => _onOffer(_body(m)))
         .onBroadcast(event: 'answer', callback: (m) => _onAnswer(_body(m)))
         .onBroadcast(event: 'ice', callback: (m) => _onIce(_body(m)))
         .onBroadcast(event: 'busy', callback: (m) => _onBusy(_body(m)))
         .onBroadcast(event: 'bye', callback: (m) => _onBye(_body(m)))
-        .subscribe((status, _) {
+        .subscribe((status, err) {
+      _chStatus = status.name;
+      if (err != null) _lastError = '$err';
+      if (mounted) setState(() {});
       if (status == RealtimeSubscribeStatus.subscribed) {
         if (_phase == _Phase.starting) _set(_Phase.waiting);
         _sayHello();
@@ -192,8 +209,15 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     final ch = _ch;
     if (ch == null) return;
     try {
-      await ch.sendBroadcastMessage(event: event, payload: {'from': _me, ...payload});
-    } catch (_) {}
+      // Same message shape as the web call page: {type, event, payload: {...}}.
+      final r = await ch.sendBroadcastMessage(event: event, payload: {
+        'payload': {'from': _me, ...payload},
+      });
+      _sent++;
+      if ('$r' != 'ChannelResponse.ok') _lastError = 'send: $r';
+    } catch (e) {
+      _lastError = 'send: $e';
+    }
   }
 
   void _sayHello() {
@@ -554,6 +578,18 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
                   ),
                 ),
               ),
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: MediaQuery.of(context).padding.bottom + 110,
+              child: Text(
+                'ch $_chStatus · sent $_sent · heard $_heard · peer ${_peer == null ? '-' : 'ok'}${_hasRelay ? ' · relay' : ''}${_lastError.isEmpty ? '' : ' · $_lastError'}',
+                key: const Key('call-diag'),
+                textAlign: TextAlign.center,
+                maxLines: 3,
+                style: const TextStyle(color: Color(0x88FFFFFF), fontSize: 11),
+              ),
+            ),
             Positioned(
               left: 0,
               right: 0,

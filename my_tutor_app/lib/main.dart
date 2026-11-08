@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
 import 'data/models.dart';
 import 'screens/onboarding/welcome_screen.dart';
+import 'screens/shared/live_call_screen.dart';
 import 'screens/student/student_shell.dart';
 import 'screens/tutor/tutor_shell.dart';
 import 'state/app_state.dart';
@@ -21,7 +23,11 @@ class DarsApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     Widget home;
-    if (app.booting) {
+    // Web app connection test: /app/?calltest=<room> joins that call room directly (no sign-in, no camera needed).
+    final testRoom = kIsWeb ? (Uri.base.queryParameters['calltest'] ?? '') : '';
+    if (RegExp(r'^[a-zA-Z0-9-]{8,64}$').hasMatch(testRoom)) {
+      home = LiveCallScreen(room: testRoom, video: false, myName: 'Test', testMode: true);
+    } else if (app.booting) {
       home = const _Splash();
     } else if (!app.loggedIn) {
       home = const WelcomeScreen();
