@@ -47,6 +47,13 @@ jobs:
           # Calls open in the browser: let the app find one
           grep -q 'android:scheme="https"' android/app/src/main/AndroidManifest.xml || \
             sed -i 's#<queries>#<queries>\n        <intent><action android:name="android.intent.action.VIEW"/><data android:scheme="https"/></intent>#' android/app/src/main/AndroidManifest.xml
+          # Ringing phone for incoming calls + message notifications (android_src/MainActivity.kt)
+          cp android_src/MainActivity.kt android/app/src/main/kotlin/com/dars/my_tutor_app/MainActivity.kt
+          for p in POST_NOTIFICATIONS USE_FULL_SCREEN_INTENT VIBRATE; do
+            grep -q "android.permission.$p" android/app/src/main/AndroidManifest.xml || \
+              sed -i "s#<application#<uses-permission android:name=\"android.permission.$p\"/>\n    <application#" android/app/src/main/AndroidManifest.xml
+          done
+          cat android/app/src/main/AndroidManifest.xml
 
       - run: flutter pub get
 

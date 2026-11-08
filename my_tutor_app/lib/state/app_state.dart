@@ -1,7 +1,11 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase/supabase.dart' show RealtimeChannel;
 
 import '../config.dart';
@@ -9,7 +13,9 @@ import '../data/backend.dart';
 import '../data/mock_data.dart';
 import '../data/models.dart';
 import '../l10n.dart';
+import '../screens/shared/incoming_call_screen.dart';
 import '../services/calls.dart';
+import '../services/ringer.dart';
 
 /// Lets the state show short messages (errors, confirmations) from anywhere.
 final messengerKey = GlobalKey<ScaffoldMessengerState>();
@@ -20,9 +26,29 @@ final navigatorKey = GlobalKey<NavigatorState>();
 /// Single app-wide store.
 /// DEMO mode (config.dart empty): works offline with sample data.
 /// LIVE mode: every action goes to the Supabase backend — the same data the admin dashboard manages.
-class AppState extends ChangeNotifier {
+class AppState extends ChangeNotifier with WidgetsBindingObserver {
   AppState() {
+    WidgetsBinding.instance.addObserver(this);
     if (live) _boot();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState s) {
+    _foreground = s == AppLifecycleState.resumed;
+    if (_foreground && live && loggedIn) _resume();
+  }
+
+  bool _foreground = true;
+
+  /// Coming back to the app: wake the sign-in up again and fetch anything missed.
+  Future<void> _resume() async {
+    _handleLaunchAction();
+    if (await _b.restore()) {
+      _startRealtime();
+      await refresh();
+    } else {
+      _scheduleRestore();
+    }
   }
 
   final bool live = DarsConfig.live;
@@ -142,17 +168,91 @@ class AppState extends ChangeNotifier {
   Future<void> _boot() async {
     try {
       await _b.init();
-      await _loadTutors();
-      if (_b.uid != null && await _loadProfile()) {
-        loggedIn = true;
-        await refresh();
-        _startRealtime();
-      }
     } catch (e) {
       _error(e);
     }
+    try {
+      await _loadTutors();
+    } catch (_) {/* offline — retried on refresh */}
+    if (_b.hasSavedSession) {
+      var ok = false;
+      if (_b.uid != null) {
+        try {
+          ok = await _loadProfile();
+          if (ok) await _saveProfileCache();
+        } catch (_) {
+          ok = await _readProfileCache(); // signed in, but the server is unreachable right now
+        }
+      } else {
+        ok = await _readProfileCache(); // saved sign-in could not be refreshed yet (offline)
+        if (ok) _scheduleRestore();
+      }
+      if (ok) {
+        loggedIn = true;
+        if (_b.uid != null) {
+          await refresh();
+          _startRealtime();
+        }
+      }
+    }
     booting = false;
     notifyListeners();
+    if (loggedIn) {
+      Ringer.askPermission();
+      Future.delayed(const Duration(seconds: 2), _handleLaunchAction);
+    }
+  }
+
+  // ---- staying signed in ----
+  static const _profileKey = 'dars.profile';
+  Timer? _restoreTimer;
+
+  Future<void> _saveProfileCache() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setString(_profileKey, jsonEncode({'uid': _b.uid, 'role': role.name, 'name': name, 'phone': phone, 'locale': locale.languageCode}));
+    } catch (_) {}
+  }
+
+  Future<bool> _readProfileCache() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final raw = p.getString(_profileKey);
+      if (raw == null) return false;
+      final m = jsonDecode(raw) as Map<String, dynamic>;
+      if (m['uid'] != (_b.uid ?? _b.savedUid)) return false;
+      role = UserRole.values.firstWhere((r) => r.name == m['role'], orElse: () => UserRole.student);
+      name = '${m['name'] ?? ''}';
+      phone = '${m['phone'] ?? ''}';
+      if (m['locale'] == 'en' || m['locale'] == 'ar') locale = Locale(m['locale'] as String);
+      return name.trim().isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Keeps trying to wake the saved sign-in up (e.g. the phone was offline when the app opened).
+  void _scheduleRestore() {
+    if (_restoreTimer?.isActive ?? false) return;
+    _restoreTimer = Timer.periodic(const Duration(seconds: 10), (t) async {
+      if (!loggedIn) {
+        t.cancel();
+        return;
+      }
+      if (!await _b.restore()) {
+        if (!_b.hasSavedSession) {
+          t.cancel();
+          await logout(); // the account was signed out elsewhere / revoked
+        }
+        return;
+      }
+      t.cancel();
+      try {
+        if (await _loadProfile()) await _saveProfileCache();
+      } catch (_) {}
+      _startRealtime();
+      await refresh();
+    });
   }
 
   /// Reloads everything for the signed-in user (pull-to-refresh, after actions).
@@ -301,6 +401,7 @@ class AppState extends ChangeNotifier {
       byConv.putIfAbsent('${m['conversation_id']}', () => []).add(m);
     }
     final next = <Conversation>[];
+    final pendingAnnounce = <(String, Message)>[];
     for (final r in rows) {
       final id = '${r['id']}';
       final other = others[id]!;
@@ -313,6 +414,12 @@ class AppState extends ChangeNotifier {
       Conversation? c;
       for (final x in conversations) {
         if (x.id == id) c = x;
+      }
+      if (_seenReady) {
+        final known = c?.messages.map((x) => x.remoteId).toSet() ?? const <int>{};
+        for (final m in messages) {
+          if (!m.mine && m.remoteId != 0 && !known.contains(m.remoteId)) pendingAnnounce.add((id, m));
+        }
       }
       if (c != null) {
         c.messages
@@ -340,6 +447,13 @@ class AppState extends ChangeNotifier {
       ..clear()
       ..addAll(pending)
       ..addAll(next);
+    // Messages that arrived while realtime was asleep (app in background, poll fallback).
+    for (final (id, m) in pendingAnnounce) {
+      for (final c in next) {
+        if (c.id == id) _announce(c, m);
+      }
+    }
+    _seenReady = true;
   }
 
   Future<void> _loadLiveRequests() async {
@@ -425,7 +539,7 @@ class AppState extends ChangeNotifier {
       }
     }
     c.messages.add(m);
-    if (m.type == MsgType.call && !m.mine && DateTime.now().difference(m.time).inMinutes < 2) _incomingCall(c, m);
+    _announce(c, m);
     if (!m.mine) {
       if (identical(c, activeConversation)) {
         _b.markRead(c.id).catchError((_) {});
@@ -439,6 +553,8 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _restoreTimer?.cancel();
     _stopRealtime();
     super.dispose();
   }
@@ -470,6 +586,8 @@ class AppState extends ChangeNotifier {
   Future<bool> _afterSignIn() async {
     final ready = await _loadProfile();
     if (ready) {
+      await _saveProfileCache();
+      Ringer.askPermission();
       loggedIn = true;
       await refresh();
       _startRealtime();
@@ -480,6 +598,8 @@ class AppState extends ChangeNotifier {
 
   void login({required UserRole asRole, required String phoneNumber}) {
     if (live) {
+      _saveProfileCache();
+      Ringer.askPermission();
       loggedIn = true;
       notifyListeners();
       refresh();
@@ -505,7 +625,11 @@ class AppState extends ChangeNotifier {
     loggedIn = false;
     notifyListeners();
     if (!live) return;
+    _restoreTimer?.cancel();
     _stopRealtime();
+    try {
+      (await SharedPreferences.getInstance()).remove(_profileKey);
+    } catch (_) {}
     try {
       await _b.signOut();
     } catch (_) {}
@@ -927,34 +1051,90 @@ class AppState extends ChangeNotifier {
     return joinCall(room: 'lesson-${l.id}', video: true, peer: other);
   }
 
-  void _incomingCall(Conversation c, Message m) {
-    final inv = Calls.parse(m.text);
-    final ctx = navigatorKey.currentContext;
-    if (inv == null || ctx == null) return;
+  // ---- ringing & notifications ----
+  bool _seenReady = false;
+  final Set<int> _announced = {};
+  Route<void>? _ringRoute;
+  ({String room, bool video, String who})? _ringing;
+
+  /// Something new arrived from the other person: ring for calls, notify for messages.
+  void _announce(Conversation c, Message m) {
+    if (m.mine) return;
+    if (m.remoteId != 0 && !_announced.add(m.remoteId)) return;
     final who = _nameOf(c.name);
-    showDialog<void>(
-      context: ctx,
-      builder: (d) => AlertDialog(
-        icon: Icon(inv.video ? Icons.videocam_rounded : Icons.call_rounded, color: const Color(0xFF0E8F7E), size: 40),
-        title: Text(who, textAlign: TextAlign.center),
-        content: Text(
-          inv.video ? _t('مكالمة فيديو واردة', 'Incoming video call') : _t('مكالمة صوتية واردة', 'Incoming voice call'),
-          textAlign: TextAlign.center,
-        ),
-        actionsAlignment: MainAxisAlignment.spaceEvenly,
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(d), child: Text(_t('رفض', 'Decline'), style: const TextStyle(color: Color(0xFFE5484D)))),
-          FilledButton.icon(
-            onPressed: () {
-              Navigator.pop(d);
-              joinCall(room: inv.room, video: inv.video, peer: who);
-            },
-            icon: const Icon(Icons.call_rounded),
-            label: Text(_t('انضم', 'Join')),
-          ),
-        ],
+    if (m.type == MsgType.call) {
+      final inv = Calls.parse(m.text);
+      if (inv == null) return;
+      if (inv.meet) {
+        Ringer.notify(title: who, body: _t('أرسل رابط اجتماع', 'sent a meeting link'));
+        return;
+      }
+      if (DateTime.now().difference(m.time).inSeconds.abs() > 60) return; // an old call — don't ring
+      _incomingCall(who, inv.room, inv.video);
+      return;
+    }
+    if (!_foreground || kIsWeb) {
+      final body = switch (m.type) {
+        MsgType.voice => _t('🎤 رسالة صوتية', '🎤 Voice message'),
+        MsgType.file => _t('📎 ملف', '📎 File'),
+        _ => m.text,
+      };
+      Ringer.notify(title: who, body: body);
+    }
+  }
+
+  void _incomingCall(String who, String room, bool video) {
+    if (_ringing != null) return; // already ringing
+    _ringing = (room: room, video: video, who: who);
+    Ringer.ring(
+      title: who,
+      body: video ? _t('مكالمة فيديو واردة', 'Incoming video call') : _t('مكالمة صوتية واردة', 'Incoming voice call'),
+      joinLabel: _t('انضم', 'Join'),
+    );
+    final nav = navigatorKey.currentState;
+    if (nav == null) return;
+    _ringRoute = MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (_) => IncomingCallScreen(
+        name: who,
+        video: video,
+        onAccept: () => _answer(true),
+        onDecline: () => _answer(false),
+        onTimeout: () {
+          _answer(false);
+          say(_t('مكالمة فائتة من $who', 'Missed call from $who'));
+        },
       ),
     );
+    nav.push(_ringRoute!);
+  }
+
+  /// Accept or decline the call that is ringing now.
+  void _answer(bool accept) {
+    final call = _ringing;
+    _ringing = null;
+    Ringer.stop();
+    final r = _ringRoute;
+    _ringRoute = null;
+    if (r != null && r.isActive) navigatorKey.currentState?.removeRoute(r);
+    if (accept && call != null) joinCall(room: call.room, video: call.video, peer: call.who);
+  }
+
+  /// Opened from the ringing notification ("Join" button / tap).
+  Future<void> _handleLaunchAction() async {
+    final a = await Ringer.takeLaunchAction();
+    if (a == 'join' && _ringing != null) _answer(true);
+  }
+
+  /// Sends a meeting link into the chat (anyone in the chat can join it any time) and returns the link.
+  Future<String> createMeeting(Conversation c) async {
+    final room = Calls.newRoom();
+    final m = Message(mine: true, text: Calls.meeting(room), time: DateTime.now(), type: MsgType.call);
+    c.messages.add(m);
+    if (conversations.remove(c)) conversations.insert(0, c);
+    notifyListeners();
+    if (live) await _push(c, m);
+    return Calls.shareLink(room);
   }
 
   // =====================================================================

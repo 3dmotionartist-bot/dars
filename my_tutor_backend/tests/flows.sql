@@ -231,11 +231,14 @@ select t_as(:'stu'); set role authenticated;
 insert into messages (conversation_id, sender_id, kind, body)
   select id, auth.uid(), 'call', 'video:0a1b2c3d4e5f6a7b' from conversations where student_id = :'stu' and tutor_id = :'tut';
 select t_ok((select count(*) from messages where kind = 'call' and not blocked) = 1, 'student can invite the tutor to a video call');
+insert into messages (conversation_id, sender_id, kind, body)
+  select id, auth.uid(), 'call', 'meet:kqzpt-mwhra-bcdeg-xyzab' from conversations where student_id = :'stu' and tutor_id = :'tut';
+select t_ok((select count(*) from messages where kind = 'call' and body like 'meet:%') = 1, 'student can share a meeting link');
 select t_err($$insert into messages (conversation_id, sender_id, kind, body)
   select id, auth.uid(), 'call', 'call me on +1 555 123 4567' from conversations limit 1$$, 'messages_call_body', 'call messages cannot carry free text');
 reset role;
 select t_as(:'tut'); set role authenticated;
-select t_ok((select body from messages where kind = 'call') = 'video:0a1b2c3d4e5f6a7b', 'tutor receives the call invitation');
+select t_ok((select count(*) from messages where kind = 'call') = 2, 'tutor receives the call invitation and the meeting link');
 reset role;
 \echo
 \echo 'ALL FLOW TESTS PASSED'

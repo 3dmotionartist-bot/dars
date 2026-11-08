@@ -755,7 +755,9 @@
     return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error("Could not load " + src)); document.head.appendChild(s); });
   }
   async function afterLogin(user) {
-    const { data: prof } = await sb.from("profiles").select("role, full_name").eq("id", user.id).single();
+    const { data: prof, error } = await sb.from("profiles").select("role, full_name").eq("id", user.id).maybeSingle();
+    // A network hiccup must not sign the admin out — keep the saved session and try again shortly.
+    if (error && !prof) { S.user = null; S.loginError = (error.message || "Network error") + " — retrying…"; render(); setTimeout(() => afterLogin(user), 5000); return; }
     if (!prof || prof.role !== "admin") { await sb.auth.signOut(); S.loginError = t("not_admin"); S.user = null; return render(); }
     S.user = { id: user.id, name: prof.full_name || user.email }; S.loginError = null;
     go(PAGES.includes(location.hash.slice(1)) ? location.hash.slice(1) : "overview");
@@ -765,7 +767,9 @@
       S.mode = "live";
       try {
         await loadScript(SUPABASE_CDN);
-        sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
+        sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, {
+          auth: { persistSession: true, autoRefreshToken: true },
+        });
         api = liveApi(sb);
         S.ready = true;
         const { data } = await sb.auth.getSession();

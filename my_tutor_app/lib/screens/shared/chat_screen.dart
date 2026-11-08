@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:provider/provider.dart';
 
 import '../../data/models.dart';
@@ -9,6 +10,7 @@ import '../../services/calls.dart';
 import '../../state/app_state.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../student/booking_screen.dart';
 import 'call_screen.dart';
 
@@ -120,8 +122,23 @@ class _ChatScreenState extends State<ChatScreen> {
             icon: const Icon(Icons.videocam_outlined, color: AppColors.primary),
           ),
           PopupMenuButton<String>(
-            onSelected: (_) => toast(context, context.tr('report_sent')),
-            itemBuilder: (_) => [PopupMenuItem(value: 'report', child: Text(context.tr('report_chat')))],
+            onSelected: (v) async {
+              if (v == 'meeting') {
+                final link = await app.createMeeting(c);
+                await Clipboard.setData(ClipboardData(text: link));
+                if (context.mounted) toast(context, context.tr('meeting_created'));
+              } else {
+                toast(context, context.tr('report_sent'));
+              }
+            },
+            itemBuilder: (_) => [
+              if (app.live)
+                PopupMenuItem(
+                  value: 'meeting',
+                  child: Row(children: [const Icon(Icons.add_link_rounded, color: AppColors.primary), const SizedBox(width: 10), Text(context.tr('create_meeting'))]),
+                ),
+              PopupMenuItem(value: 'report', child: Text(context.tr('report_chat'))),
+            ],
           ),
         ],
       ),
@@ -262,29 +279,33 @@ class _Bubble extends StatelessWidget {
       case MsgType.call:
         final inv = Calls.parse(m.text);
         final video = inv?.video ?? false;
+        final meet = inv?.meet ?? false;
         content = Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
           Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(video ? Icons.videocam_rounded : Icons.call_rounded, color: fg),
+            Icon(meet ? Icons.link_rounded : (video ? Icons.videocam_rounded : Icons.call_rounded), color: fg),
             const SizedBox(width: 8),
-            Text(context.tr(video ? 'video_call' : 'voice_call'), style: TextStyle(color: fg, fontWeight: FontWeight.w800)),
+            Text(context.tr(meet ? 'meeting_link' : (video ? 'video_call' : 'voice_call')), style: TextStyle(color: fg, fontWeight: FontWeight.w800)),
           ]),
+          if (inv != null && meet) ...[
+            const SizedBox(height: 6),
+            SelectableText(Calls.shareLink(inv.room), style: TextStyle(color: fg.withOpacity(0.85), fontSize: 12.5, height: 1.4)),
+          ],
           if (inv != null) ...[
             const SizedBox(height: 8),
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: m.mine ? Colors.white : AppColors.primary,
-                foregroundColor: m.mine ? AppColors.primary : Colors.white,
-                minimumSize: const Size(0, 38),
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-              ),
-              onPressed: () {
-                final app = context.read<AppState>();
-                final c = app.activeConversation;
-                app.joinCall(room: inv.room, video: inv.video, peer: c == null ? '' : c.name.of(context));
-              },
-              icon: const Icon(Icons.login_rounded, size: 18),
-              label: Text(context.tr('join_call')),
-            ),
+            Wrap(spacing: 8, runSpacing: 6, children: [
+              _JoinButton(mine: m.mine, label: context.tr(meet ? 'join_meeting' : 'join_call'), onTap: () => _join(context, inv.room, inv.video)),
+              if (meet)
+                _JoinButton(
+                  mine: m.mine,
+                  outlined: true,
+                  icon: Icons.copy_rounded,
+                  label: context.tr('copy_link'),
+                  onTap: () async {
+                    await Clipboard.setData(ClipboardData(text: Calls.shareLink(inv.room)));
+                    if (context.mounted) toast(context, context.tr('link_copied'));
+                  },
+                ),
+            ]),
           ],
         ]);
         break;
@@ -296,7 +317,24 @@ class _Bubble extends StatelessWidget {
         ]);
         break;
       default:
-        content = Text(m.text, style: TextStyle(color: fg, height: 1.5));
+        final meetLink = Calls.fromUrl(m.text);
+        final url = meetLink == null ? RegExp(r'https?://[^\s]+').firstMatch(m.text)?.group(0) : null;
+        content = Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          SelectableText(m.text, style: TextStyle(color: fg, height: 1.5)),
+          if (meetLink != null) ...[
+            const SizedBox(height: 8),
+            _JoinButton(mine: m.mine, label: context.tr('join_meeting'), onTap: () => _join(context, meetLink.room, meetLink.video)),
+          ] else if (url != null) ...[
+            const SizedBox(height: 8),
+            _JoinButton(
+              mine: m.mine,
+              outlined: true,
+              icon: Icons.open_in_new_rounded,
+              label: context.tr('open_link'),
+              onTap: () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication, webOnlyWindowName: '_blank'),
+            ),
+          ],
+        ]);
     }
 
     return Align(
@@ -323,6 +361,40 @@ class _Bubble extends StatelessWidget {
           ]),
         ),
       ),
+    );
+  }
+}
+
+void _join(BuildContext context, String room, bool video) {
+  final app = context.read<AppState>();
+  final c = app.activeConversation;
+  app.joinCall(room: room, video: video, peer: c == null ? '' : c.name.of(context));
+}
+
+class _JoinButton extends StatelessWidget {
+  const _JoinButton({required this.mine, required this.label, required this.onTap, this.outlined = false, this.icon = Icons.login_rounded});
+  final bool mine;
+  final bool outlined;
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final strong = mine ? Colors.white : AppColors.primary;
+    final weak = mine ? AppColors.primary : Colors.white;
+    return ElevatedButton.icon(
+      style: ElevatedButton.styleFrom(
+        elevation: 0,
+        backgroundColor: outlined ? Colors.transparent : strong,
+        foregroundColor: outlined ? strong : weak,
+        side: outlined ? BorderSide(color: strong) : null,
+        minimumSize: const Size(0, 38),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+      ),
+      onPressed: onTap,
+      icon: Icon(icon, size: 18),
+      label: Text(label),
     );
   }
 }

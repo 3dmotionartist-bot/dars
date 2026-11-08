@@ -25,6 +25,12 @@ class Backend {
   bool get ready => _ready;
   String? get uid => _ready ? db.auth.currentUser?.id : null;
 
+  /// A saved sign-in exists on this device, even if it could not be refreshed yet (no internet).
+  bool hasSavedSession = false;
+
+  /// The user id stored with the saved sign-in (known even while offline).
+  String? savedUid;
+
   Future<void> init() async {
     if (_ready || !DarsConfig.live) return;
     db = SupabaseClient(
@@ -33,24 +39,59 @@ class Backend {
       authOptions: const AuthClientOptions(authFlowType: AuthFlowType.implicit),
     );
     _ready = true;
-    // Keep the user signed in between app launches.
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString(_sessionKey);
-    if (saved != null) {
-      try {
-        await db.auth.recoverSession(saved);
-      } catch (_) {
-        await prefs.remove(_sessionKey);
-      }
-    }
     _authSub = db.auth.onAuthStateChange.listen((s) async {
       final p = await SharedPreferences.getInstance();
       if (s.session != null) {
+        hasSavedSession = true;
+        savedUid = s.session!.user.id;
         await p.setString(_sessionKey, jsonEncode(s.session!.toJson()));
-      } else if (s.event == AuthChangeEvent.signedOut) {
+      } else if (s.event == AuthChangeEvent.signedOut && !_restoring) {
+        hasSavedSession = false;
+        savedUid = null;
         await p.remove(_sessionKey);
       }
     });
+    // Keep the user signed in between app launches — only "Sign out" (or a revoked account) ends it.
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_sessionKey);
+    if (saved != null) {
+      hasSavedSession = true;
+      try {
+        savedUid = ((jsonDecode(saved) as Map)['user'] as Map?)?['id'] as String?;
+      } catch (_) {}
+      await restore();
+    }
+  }
+
+  bool _restoring = false;
+
+  /// Re-activates the saved sign-in. Returns true when signed in. A network problem keeps the
+  /// saved sign-in (we simply try again later); only a rejected/expired-for-good token removes it.
+  Future<bool> restore() async {
+    if (!_ready) return false;
+    if (db.auth.currentSession != null && !db.auth.currentSession!.isExpired) return true;
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_sessionKey);
+    if (saved == null) return db.auth.currentUser != null;
+    _restoring = true;
+    try {
+      await db.auth.recoverSession(saved);
+      return db.auth.currentUser != null;
+    } on AuthException catch (e) {
+      final code = int.tryParse(e.statusCode ?? '') ?? 0;
+      final msg = e.message.toLowerCase();
+      final rejected = (code >= 400 && code < 500) || msg.contains('refresh token') || msg.contains('invalid');
+      if (rejected) {
+        hasSavedSession = false;
+        savedUid = null;
+        await prefs.remove(_sessionKey);
+      }
+      return false;
+    } catch (_) {
+      return false; // offline / server unreachable — keep the saved sign-in
+    } finally {
+      _restoring = false;
+    }
   }
 
   Future<void> dispose() async {
@@ -82,7 +123,15 @@ class Backend {
     }
   }
 
-  Future<void> signOut() => db.auth.signOut();
+  Future<void> signOut() async {
+    hasSavedSession = false;
+    savedUid = null;
+    final p = await SharedPreferences.getInstance();
+    await p.remove(_sessionKey);
+    try {
+      await db.auth.signOut();
+    } catch (_) {}
+  }
 
   // ------------------------------------------------------------------ reads
   Future<Map<String, dynamic>?> myProfile() => db.from('profiles').select().eq('id', uid!).maybeSingle();
