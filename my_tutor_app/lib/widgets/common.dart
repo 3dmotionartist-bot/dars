@@ -148,7 +148,8 @@ class Avatar extends StatelessWidget {
   final double size;
   final bool online;
   final bool verified;
-  const Avatar({super.key, required this.name, required this.color, this.size = 56, this.online = false, this.verified = false});
+  final String photo; // profile photo link ('' = initials)
+  const Avatar({super.key, required this.name, required this.color, this.size = 56, this.online = false, this.verified = false, this.photo = ''});
   @override
   Widget build(BuildContext context) {
     final n = name.of(context).replaceAll(RegExp(r'^(م\.|أ\.|د\.|الشيخ|Dr\.)\s*'), '');
@@ -165,7 +166,16 @@ class Avatar extends StatelessWidget {
             gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [color.withOpacity(0.85), color]),
           ),
           alignment: Alignment.center,
-          child: Text(initial, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: size * 0.42, height: 1.2)),
+          clipBehavior: Clip.antiAlias,
+          child: photo.isEmpty
+              ? Text(initial, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: size * 0.42, height: 1.2))
+              : Image.network(
+                  photo,
+                  width: size,
+                  height: size,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Text(initial, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: size * 0.42, height: 1.2)),
+                ),
         ),
         if (online)
           PositionedDirectional(
@@ -297,7 +307,7 @@ class TutorCard extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Avatar(name: t.name, color: t.color, size: 64, online: t.available),
+          Avatar(name: t.name, color: t.color, photo: t.photoUrl, size: 64, online: t.available),
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

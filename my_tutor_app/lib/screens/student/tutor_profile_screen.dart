@@ -7,6 +7,8 @@ import '../../l10n.dart';
 import '../../state/app_state.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../../widgets/media.dart';
+import '../shared/edit_profile_screen.dart';
 import '../shared/chat_screen.dart';
 import 'booking_screen.dart';
 
@@ -33,7 +35,7 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
       padding: const EdgeInsets.all(18),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Avatar(name: t.name, color: t.color, size: 84, online: t.available),
+          Avatar(name: t.name, color: t.color, photo: t.photoUrl, size: 84, online: t.available),
           const SizedBox(width: 14),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -59,8 +61,13 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
       ]),
     );
 
+    final mine = app.isMe(t);
+    final hasVideo = t.videoUrl.isNotEmpty;
     final video = AppCard(
       padding: EdgeInsets.zero,
+      onTap: hasVideo
+          ? () => Navigator.push(context, MaterialPageRoute(builder: (_) => VideoPlayerScreen(stored: t.videoUrl, title: t.name.of(context))))
+          : (mine ? () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfileScreen())) : null),
       child: AspectRatio(
         aspectRatio: 16 / 9,
         child: Container(
@@ -73,12 +80,16 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
               width: 64,
               height: 64,
               decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-              child: Icon(Icons.play_arrow_rounded, size: 40, color: t.color),
+              child: Icon(hasVideo ? Icons.play_arrow_rounded : (mine ? Icons.video_call_rounded : Icons.videocam_off_rounded), size: 38, color: t.color),
             ),
             PositionedDirectional(
               bottom: 12,
               start: 14,
-              child: Text(context.tr('intro_video'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+              end: 14,
+              child: Text(
+                hasVideo ? context.tr('intro_video') : context.tr(mine ? 'add_intro_video' : 'no_intro_video'),
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+              ),
             ),
           ]),
         ),
@@ -204,6 +215,13 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
         backgroundColor: AppColors.surface,
         surfaceTintColor: AppColors.surface,
         actions: [
+          if (mine)
+            TextButton.icon(
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfileScreen())),
+              icon: const Icon(Icons.edit_outlined),
+              label: Text(context.tr('edit_profile')),
+            ),
+          if (!mine)
           IconButton(
             onPressed: () => app.toggleFavorite(t.id),
             icon: Icon(app.favorites.contains(t.id) ? Icons.favorite_rounded : Icons.favorite_border_rounded, color: app.favorites.contains(t.id) ? AppColors.danger : null),
@@ -230,7 +248,20 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
           decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: AppColors.line))),
           child: MaxWidth(
             max: 1180,
-            child: Row(children: [
+            child: mine
+                ? Row(children: [
+                    Expanded(
+                      child: Text(context.tr('own_profile_note'), style: const TextStyle(color: AppColors.text2, height: 1.4)),
+                    ),
+                    const SizedBox(width: 10),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(minimumSize: const Size(0, 50)),
+                      onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfileScreen())),
+                      icon: const Icon(Icons.edit_rounded),
+                      label: Text(context.tr('edit_profile')),
+                    ),
+                  ])
+                : Row(children: [
               Expanded(
                 child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text('${money(levelPrice.round())}${context.tr('per_hour')}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),

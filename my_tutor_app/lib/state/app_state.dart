@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -16,6 +17,7 @@ import '../l10n.dart';
 import '../screens/shared/incoming_call_screen.dart';
 import '../screens/shared/live_call_screen.dart';
 import '../services/calls.dart';
+import '../services/media_bridge.dart';
 import '../services/ringer.dart';
 
 /// Lets the state show short messages (errors, confirmations) from anywhere.
@@ -44,6 +46,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   /// Coming back to the app: wake the sign-in up again and fetch anything missed.
   Future<void> _resume() async {
     _handleLaunchAction();
+    checkLaunchLink();
     if (await _b.restore()) {
       _startRealtime();
       await refresh();
@@ -68,7 +71,15 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   String curriculumId = 'syrian';
   final Set<String> interests = {'math', 'english'};
 
-  // ---------- navigation (student tabs) ----------
+  String avatarUrl = ''; // my profile photo
+
+  // ---------- navigation ----------
+  int tutorTab = 0;
+  void goTutorTab(int i) {
+    tutorTab = i;
+    notifyListeners();
+  }
+
   int studentTab = 0;
   String? subjectFilter;
   void goTab(int i, {String? subject}) {
@@ -202,6 +213,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       Ringer.askPermission();
       Future.delayed(const Duration(seconds: 2), _handleLaunchAction);
     }
+    Future.delayed(const Duration(milliseconds: 1500), checkLaunchLink);
   }
 
   // ---- staying signed in ----
@@ -211,7 +223,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _saveProfileCache() async {
     try {
       final p = await SharedPreferences.getInstance();
-      await p.setString(_profileKey, jsonEncode({'uid': _b.uid, 'role': role.name, 'name': name, 'phone': phone, 'locale': locale.languageCode}));
+      await p.setString(_profileKey, jsonEncode({'uid': _b.uid, 'role': role.name, 'name': name, 'phone': phone, 'avatar': avatarUrl, 'locale': locale.languageCode}));
     } catch (_) {}
   }
 
@@ -225,6 +237,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       role = UserRole.values.firstWhere((r) => r.name == m['role'], orElse: () => UserRole.student);
       name = '${m['name'] ?? ''}';
       phone = '${m['phone'] ?? ''}';
+      avatarUrl = '${m['avatar'] ?? ''}';
       if (m['locale'] == 'en' || m['locale'] == 'ar') locale = Locale(m['locale'] as String);
       return name.trim().isNotEmpty;
     } catch (_) {
@@ -280,6 +293,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     final r = '${p['role']}';
     role = r == 'tutor' ? UserRole.tutor : (r == 'parent' ? UserRole.parent : UserRole.student);
     name = (p['full_name'] as String?) ?? '';
+    avatarUrl = (p['avatar_url'] as String?) ?? '';
     phone = (p['phone'] as String?) ?? (p['email'] as String?) ?? '';
     levelId = (p['level_id'] as String?) ?? levelId;
     curriculumId = (p['curriculum_id'] as String?) ?? curriculumId;
@@ -296,7 +310,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     packagesEnabled = ((tp['max_package_discount'] as num?) ?? 0) > 0;
     realtimeMode = tp['realtime_any_time'] == false ? 'working' : 'any';
     final subjects = await _b.mySubjects();
-    _me = Backend.tutorFromRow({...tp, 'id': _b.uid, 'full_name': name, 'subject_ids': subjects});
+    _me = Backend.tutorFromRow({...tp, 'id': _b.uid, 'full_name': name, 'subject_ids': subjects, 'avatar_url': avatarUrl});
     return name.trim().isNotEmpty && '${tp['headline'] ?? ''}'.trim().isNotEmpty;
   }
 
@@ -393,7 +407,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _loadConversations() async {
     final uid = _b.uid!;
-    final rows = await _b.conversations();
+    // Hide any old chat someone opened with themselves.
+    final rows = (await _b.conversations()).where((r) => r['student_id'] != r['tutor_id']).toList();
     final others = {for (final r in rows) '${r['id']}': '${r['student_id'] == uid ? r['tutor_id'] : r['student_id']}'};
     final names = await _b.names(others.values);
     final msgs = await _b.messagesFor(rows.map((r) => '${r['id']}').toList());
@@ -491,6 +506,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         onNotification: (r) {
           final n = Backend.notificationFromRow(r);
           notifications.insert(0, n);
+          if (!_foreground || kIsWeb) Ringer.notify(title: _t(n.title.ar, n.title.en), body: _t(n.body.ar, n.body.en));
           final title = '${r['title']}';
           if (title.isNotEmpty) say(_t(n.title.ar, n.title.en));
           if (RegExp(r'book|cancel|Payment|Payout|Refund|approved|changes|review|Missed|rescheduled', caseSensitive: false).hasMatch(title)) {
@@ -590,6 +606,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       await _saveProfileCache();
       Ringer.askPermission();
       loggedIn = true;
+      Future.delayed(const Duration(seconds: 1), _offerPendingJoin);
       await refresh();
       _startRealtime();
       notifyListeners();
@@ -624,6 +641,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> logout() async {
     loggedIn = false;
+    tutorTab = 0;
+    studentTab = 0;
     notifyListeners();
     if (!live) return;
     _restoreTimer?.cancel();
@@ -700,6 +719,323 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       levelPrices: fees,
     );
     await _loadProfile();
+  }
+
+  // =====================================================================
+  // media: chat photos / videos / voice notes, profile photo, intro video
+  // =====================================================================
+  final Map<String, ({String url, DateTime until})> _urlCache = {};
+
+  /// A link that can be opened/played for a stored file ("<bucket>/<path>").
+  Future<String> mediaUrl(String stored) async {
+    if (stored.isEmpty) return '';
+    final hit = _urlCache[stored];
+    if (hit != null && hit.until.isAfter(DateTime.now())) return hit.url;
+    try {
+      final u = await _b.fileUrl(stored);
+      _urlCache[stored] = (url: u, until: DateTime.now().add(const Duration(minutes: 50)));
+      return u;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  static const maxUploadBytes = 45 * 1024 * 1024;
+
+  static String _ext(String name, String fallback) {
+    final i = name.lastIndexOf('.');
+    final e = i < 0 ? '' : name.substring(i + 1).toLowerCase();
+    return RegExp(r'^[a-z0-9]{2,5}$').hasMatch(e) ? e : fallback;
+  }
+
+  /// Sends a photo / video / voice note in a chat: shows it right away, uploads, then posts the message.
+  Future<bool> sendMedia(Conversation c, {required MsgType type, required Uint8List bytes, required String name, required String mime, int seconds = 0}) async {
+    if (bytes.length > maxUploadBytes) {
+      say(_t('الملف كبير جداً (الحد 45 ميغابايت).', 'The file is too big (45 MB max).'), bad: true);
+      return false;
+    }
+    final draft = Message(mine: true, text: name, time: DateTime.now(), type: type, seconds: seconds, bytes: type == MsgType.image ? bytes : null, sending: true);
+    c.messages.add(draft);
+    if (conversations.remove(c)) conversations.insert(0, c);
+    notifyListeners();
+    if (!live) {
+      final i = c.messages.indexOf(draft);
+      if (i >= 0) c.messages[i] = Message(mine: true, text: name, time: draft.time, type: type, seconds: seconds, bytes: draft.bytes);
+      notifyListeners();
+      return true;
+    }
+    try {
+      final id = await _ensure(c);
+      final bucket = type == MsgType.voice ? 'voice-notes' : 'chat-files';
+      final fallback = switch (type) { MsgType.voice => 'm4a', MsgType.image => 'jpg', MsgType.video => 'mp4', _ => 'bin' };
+      final stored = await _b.upload(bucket, '$id/${DateTime.now().millisecondsSinceEpoch}.${_ext(name, fallback)}', bytes, mime);
+      final sent = Message(mine: true, text: type == MsgType.voice ? '🎤' : name, time: draft.time, type: type, seconds: seconds, url: stored, bytes: draft.bytes);
+      final i = c.messages.indexOf(draft);
+      if (i >= 0) c.messages[i] = sent;
+      notifyListeners();
+      await _push(c, sent);
+      return true;
+    } catch (e) {
+      c.messages.remove(draft);
+      notifyListeners();
+      _error(e);
+      return false;
+    }
+  }
+
+  /// Changes my name (and, for tutors, any part of the public profile).
+  Future<bool> saveMyProfile({
+    String? fullName,
+    String? headline,
+    String? about,
+    int? years,
+    bool? online,
+    bool? inPerson,
+    int? hourlyPrice,
+    Set<String>? subjects,
+  }) async {
+    final n = fullName?.trim() ?? name;
+    if (n.isEmpty) {
+      say(_t('اكتب اسمك', 'Please enter your name'), bad: true);
+      return false;
+    }
+    name = n;
+    notifyListeners();
+    if (!live) return true;
+    try {
+      await _b.updateProfile({'full_name': n});
+      if (role == UserRole.tutor) {
+        final h = headline?.trim();
+        final a = about?.trim();
+        await _b.updateTutor({
+          if (h != null) 'headline': h.length > 80 ? h.substring(0, 80) : h,
+          if (a != null) 'about': a.length > 1000 ? a.substring(0, 1000) : a,
+          if (years != null) 'years_experience': years.clamp(0, 60),
+          if (online != null) 'teaches_online': online,
+          if (inPerson != null) 'teaches_in_person': inPerson,
+        });
+        if (hourlyPrice != null && hourlyPrice > 0 && hourlyPrice != me.pricePerHour) await _b.updateTutorPrice(hourlyPrice.toDouble(), me.pricePerHour.toDouble());
+        if (subjects != null && subjects.isNotEmpty) await _b.setMySubjects(subjects);
+      }
+      await _loadProfile();
+      await _saveProfileCache();
+      try {
+        await _loadTutors();
+      } catch (_) {}
+      notifyListeners();
+      say(_t('تم حفظ الملف الشخصي', 'Profile saved'));
+      return true;
+    } catch (e) {
+      _error(e);
+      return false;
+    }
+  }
+
+  /// New profile photo (shown to students on the tutor card and in chats).
+  Future<bool> setProfilePhoto(Uint8List bytes, String name, String mime) async {
+    if (!live) return false;
+    try {
+      final stored = await _b.upload('avatars', 'avatar-${DateTime.now().millisecondsSinceEpoch}.${_ext(name, 'jpg')}', bytes, mime);
+      avatarUrl = _b.publicUrl(stored);
+      await _b.updateProfile({'avatar_url': avatarUrl});
+      await _loadProfile();
+      await _saveProfileCache();
+      try {
+        await _loadTutors();
+      } catch (_) {}
+      notifyListeners();
+      say(_t('تم تحديث الصورة', 'Photo updated'));
+      return true;
+    } catch (e) {
+      _error(e);
+      return false;
+    }
+  }
+
+  /// Tutor intro video on the public profile ('' removes it).
+  Future<bool> setIntroVideo(Uint8List? bytes, {String name = 'intro.mp4', String mime = 'video/mp4'}) async {
+    if (!live) return false;
+    if (bytes != null && bytes.length > maxUploadBytes) {
+      say(_t('الفيديو كبير جداً (الحد 45 ميغابايت). اختر فيديو أقصر.', 'The video is too big (45 MB max). Choose a shorter one.'), bad: true);
+      return false;
+    }
+    try {
+      var url = '';
+      if (bytes != null) {
+        final stored = await _b.upload('tutor-media', 'intro-${DateTime.now().millisecondsSinceEpoch}.${_ext(name, 'mp4')}', bytes, mime);
+        url = _b.publicUrl(stored);
+      }
+      await _b.updateTutor({'video_url': url.isEmpty ? null : url});
+      await _loadProfile();
+      try {
+        await _loadTutors();
+      } catch (_) {}
+      notifyListeners();
+      say(url.isEmpty ? _t('تم حذف الفيديو', 'Video removed') : _t('تم رفع فيديو التعريف', 'Intro video uploaded'));
+      return true;
+    } catch (e) {
+      _error(e);
+      return false;
+    }
+  }
+
+  bool isMe(Tutor t) => role == UserRole.tutor && (t.id == me.id || (live && t.id == _b.uid));
+
+  // =====================================================================
+  // tutor: my students
+  // =====================================================================
+  List<StudentSummary> get myStudents {
+    final by = <String, List<Lesson>>{};
+    for (final l in tutorLessons) {
+      final key = l.studentId.isNotEmpty ? l.studentId : _nameOf(l.studentName);
+      by.putIfAbsent(key, () => []).add(l);
+    }
+    final now = DateTime.now();
+    final list = <StudentSummary>[];
+    by.forEach((id, ls) {
+      ls.sort((a, b) => a.start.compareTo(b.start));
+      final upcoming = ls.where((l) => l.status == LessonStatus.upcoming && l.start.isAfter(now.subtract(Duration(minutes: l.minutes)))).toList();
+      final done = ls.where((l) => l.status == LessonStatus.delivered).toList();
+      final pending = ls.where((l) => l.status == LessonStatus.pending).length;
+      final cancelled = ls.where((l) => l.status == LessonStatus.cancelled).length;
+      list.add(StudentSummary(
+        id: id,
+        name: ls.first.studentName,
+        lessons: ls,
+        completed: done.length,
+        upcoming: upcoming.length,
+        pendingPayment: pending,
+        cancelled: cancelled,
+        next: upcoming.isEmpty ? null : upcoming.first,
+        last: done.isEmpty ? null : done.last,
+        earned: done.fold(0.0, (s, l) => s + l.price - l.commission),
+      ));
+    });
+    list.sort((a, b) {
+      if ((a.next == null) != (b.next == null)) return a.next == null ? 1 : -1;
+      if (a.next != null) return a.next!.start.compareTo(b.next!.start);
+      return (b.last?.start ?? DateTime(2000)).compareTo(a.last?.start ?? DateTime(2000));
+    });
+    return list;
+  }
+
+  /// Opens (or starts) the chat with one of my students.
+  Future<Conversation?> chatWithStudent(String studentId, L name) async {
+    for (final c in conversations) {
+      if (c.counterpartId == studentId) return c;
+    }
+    if (!live) return null;
+    try {
+      final id = '${await _b.rpc('tutor_start_conversation', {'p_student': studentId})}';
+      await _loadConversations();
+      for (final c in conversations) {
+        if (c.id == id || c.counterpartId == studentId) return c;
+      }
+    } catch (e) {
+      _error(e);
+    }
+    return null;
+  }
+
+  // =====================================================================
+  // notifications → open what they are about
+  // =====================================================================
+  Future<void> openNotification(AppNotification n) async {
+    if (!n.read) {
+      n.read = true;
+      notifyListeners();
+      if (live && n.remoteId != 0) _b.markNotificationRead(n.remoteId).catchError((_) {});
+    }
+    final nav = navigatorKey.currentState;
+    if (nav == null) return;
+    nav.popUntil((r) => r.isFirst);
+    final d = n.data;
+    final tutor = role == UserRole.tutor;
+    final convId = '${d['conversation_id'] ?? ''}';
+    if (convId.isNotEmpty) {
+      Conversation? c;
+      for (final x in conversations) {
+        if (x.id == convId) c = x;
+      }
+      if (c == null) {
+        try {
+          await _loadConversations();
+        } catch (_) {}
+        for (final x in conversations) {
+          if (x.id == convId) c = x;
+        }
+      }
+      if (c != null) {
+        tutor ? goTutorTab(3) : goTab(4);
+        openChatRoute?.call(c);
+        return;
+      }
+    }
+    if (d.containsKey('live_request_id')) {
+      tutor ? goTutorTab(1) : goTab(2);
+    } else if (d.containsKey('lesson_id') || d.containsKey('package_id') || d.containsKey('payment_id')) {
+      tutor ? goTutorTab(2) : goTab(3);
+    } else if (d.containsKey('payout_id') || d.containsKey('review_id')) {
+      tutor ? goTutorTab(0) : goTab(0);
+    } else if (d['call'] == true) {
+      tutor ? goTutorTab(3) : goTab(4);
+    }
+  }
+
+  /// Set by the shells: pushes the chat screen for a conversation.
+  void Function(Conversation c)? openChatRoute;
+
+  void _addLocalNotification(L title, L body, IconData icon, Color color, Map<String, dynamic> data) {
+    notifications.insert(0, AppNotification(title, body, DateTime.now(), icon, color, data: data));
+    notifyListeners();
+  }
+
+  // =====================================================================
+  // meeting links opened from outside the app
+  // =====================================================================
+  Uri? _pendingJoin;
+
+  Future<void> checkLaunchLink() async {
+    final u = await MediaBridge.takeLaunchLink();
+    if (u != null) _pendingJoin = u;
+    _offerPendingJoin();
+  }
+
+  void _offerPendingJoin() {
+    final u = _pendingJoin;
+    if (u == null || !loggedIn) return;
+    final room = u.queryParameters['room'] ?? '';
+    if (!RegExp(r'^[a-zA-Z0-9-]{8,64}$').hasMatch(room)) {
+      _pendingJoin = null;
+      return;
+    }
+    final ctx = navigatorKey.currentContext;
+    if (ctx == null) return;
+    _pendingJoin = null;
+    final video = u.queryParameters['video'] != '0';
+    showDialog<void>(
+      context: ctx,
+      builder: (d) => AlertDialog(
+        icon: const Icon(Icons.video_call_rounded, color: Color(0xFF0E8F7E), size: 44),
+        title: Text(_t('الانضمام للجلسة؟', 'Join the session?'), textAlign: TextAlign.center),
+        content: Text(
+          _t('فتحت رابط جلسة على درس. هل تريد الانضمام الآن؟', 'You opened a Dars session link. Do you want to join now?'),
+          textAlign: TextAlign.center,
+        ),
+        actionsAlignment: MainAxisAlignment.spaceEvenly,
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d), child: Text(_t('ليس الآن', 'Not now'))),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.pop(d);
+              joinCall(room: room, video: video);
+            },
+            icon: const Icon(Icons.login_rounded),
+            label: Text(_t('انضم', 'Join')),
+          ),
+        ],
+      ),
+    );
   }
 
   // =====================================================================
@@ -1015,9 +1351,15 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _push(Conversation c, Message m) async {
     try {
       final id = await _ensure(c);
-      final kind = switch (m.type) { MsgType.voice => 'voice', MsgType.file => 'file', MsgType.call => 'call', _ => 'text' };
+      final kind = switch (m.type) {
+        MsgType.voice => 'voice',
+        MsgType.file || MsgType.video => 'file',
+        MsgType.image => 'image',
+        MsgType.call => 'call',
+        _ => 'text',
+      };
       final text = m.type == MsgType.voice ? '🎤' : m.text;
-      await _b.sendMessage(id, text, kind: kind, seconds: m.seconds > 0 ? m.seconds : null);
+      await _b.sendMessage(id, text, kind: kind, seconds: m.seconds > 0 ? m.seconds : null, fileUrl: m.url);
     } catch (e) {
       _error(e);
     }
@@ -1082,22 +1424,27 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
       if (DateTime.now().difference(m.time).inSeconds.abs() > 60) return; // an old call — don't ring
-      _incomingCall(who, inv.room, inv.video);
+      _incomingCall(who, inv.room, inv.video, conversationId: c.id);
       return;
     }
     if (!_foreground || kIsWeb) {
       final body = switch (m.type) {
         MsgType.voice => _t('🎤 رسالة صوتية', '🎤 Voice message'),
         MsgType.file => _t('📎 ملف', '📎 File'),
+        MsgType.image => _t('📷 صورة', '📷 Photo'),
+        MsgType.video => _t('🎬 فيديو', '🎬 Video'),
         _ => m.text,
       };
       Ringer.notify(title: who, body: body);
     }
   }
 
-  void _incomingCall(String who, String room, bool video) {
+  String _ringingConv = '';
+
+  void _incomingCall(String who, String room, bool video, {String conversationId = ''}) {
     if (_ringing != null || _inCall) return; // already ringing / already in a call
     _ringing = (room: room, video: video, who: who);
+    _ringingConv = conversationId;
     Ringer.ring(
       title: who,
       body: video ? _t('مكالمة فيديو واردة', 'Incoming video call') : _t('مكالمة صوتية واردة', 'Incoming voice call'),
@@ -1115,6 +1462,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         onTimeout: () {
           _answer(false);
           say(_t('مكالمة فائتة من $who', 'Missed call from $who'));
+          _addLocalNotification(L('مكالمة فائتة', 'Missed call'), L('من $who', 'From $who'), Icons.phone_missed_rounded, const Color(0xFFE5484D),
+              {if (_ringingConv.isNotEmpty) 'conversation_id': _ringingConv, 'call': true});
         },
       ),
     );

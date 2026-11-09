@@ -217,7 +217,7 @@ class _BookingScreenState extends State<BookingScreen> {
         body = Column(children: [
           AppCard(
             child: Row(children: [
-              Avatar(name: t.name, color: t.color, size: 52),
+              Avatar(name: t.name, color: t.color, photo: t.photoUrl, size: 52),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

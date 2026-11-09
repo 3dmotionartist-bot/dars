@@ -5,6 +5,7 @@ import '../../l10n.dart';
 import '../../state/app_state.dart';
 import '../../widgets/adaptive_shell.dart';
 import '../shared/account_screen.dart';
+import '../shared/chat_screen.dart';
 import '../shared/messages_screen.dart';
 import 'tutor_dashboard_screen.dart';
 import 'tutor_lessons_screen.dart';
@@ -19,14 +20,21 @@ class TutorShell extends StatefulWidget {
 }
 
 class TutorShellState extends State<TutorShell> {
-  int index = 0;
-  void go(int i) => setState(() => index = i);
+  int get index => context.read<AppState>().tutorTab;
+  void go(int i) => context.read<AppState>().goTutorTab(i);
+
+  @override
+  void initState() {
+    super.initState();
+    final app = context.read<AppState>();
+    app.openChatRoute = (c) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ChatScreen(conversation: c)));
+  }
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     return AdaptiveShell(
-      index: index,
+      index: app.tutorTab,
       onSelect: go,
       pages: const [
         TutorDashboardScreen(),

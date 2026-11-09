@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../l10n.dart';
 import '../../state/app_state.dart';
 import '../../widgets/adaptive_shell.dart';
+import '../shared/chat_screen.dart';
 import '../shared/messages_screen.dart';
 import 'home_screen.dart';
 import 'lessons_screen.dart';
@@ -20,6 +21,12 @@ class StudentShell extends StatefulWidget {
 
 class StudentShellState extends State<StudentShell> {
   void go(int i, {String? subject}) => context.read<AppState>().goTab(i, subject: subject);
+
+  @override
+  void initState() {
+    super.initState();
+    context.read<AppState>().openChatRoute = (c) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ChatScreen(conversation: c)));
+  }
 
   @override
   Widget build(BuildContext context) {

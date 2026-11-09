@@ -41,6 +41,12 @@
   #join .card { max-width: 360px; width: 100%; }
   #join p { color: var(--muted); margin: 8px 0 26px; line-height: 1.7; }
   .primary { width: 100%; height: 56px; border: 0; border-radius: 18px; background: var(--primary); color: #fff; font: 800 18px Cairo, sans-serif; cursor: pointer; }
+  a.primary { display: flex; align-items: center; justify-content: center; text-decoration: none; margin-bottom: 12px; }
+  a.secondary { display: flex; align-items: center; justify-content: center; height: 52px; border-radius: 18px; border: 2px solid var(--primary);
+                color: #fff; font: 800 16px Cairo, sans-serif; text-decoration: none; margin-bottom: 12px; }
+  .has-app #joinBtn { background: transparent; border: 1px solid rgba(255,255,255,.25); font-size: 15px; height: 48px; }
+  .small { color: var(--muted); font-size: 13px; margin-top: 18px; }
+  .small a { color: #7fe3d3; }
   .ghost { margin-top: 12px; background: none; border: 0; color: var(--muted); font: 700 15px Cairo, sans-serif; cursor: pointer; }
   .note { position: fixed; bottom: calc(110px + env(safe-area-inset-bottom)); left: 16px; right: 16px; text-align: center; color: var(--muted); font-size: 13px; z-index: 4; }
 </style>
@@ -51,8 +57,11 @@
     <div class="avatar" id="joinAvatar">د</div>
     <h1 id="joinTitle"></h1>
     <p id="joinBody"></p>
+    <a class="primary app" id="openApp" hidden></a>
+    <a class="secondary" id="openWeb" hidden></a>
     <button class="primary" id="joinBtn"></button>
     <button class="ghost" id="joinCancel"></button>
+    <p class="small" id="getApp" hidden></p>
   </div>
 </div>
 
@@ -99,12 +108,12 @@
   const T = {
     ar: { voice: "مكالمة صوتية", video: "مكالمة فيديو", join: "انضم للمكالمة", cancel: "إلغاء", joinBody: "سنطلب إذن الميكروفون", joinBodyV: "سنطلب إذن الكاميرا والميكروفون",
           waiting: "بانتظار انضمام الطرف الآخر…", connecting: "جارٍ الاتصال…", connected: "متصل", ended: "انتهت المكالمة", left: "غادر الطرف الآخر — بانتظار عودته…",
-          noAnswer: "لا يوجد رد. يمكنك إغلاق الصفحة والمحاولة لاحقاً.", denied: "لم يُسمح بالميكروفون/الكاميرا. اسمح بها من إعدادات المتصفح ثم أعد المحاولة.",
+          noAnswer: "لا يوجد رد. يمكنك إغلاق الصفحة والمحاولة لاحقاً.", openApp: "افتح في تطبيق درس", openWeb: "افتح في تطبيق درس على الويب", joinHere: "انضم من هذا المتصفح", getApp: "لا يوجد التطبيق لديك؟", download: "حمّل تطبيق درس", appBody: "افتح الجلسة في تطبيق درس، أو انضم من هذا المتصفح.", denied: "لم يُسمح بالميكروفون/الكاميرا. اسمح بها من إعدادات المتصفح ثم أعد المحاولة.",
           bad: "رابط المكالمة غير صالح.", failed: "تعذّر الاتصال المباشر على هذه الشبكة. جرّب شبكة أخرى (واي فاي/بيانات).", close: "يمكنك إغلاق هذه الصفحة والعودة للتطبيق.",
           offline: "تعذّر الوصول لخادم المكالمات. تحقّق من الإنترنت.", full: "المكالمة ممتلئة (شخصان فقط).", copied: "تم نسخ رابط المكالمة — أرسله لمن تريد", shareTitle: "انضم لمكالمتي على درس" },
     en: { voice: "Voice call", video: "Video call", join: "Join call", cancel: "Cancel", joinBody: "We'll ask for your microphone", joinBodyV: "We'll ask for your camera and microphone",
           waiting: "Waiting for the other person to join…", connecting: "Connecting…", connected: "Connected", ended: "Call ended", left: "The other person left — waiting for them…",
-          noAnswer: "No answer. You can close this page and try again later.", denied: "Microphone/camera access was blocked. Allow it in the browser settings and try again.",
+          noAnswer: "No answer. You can close this page and try again later.", openApp: "Open in the Dars app", openWeb: "Open in the Dars web app", joinHere: "Join from this browser", getApp: "Don't have the app?", download: "Download Dars", appBody: "Open the session in the Dars app, or join from this browser.", denied: "Microphone/camera access was blocked. Allow it in the browser settings and try again.",
           bad: "This call link is not valid.", failed: "Couldn't connect directly on this network. Try another network (Wi-Fi / mobile data).", close: "You can close this page and go back to the app.",
           offline: "Couldn't reach the call server. Check your internet connection.", full: "This call is full (two people only).", copied: "Call link copied — send it to the other person", shareTitle: "Join my Dars call" },
   }[lang];
@@ -122,6 +131,27 @@
   const note = (s) => { const n = $("note"); n.hidden = !s; n.textContent = s || ""; };
 
   if (!/^[a-zA-Z0-9-]{8,64}$/.test(room)) { $("joinBody").textContent = T.bad; $("joinBtn").hidden = true; return; }
+
+  // Shared meeting link: offer to open it in the Dars app (Android) or the Dars web app; joining here still works.
+  (function offerApp() {
+    const base = location.origin + location.pathname.replace(/call\/?(index\.html)?$/, "");
+    const webJoin = base + "app/?join=" + encodeURIComponent(room) + "&video=" + (wantVideo ? "1" : "0");
+    const android = /Android/i.test(navigator.userAgent);
+    document.body.classList.add("has-app");
+    $("joinBody").textContent = T.appBody;
+    $("joinBtn").textContent = T.joinHere;
+    if (android) {
+      const a = $("openApp");
+      a.hidden = false; a.textContent = T.openApp;
+      a.href = "intent://join?room=" + encodeURIComponent(room) + "&video=" + (wantVideo ? "1" : "0") +
+               "#Intent;scheme=dars;package=com.dars.my_tutor_app;S.browser_fallback_url=" + encodeURIComponent(webJoin) + ";end";
+      const g = $("getApp"); g.hidden = false;
+      g.innerHTML = T.getApp + ' <a href="' + base + 'Dars.apk">' + T.download + "</a>";
+    }
+    const w = $("openWeb");
+    w.hidden = false; w.textContent = T.openWeb; w.href = webJoin;
+    if (!android) { w.className = "primary app"; }
+  })();
 
   // ---- state -------------------------------------------------------------------------
   const me = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)) ;

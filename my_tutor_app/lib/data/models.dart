@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import '../l10n.dart';
 
@@ -59,6 +61,8 @@ class Tutor {
   final bool teachesInPerson;
   final int cancelHours;
   final List<Review> reviews;
+  final String photoUrl; // profile photo ('' = initials)
+  final String videoUrl; // intro video ('' = none)
 
   const Tutor({
     required this.id,
@@ -86,6 +90,8 @@ class Tutor {
     this.teachesInPerson = false,
     this.cancelHours = 12,
     this.reviews = const [],
+    this.photoUrl = '',
+    this.videoUrl = '',
   });
 
   bool get hasPackages => maxDiscount > 0;
@@ -107,6 +113,7 @@ class Lesson {
   bool reviewed;
   final int number; // booking number shown to users (backend)
   final double commission;
+  final String studentId; // backend student id ('' in demo)
 
   Lesson({
     required this.id,
@@ -122,6 +129,7 @@ class Lesson {
     this.reviewed = false,
     this.number = 0,
     this.commission = 0,
+    this.studentId = '',
   });
 }
 
@@ -149,7 +157,7 @@ class HoursPackage {
   double get remaining => totalHours - usedHours;
 }
 
-enum MsgType { text, voice, file, system, call }
+enum MsgType { text, voice, file, system, call, image, video }
 
 class Message {
   final bool mine;
@@ -158,7 +166,20 @@ class Message {
   final MsgType type;
   final int seconds;
   final int remoteId; // backend message id (0 = local only)
-  const Message({required this.mine, required this.text, required this.time, this.type = MsgType.text, this.seconds = 0, this.remoteId = 0});
+  final String url; // stored file: "<bucket>/<path>" ('' = none)
+  final Uint8List? bytes; // local preview while uploading
+  final bool sending;
+  const Message({
+    required this.mine,
+    required this.text,
+    required this.time,
+    this.type = MsgType.text,
+    this.seconds = 0,
+    this.remoteId = 0,
+    this.url = '',
+    this.bytes,
+    this.sending = false,
+  });
 }
 
 class Conversation {
@@ -205,7 +226,9 @@ class AppNotification {
   final IconData icon;
   final Color color;
   bool read;
-  AppNotification(this.title, this.body, this.time, this.icon, this.color, {this.read = false});
+  final Map<String, dynamic> data; // what it is about: conversation_id, lesson_id, live_request_id…
+  final int remoteId;
+  AppNotification(this.title, this.body, this.time, this.icon, this.color, {this.read = false, this.data = const {}, this.remoteId = 0});
 }
 
 class WalletTx {
@@ -214,4 +237,30 @@ class WalletTx {
   final DateTime date;
   final L status;
   const WalletTx(this.title, this.amount, this.date, this.status);
+}
+
+/// One student of a tutor and where things stand with them.
+class StudentSummary {
+  final String id;
+  final L name;
+  final List<Lesson> lessons;
+  final int completed;
+  final int upcoming;
+  final int pendingPayment;
+  final int cancelled;
+  final Lesson? next;
+  final Lesson? last;
+  final double earned;
+  const StudentSummary({
+    required this.id,
+    required this.name,
+    required this.lessons,
+    required this.completed,
+    required this.upcoming,
+    required this.pendingPayment,
+    required this.cancelled,
+    required this.next,
+    required this.last,
+    required this.earned,
+  });
 }

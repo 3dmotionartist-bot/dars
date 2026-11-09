@@ -9,7 +9,9 @@ import '../../state/app_state.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../student/tutor_profile_screen.dart';
+import '../tutor/my_students_screen.dart';
 import '../tutor/tutor_settings_screen.dart';
+import 'edit_profile_screen.dart';
 import 'notifications_screen.dart';
 import 'wallet_screen.dart';
 
@@ -28,7 +30,7 @@ class AccountScreen extends StatelessWidget {
       child: ListView(padding: const EdgeInsets.all(16), children: [
         AppCard(
           child: Row(children: [
-            Avatar(name: L(app.name, app.name), color: AppColors.primary, size: 64),
+            Avatar(name: L(app.name, app.name), color: AppColors.primary, size: 64, photo: app.avatarUrl),
             const SizedBox(width: 14),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -39,7 +41,11 @@ class AccountScreen extends StatelessWidget {
                     bg: AppColors.primarySoft, fg: AppColors.primary),
               ]),
             ),
-            IconButton(onPressed: () => toast(context, context.tr('edit_profile')), icon: const Icon(Icons.edit_outlined)),
+            IconButton(
+              tooltip: context.tr('edit_profile'),
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfileScreen())),
+              icon: const Icon(Icons.edit_outlined),
+            ),
           ]),
         ),
         const SizedBox(height: 12),
@@ -59,9 +65,17 @@ class AccountScreen extends StatelessWidget {
         _group([
           if (isTutor) ...[
             MenuRow(icon: Icons.badge_outlined, title: context.tr('public_profile'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TutorProfileScreen(tutor: app.me)))),
+            MenuRow(icon: Icons.edit_note_rounded, title: context.tr('edit_profile'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfileScreen()))),
+            MenuRow(
+              icon: Icons.groups_rounded,
+              title: context.tr('my_students'),
+              trailing: '${app.myStudents.length}',
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MyStudentsScreen())),
+            ),
             MenuRow(icon: Icons.schedule_rounded, title: context.tr('my_availability'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TutorSettingsScreen()))),
             MenuRow(icon: Icons.card_giftcard_rounded, title: context.tr('my_packages'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TutorSettingsScreen(initialTab: 1)))),
           ] else ...[
+            MenuRow(icon: Icons.edit_note_rounded, title: context.tr('edit_profile'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfileScreen()))),
             MenuRow(icon: Icons.receipt_long_rounded, title: context.tr('wallet'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WalletScreen()))),
             MenuRow(
               icon: Icons.favorite_border_rounded,
@@ -188,7 +202,7 @@ class AccountScreen extends StatelessWidget {
             for (final t in favs)
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: Avatar(name: t.name, color: t.color, size: 44),
+                leading: Avatar(name: t.name, color: t.color, photo: t.photoUrl, size: 44),
                 title: Text(t.name.of(context), style: const TextStyle(fontWeight: FontWeight.w700)),
                 subtitle: Text(t.headline.of(context), maxLines: 1, overflow: TextOverflow.ellipsis),
                 onTap: () {

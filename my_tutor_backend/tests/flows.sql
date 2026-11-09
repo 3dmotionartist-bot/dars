@@ -254,5 +254,12 @@ set role anon;
 select t_ok((select count(*) from app_settings where key like 'turn%') = 0 and (select count(*) from app_settings) > 0, 'visitors cannot see relay secrets');
 select t_err($$select call_ice_servers()$$, 'permission denied', 'visitors cannot ask for the relay');
 reset role;
+-- no chats with yourself; tutors can open a chat with their students
+select t_as(:'tut'); set role authenticated;
+select t_err($$select start_conversation(auth.uid())$$, 'yourself', 'a tutor cannot message himself');
+select t_ok(tutor_start_conversation(:'stu') is not null, 'tutor can open the chat with his student');
+select t_err($$select tutor_start_conversation(auth.uid())$$, 'yourself', 'tutor cannot open a chat with himself');
+reset role;
+select t_ok((select count(*) from conversations where student_id = tutor_id) = 0, 'no self conversations exist');
 \echo
 \echo 'ALL FLOW TESTS PASSED'

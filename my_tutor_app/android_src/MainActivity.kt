@@ -9,12 +9,16 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioManager
+import android.media.MediaPlayer
+import android.media.MediaRecorder
 import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
 /**
  * Dars: rings the phone for incoming calls and shows message notifications.
@@ -26,6 +30,11 @@ class MainActivity : FlutterActivity() {
     private val messagesChannel = "dars_messages_v1"
     private val callId = 7001
     private var pendingAction: String? = null
+    private var pendingLink: String? = null
+    private var recorder: MediaRecorder? = null
+    private var recordFile: File? = null
+    private var recordStarted = 0L
+    private var player: MediaPlayer? = null
 
     private fun manager(): NotificationManager =
         getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -42,6 +51,9 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun readIntent(i: Intent?) {
+        // Meeting links: dars://join?room=...&video=1 (from the call page "Open in the Dars app")
+        val data = i?.data
+        if (data != null && data.scheme == "dars") pendingLink = data.toString()
         val isCall = i != null && i.getBooleanExtra("dars_call", false)
         // Only an incoming call may appear over the lock screen; normal use still needs the phone unlocked.
         if (Build.VERSION.SDK_INT >= 27) {
@@ -78,12 +90,148 @@ class MainActivity : FlutterActivity() {
                         pendingAction = null
                         result.success(a)
                     }
+                    "takeLink" -> {
+                        val l = pendingLink
+                        pendingLink = null
+                        result.success(l)
+                    }
+                    "recStart" -> result.success(startRecording())
+                    "recStop" -> result.success(stopRecording())
+                    "recCancel" -> {
+                        cancelRecording()
+                        result.success(true)
+                    }
+                    "play" -> playAudio(call.argument<String>("url") ?: "", result)
+                    "stopPlay" -> {
+                        stopAudio()
+                        result.success(true)
+                    }
+                    "shareStart" -> {
+                        val i = Intent(this, ScreenShareService::class.java)
+                        if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
+                        result.success(true)
+                    }
+                    "shareStop" -> {
+                        stopService(Intent(this, ScreenShareService::class.java))
+                        result.success(true)
+                    }
                     else -> result.notImplemented()
                 }
             } catch (e: Exception) {
                 result.error("ring_failed", e.message, null)
             }
         }
+    }
+
+    // ------------------------------------------------------------ voice notes
+    /** Returns "ok", or "permission" when the microphone is not allowed yet (we ask, the user taps again). */
+    @Suppress("DEPRECATION")
+    private fun startRecording(): String {
+        if (Build.VERSION.SDK_INT >= 23 &&
+            checkSelfPermission("android.permission.RECORD_AUDIO") != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf("android.permission.RECORD_AUDIO"), 7003)
+            return "permission"
+        }
+        cancelRecording()
+        val f = File(cacheDir, "voice_" + System.currentTimeMillis() + ".m4a")
+        val r = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(this) else MediaRecorder()
+        r.setAudioSource(MediaRecorder.AudioSource.MIC)
+        r.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+        r.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+        r.setAudioSamplingRate(44100)
+        r.setAudioEncodingBitRate(64000)
+        r.setOutputFile(f.absolutePath)
+        r.prepare()
+        r.start()
+        recorder = r
+        recordFile = f
+        recordStarted = System.currentTimeMillis()
+        return "ok"
+    }
+
+    private fun stopRecording(): Map<String, Any>? {
+        val r = recorder ?: return null
+        val f = recordFile
+        recorder = null
+        recordFile = null
+        val ms = (System.currentTimeMillis() - recordStarted).toInt()
+        try {
+            r.stop()
+        } catch (e: Exception) {
+            r.release()
+            f?.delete()
+            return null // too short
+        }
+        r.release()
+        if (f == null || !f.exists()) return null
+        val bytes = f.readBytes()
+        f.delete()
+        return mapOf("bytes" to bytes, "ms" to ms, "mime" to "audio/mp4", "ext" to "m4a")
+    }
+
+    private fun cancelRecording() {
+        val r = recorder ?: return
+        recorder = null
+        try {
+            r.stop()
+        } catch (ignored: Exception) {
+        }
+        r.release()
+        recordFile?.delete()
+        recordFile = null
+    }
+
+    private fun playAudio(url: String, result: MethodChannel.Result) {
+        stopAudio()
+        if (url.isEmpty()) {
+            result.success(-1)
+            return
+        }
+        val p = MediaPlayer()
+        var answered = false
+        try {
+            p.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            p.setDataSource(this, Uri.parse(url))
+            p.setOnPreparedListener {
+                it.start()
+                if (!answered) {
+                    answered = true
+                    result.success(it.duration)
+                }
+            }
+            p.setOnErrorListener { _, _, _ ->
+                if (!answered) {
+                    answered = true
+                    result.success(-1)
+                }
+                true
+            }
+            p.setOnCompletionListener { stopAudio() }
+            p.prepareAsync()
+            player = p
+        } catch (e: Exception) {
+            p.release()
+            if (!answered) {
+                answered = true
+                result.success(-1)
+            }
+        }
+    }
+
+    private fun stopAudio() {
+        val p = player ?: return
+        player = null
+        try {
+            p.stop()
+        } catch (ignored: Exception) {
+        }
+        p.release()
     }
 
     private fun askPermission() {

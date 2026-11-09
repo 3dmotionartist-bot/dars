@@ -8,7 +8,9 @@ import 'package:supabase/supabase.dart' show RealtimeChannel, RealtimeSubscribeS
 
 import '../../data/backend.dart';
 import '../../l10n.dart';
+import '../../services/media_bridge.dart';
 import '../../theme.dart';
+import '../../widgets/common.dart' show toast;
 
 /// Real voice / video call inside the app (Android and web app).
 ///
@@ -59,6 +61,20 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
   bool _remoteVideo = false;
   bool _closing = false;
   DateTime? _connectedAt;
+
+  // screen sharing
+  MediaStream? _screen;
+  bool _sharing = false;
+  bool _peerSharing = false;
+
+  // shared notes board: my lines in teal, the other person's in orange
+  bool _board = false;
+  bool _boardUnseen = false;
+  final List<_Stroke> _strokes = [];
+  _Stroke? _drawing;
+  int _sentPoints = 0;
+  int _strokeNo = 0;
+  Timer? _flush;
 
   // connection diagnostics (shown small at the bottom of the call screen)
   int _sent = 0;
@@ -135,7 +151,11 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     _pendingIce.clear();
     final pc = await createPeerConnection({'iceServers': _ice, 'sdpSemantics': 'unified-plan'});
     for (final t in _stream?.getTracks() ?? const <MediaStreamTrack>[]) {
-      await pc.addTrack(t, _stream!);
+      final sender = await pc.addTrack(t, _stream!);
+      final screen = _screen;
+      if (t.kind == 'video' && _sharing && screen != null && screen.getVideoTracks().isNotEmpty) {
+        await sender.replaceTrack(screen.getVideoTracks().first);
+      }
     }
     pc.onIceCandidate = (c) {
       if (c.candidate == null || _peer == null) return;
@@ -181,6 +201,10 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
         .onBroadcast(event: 'ice', callback: (m) => _onIce(_body(m)))
         .onBroadcast(event: 'busy', callback: (m) => _onBusy(_body(m)))
         .onBroadcast(event: 'bye', callback: (m) => _onBye(_body(m)))
+        .onBroadcast(event: 'draw', callback: (m) => _onDraw(_body(m)))
+        .onBroadcast(event: 'board', callback: (m) => _onBoard(_body(m)))
+        .onBroadcast(event: 'clear', callback: (m) => _onClear(_body(m)))
+        .onBroadcast(event: 'share', callback: (m) => _onShare(_body(m)))
         .subscribe((status, err) {
       _chStatus = status.name;
       if (err != null) _lastError = '$err';
@@ -427,7 +451,209 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     if (mounted) Navigator.of(context).maybePop();
   }
 
+  // ------------------------------------------------------------------ screen sharing
+  Future<void> _toggleShare() async {
+    if (_sharing) return _stopShare();
+    final pc = _pc;
+    if (pc == null) return;
+    try {
+      if (!kIsWeb) {
+        final allowed = await Helper.requestCapturePermission();
+        if (!allowed) return;
+        await MediaBridge.screenShareService(true);
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
+      final screen = await navigator.mediaDevices.getDisplayMedia({'video': true, 'audio': false});
+      final tracks = screen.getVideoTracks();
+      if (tracks.isEmpty) throw Exception('no screen');
+      final track = tracks.first;
+      final senders = await pc.getSenders();
+      final video = senders.where((x) => x.track?.kind == 'video').toList();
+      if (video.isEmpty) throw Exception('no video sender');
+      await video.first.replaceTrack(track);
+      track.onEnded = () => _stopShare();
+      _screen = screen;
+      _sharing = true;
+      _send('share', {'on': true});
+      if (mounted) setState(() {});
+    } catch (e) {
+      await MediaBridge.screenShareService(false);
+      _lastError = 'share: $e';
+      if (mounted) {
+        setState(() {});
+        toast(context, context.isAr ? 'تعذّرت مشاركة الشاشة' : 'Could not share the screen', icon: Icons.error_outline);
+      }
+    }
+  }
+
+  Future<void> _stopShare() async {
+    if (!_sharing) return;
+    _sharing = false;
+    final screen = _screen;
+    _screen = null;
+    try {
+      final cam = _stream?.getVideoTracks() ?? const <MediaStreamTrack>[];
+      final senders = await _pc?.getSenders() ?? const <RTCRtpSender>[];
+      for (final x in senders) {
+        if (x.track?.kind == 'video' && cam.isNotEmpty) await x.replaceTrack(cam.first);
+      }
+    } catch (_) {}
+    for (final t in screen?.getTracks() ?? const <MediaStreamTrack>[]) {
+      try {
+        await t.stop();
+      } catch (_) {}
+    }
+    try {
+      await screen?.dispose();
+    } catch (_) {}
+    await MediaBridge.screenShareService(false);
+    _send('share', {'on': false});
+    if (mounted) setState(() {});
+  }
+
+  void _onShare(Map<String, dynamic> p) {
+    if (p['from'] == _me) return;
+    _peerSharing = p['on'] == true;
+    if (mounted) setState(() {});
+  }
+
+  // ------------------------------------------------------------------ shared notes board
+  void _toggleBoard() {
+    setState(() {
+      _board = !_board;
+      _boardUnseen = false;
+    });
+    _send('board', {'open': _board});
+  }
+
+  void _onBoard(Map<String, dynamic> p) {
+    if (p['from'] == _me || !mounted) return;
+    if (p['open'] == true && !_board) setState(() => _board = true);
+  }
+
+  void _penDown(Offset o) {
+    final st = _Stroke('$_me-${_strokeNo++}', true)..pts.add(o);
+    _drawing = st;
+    _sentPoints = 0;
+    setState(() => _strokes.add(st));
+    _flush ??= Timer.periodic(const Duration(milliseconds: 90), (_) => _sendPoints());
+  }
+
+  void _penMove(Offset o) {
+    final st = _drawing;
+    if (st == null) return;
+    setState(() => st.pts.add(o));
+  }
+
+  void _penUp() {
+    _sendPoints();
+    _drawing = null;
+    _flush?.cancel();
+    _flush = null;
+  }
+
+  void _sendPoints() {
+    final st = _drawing;
+    if (st == null || st.pts.length <= _sentPoints) return;
+    final from = _sentPoints == 0 ? 0 : _sentPoints - 1; // overlap one point so the line stays joined
+    final pts = [
+      for (final o in st.pts.sublist(from)) [double.parse(o.dx.toStringAsFixed(4)), double.parse(o.dy.toStringAsFixed(4))]
+    ];
+    _sentPoints = st.pts.length;
+    _send('draw', {'id': st.id, 'pts': pts});
+  }
+
+  void _onDraw(Map<String, dynamic> p) {
+    if (p['from'] == _me || !mounted) return;
+    final id = '${p['id']}';
+    final raw = p['pts'];
+    if (raw is! List) return;
+    var st = _strokes.where((x) => x.id == id).firstOrNull;
+    if (st == null) {
+      st = _Stroke(id, false);
+      _strokes.add(st);
+    }
+    for (final q in raw) {
+      if (q is List && q.length == 2) st.pts.add(Offset((q[0] as num).toDouble(), (q[1] as num).toDouble()));
+    }
+    setState(() {
+      if (!_board) {
+        _board = true;
+        _boardUnseen = true;
+      }
+    });
+  }
+
+  void _clearBoard() {
+    setState(_strokes.clear);
+    _send('clear', {});
+  }
+
+  void _onClear(Map<String, dynamic> p) {
+    if (p['from'] == _me || !mounted) return;
+    setState(_strokes.clear);
+  }
+
+  Widget _boardView(BuildContext context) {
+    final peer = _peerName.isEmpty ? (context.isAr ? 'الطرف الآخر' : 'Other person') : _peerName;
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+        child: Row(children: [
+          _legend(AppColors.primary, context.isAr ? 'أنت' : 'You'),
+          const SizedBox(width: 14),
+          _legend(_peerInk, peer),
+          const Spacer(),
+          TextButton.icon(
+            onPressed: _clearBoard,
+            icon: const Icon(Icons.delete_sweep_outlined, color: Colors.white70),
+            label: Text(context.isAr ? 'مسح' : 'Clear', style: const TextStyle(color: Colors.white70)),
+          ),
+          IconButton(onPressed: _toggleBoard, icon: const Icon(Icons.close_rounded, color: Colors.white70)),
+        ]),
+      ),
+      Expanded(
+        child: Center(
+          child: AspectRatio(
+            aspectRatio: 1,
+            child: LayoutBuilder(builder: (_, box) {
+              final size = box.biggest;
+              Offset norm(Offset o) => Offset((o.dx / size.width).clamp(0.0, 1.0), (o.dy / size.height).clamp(0.0, 1.0));
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: GestureDetector(
+                  onPanStart: (d) => _penDown(norm(d.localPosition)),
+                  onPanUpdate: (d) => _penMove(norm(d.localPosition)),
+                  onPanEnd: (_) => _penUp(),
+                  onPanCancel: _penUp,
+                  child: CustomPaint(painter: _BoardPainter(_strokes, AppColors.primary, _peerInk), size: size),
+                ),
+              );
+            }),
+          ),
+        ),
+      ),
+    ]);
+  }
+
+  static const _peerInk = Color(0xFFF97316);
+
+  Widget _legend(Color c, String label) => Row(mainAxisSize: MainAxisSize.min, children: [
+        Container(width: 12, height: 12, decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
+        const SizedBox(width: 6),
+        Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+      ]);
+
   Future<void> _cleanup() async {
+    _flush?.cancel();
+    if (_sharing) {
+      for (final t in _screen?.getTracks() ?? const <MediaStreamTrack>[]) {
+        try {
+          await t.stop();
+        } catch (_) {}
+      }
+      MediaBridge.screenShareService(false);
+    }
     _hello?.cancel();
     _ring?.cancel();
     _connectTimer?.cancel();
@@ -524,7 +750,10 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
             Positioned.fill(
               child: Opacity(
                 opacity: showRemote ? 1 : 0,
-                child: RTCVideoView(_remote, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+                child: RTCVideoView(
+                  _remote,
+                  objectFit: _peerSharing ? RTCVideoViewObjectFit.RTCVideoViewObjectFitContain : RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                ),
               ),
             ),
             if (!showRemote)
@@ -578,6 +807,28 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
                   ),
                 ),
               ),
+            if (_board)
+              Positioned(
+                left: 8,
+                right: 8,
+                top: MediaQuery.of(context).padding.top + 8,
+                bottom: MediaQuery.of(context).padding.bottom + 132,
+                child: Container(
+                  padding: const EdgeInsets.only(top: 4, bottom: 8),
+                  decoration: BoxDecoration(color: const Color(0xEE0B1220), borderRadius: BorderRadius.circular(18)),
+                  child: _boardView(context),
+                ),
+              ),
+            if (_sharing)
+              PositionedDirectional(
+                top: MediaQuery.of(context).padding.top + 180,
+                end: 16,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(color: AppColors.danger, borderRadius: BorderRadius.circular(20)),
+                  child: Text(context.isAr ? 'تشارك شاشتك' : 'Sharing your screen', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+                ),
+              ),
             Positioned(
               left: 12,
               right: 12,
@@ -603,6 +854,8 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
                   if (widget.video) _CallButton(icon: _camOn ? Icons.videocam_rounded : Icons.videocam_off_rounded, off: !_camOn, onTap: _toggleCam),
                   if (widget.video && !kIsWeb) _CallButton(icon: Icons.cameraswitch_rounded, onTap: _flip),
                   if (!kIsWeb) _CallButton(icon: _speaker ? Icons.volume_up_rounded : Icons.hearing_rounded, off: !_speaker, onTap: _toggleSpeaker),
+                  _CallButton(icon: Icons.draw_rounded, off: _board, dot: _boardUnseen, onTap: _toggleBoard),
+                  if (widget.video) _CallButton(icon: _sharing ? Icons.stop_screen_share_rounded : Icons.screen_share_rounded, off: _sharing, onTap: _toggleShare),
                   _CallButton(icon: Icons.call_end_rounded, color: AppColors.danger, onTap: _hangUp),
                 ],
               ),
@@ -615,20 +868,76 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
 }
 
 class _CallButton extends StatelessWidget {
-  const _CallButton({required this.icon, required this.onTap, this.off = false, this.color});
+  const _CallButton({required this.icon, required this.onTap, this.off = false, this.color, this.dot = false});
   final IconData icon;
   final VoidCallback onTap;
   final bool off;
   final Color? color;
+  final bool dot;
 
   @override
-  Widget build(BuildContext context) => Material(
-        color: color ?? (off ? Colors.white : Colors.white.withOpacity(0.14)),
-        shape: const CircleBorder(),
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onTap,
-          child: SizedBox(width: 62, height: 62, child: Icon(icon, color: off ? const Color(0xFF0B1220) : Colors.white, size: 28)),
+  Widget build(BuildContext context) => Stack(clipBehavior: Clip.none, children: [
+        Material(
+          color: color ?? (off ? Colors.white : Colors.white.withOpacity(0.14)),
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onTap,
+            child: SizedBox(width: 58, height: 58, child: Icon(icon, color: off ? const Color(0xFF0B1220) : Colors.white, size: 26)),
+          ),
         ),
-      );
+        if (dot)
+          Positioned(
+            top: 2,
+            right: 2,
+            child: Container(width: 12, height: 12, decoration: const BoxDecoration(color: Color(0xFFF97316), shape: BoxShape.circle)),
+          ),
+      ]);
+}
+
+class _Stroke {
+  _Stroke(this.id, this.mine);
+  final String id;
+  final bool mine;
+  final List<Offset> pts = []; // 0..1 of the board's width / height
+}
+
+class _BoardPainter extends CustomPainter {
+  _BoardPainter(this.strokes, this.mineColor, this.peerColor);
+  final List<_Stroke> strokes;
+  final Color mineColor;
+  final Color peerColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(Offset.zero & size, Paint()..color = Colors.white);
+    final grid = Paint()
+      ..color = const Color(0xFFE8EEF5)
+      ..strokeWidth = 1;
+    for (double y = size.height / 16; y < size.height; y += size.height / 16) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
+    }
+    for (final st in strokes) {
+      final paint = Paint()
+        ..color = st.mine ? mineColor : peerColor
+        ..strokeWidth = 3.2
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..style = PaintingStyle.stroke;
+      if (st.pts.length == 1) {
+        final o = st.pts.first;
+        canvas.drawCircle(Offset(o.dx * size.width, o.dy * size.height), 1.8, paint..style = PaintingStyle.fill);
+        continue;
+      }
+      final path = Path();
+      for (int i = 0; i < st.pts.length; i++) {
+        final o = Offset(st.pts[i].dx * size.width, st.pts[i].dy * size.height);
+        i == 0 ? path.moveTo(o.dx, o.dy) : path.lineTo(o.dx, o.dy);
+      }
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BoardPainter old) => true;
 }

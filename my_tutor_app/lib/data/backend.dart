@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:async';
 import 'dart:convert';
 
@@ -247,8 +248,40 @@ class Backend {
     }
   }
 
-  Future<void> sendMessage(String conversationId, String text, {String kind = 'text', int? seconds}) =>
-      db.from('messages').insert({'conversation_id': conversationId, 'sender_id': uid, 'kind': kind, 'body': text, if (seconds != null) 'duration_sec': seconds});
+  Future<void> sendMessage(String conversationId, String text, {String kind = 'text', int? seconds, String? fileUrl}) => db.from('messages').insert({
+        'conversation_id': conversationId,
+        'sender_id': uid,
+        'kind': kind,
+        'body': text,
+        if (seconds != null) 'duration_sec': seconds,
+        if (fileUrl != null && fileUrl.isNotEmpty) 'file_url': fileUrl,
+      });
+
+  // ------------------------------------------------------------------ files
+  /// Uploads into "<my id>/<name>" of a storage bucket; returns "<bucket>/<path>".
+  Future<String> upload(String bucket, String name, Uint8List bytes, String contentType) async {
+    final path = '$uid/$name';
+    await db.storage.from(bucket).uploadBinary(path, bytes, fileOptions: FileOptions(contentType: contentType, upsert: true));
+    return '$bucket/$path';
+  }
+
+  static const _publicBuckets = {'avatars', 'tutor-media'};
+
+  /// A URL that can be opened for a stored "<bucket>/<path>" (public link, or a 1-hour signed link).
+  Future<String> fileUrl(String stored) async {
+    if (stored.startsWith('http')) return stored;
+    final i = stored.indexOf('/');
+    if (i <= 0) return '';
+    final bucket = stored.substring(0, i);
+    final path = stored.substring(i + 1);
+    if (_publicBuckets.contains(bucket)) return db.storage.from(bucket).getPublicUrl(path);
+    return db.storage.from(bucket).createSignedUrl(path, 3600);
+  }
+
+  String publicUrl(String stored) {
+    final i = stored.indexOf('/');
+    return db.storage.from(stored.substring(0, i)).getPublicUrl(stored.substring(i + 1));
+  }
 
   Future<void> markRead(String conversationId) => db
       .from('messages')
@@ -256,6 +289,26 @@ class Backend {
       .eq('conversation_id', conversationId)
       .neq('sender_id', uid!)
       .isFilter('read_at', null);
+
+  Future<void> markNotificationRead(int id) =>
+      db.from('notifications').update({'read_at': DateTime.now().toUtc().toIso8601String()}).eq('id', id).eq('user_id', uid!);
+
+  /// New hourly price: every level price moves by the same ratio.
+  Future<void> updateTutorPrice(double price, double oldPrice) async {
+    await updateTutor({'hourly_price': double.parse(price.toStringAsFixed(2))});
+    final rows = await db.from('tutor_level_prices').select().eq('tutor_id', uid!);
+    final f = oldPrice > 0 ? price / oldPrice : 1.0;
+    for (final r in rows) {
+      final p = _num(r['price']) * f;
+      await db.from('tutor_level_prices').update({'price': double.parse((p < 1 ? 1 : p).toStringAsFixed(2))}).eq('tutor_id', uid!).eq('level_id', '${r['level_id']}');
+    }
+  }
+
+  Future<void> setMySubjects(Set<String> subjects) async {
+    final me = uid!;
+    await db.from('tutor_subjects').delete().eq('tutor_id', me);
+    await db.from('tutor_subjects').insert([for (final s in subjects) {'tutor_id': me, 'subject_id': s}]);
+  }
 
   Future<void> markNotificationsRead() =>
       db.from('notifications').update({'read_at': DateTime.now().toUtc().toIso8601String()}).eq('user_id', uid!).isFilter('read_at', null);
@@ -337,6 +390,8 @@ class Backend {
       teachesInPerson: r['teaches_in_person'] == true,
       cancelHours: _int(r['cancel_hours'] ?? 12),
       reviews: reviews,
+      photoUrl: (r['avatar_url'] as String?) ?? '',
+      videoUrl: (r['video_url'] as String?) ?? '',
     );
   }
 
@@ -366,25 +421,36 @@ class Backend {
       reviewed: reviewed || status == 'disputed' || status == 'no_show',
       number: _int(r['number']),
       commission: _num(r['commission']),
+      studentId: '${r['student_id'] ?? ''}',
     );
   }
 
   static MsgType msgType(String k) => switch (k) {
         'voice' => MsgType.voice,
-        'file' || 'image' => MsgType.file,
+        'image' => MsgType.image,
+        'file' => MsgType.file,
         'system' => MsgType.system,
         'call' => MsgType.call,
         _ => MsgType.text,
       };
 
-  static Message messageFromRow(Map<String, dynamic> r, String? me) => Message(
-        mine: r['sender_id'] != null && r['sender_id'] == me,
-        text: (r['body'] as String?) ?? '',
-        time: time(r['created_at']),
-        type: msgType('${r['kind']}'),
-        seconds: _int(r['duration_sec']),
-        remoteId: _int(r['id']),
-      );
+  static final _videoName = RegExp(r'\.(mp4|mov|m4v|webm|3gp|mkv)$', caseSensitive: false);
+
+  static Message messageFromRow(Map<String, dynamic> r, String? me) {
+    final body = (r['body'] as String?) ?? '';
+    final url = (r['file_url'] as String?) ?? '';
+    var type = msgType('${r['kind']}');
+    if (type == MsgType.file && (_videoName.hasMatch(body) || _videoName.hasMatch(url))) type = MsgType.video;
+    return Message(
+      mine: r['sender_id'] != null && r['sender_id'] == me,
+      text: body,
+      time: time(r['created_at']),
+      type: type,
+      seconds: _int(r['duration_sec']),
+      remoteId: _int(r['id']),
+      url: url,
+    );
+  }
 
   static WalletTx txFromRow(Map<String, dynamic> r) {
     final note = (r['note'] as String?) ?? '';
@@ -412,6 +478,8 @@ class Backend {
       urgent ? Icons.bolt_rounded : Icons.notifications_rounded,
       urgent ? const Color(0xFFF59E0B) : const Color(0xFF0E8F7E),
       read: r['read_at'] != null,
+      data: Map<String, dynamic>.from(data),
+      remoteId: _int(r['id']),
     );
   }
 

@@ -321,7 +321,7 @@ class _LiveHelpScreenState extends State<LiveHelpScreen> with SingleTickerProvid
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TutorProfileScreen(tutor: t))),
             child: Column(children: [
               Row(children: [
-                Avatar(name: t.name, color: t.color, size: 54, online: true),
+                Avatar(name: t.name, color: t.color, photo: t.photoUrl, size: 54, online: true),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

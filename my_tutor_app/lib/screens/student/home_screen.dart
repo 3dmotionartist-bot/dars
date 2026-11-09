@@ -192,7 +192,7 @@ class HomeScreen extends StatelessWidget {
                         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TutorProfileScreen(tutor: t))),
                         padding: const EdgeInsets.all(14),
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Row(children: [Avatar(name: t.name, color: t.color, size: 52, online: t.available), const Spacer(), RatingRow(t.rating, t.reviewCount)]),
+                          Row(children: [Avatar(name: t.name, color: t.color, photo: t.photoUrl, size: 52, online: t.available), const Spacer(), RatingRow(t.rating, t.reviewCount)]),
                           const SizedBox(height: 10),
                           VerifiedName(t.name.of(context), size: 15),
                           const SizedBox(height: 2),

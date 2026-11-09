@@ -7,6 +7,7 @@ import '../../state/app_state.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../shared/notifications_screen.dart';
+import 'my_students_screen.dart';
 import 'tutor_shell.dart';
 
 class TutorDashboardScreen extends StatelessWidget {
@@ -155,6 +156,20 @@ class TutorDashboardScreen extends StatelessWidget {
                       ]),
                     ),
                   ),
+
+              // My students
+              AppCard(
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MyStudentsScreen())),
+                child: Row(children: [
+                  const Icon(Icons.groups_rounded, color: AppColors.primary, size: 28),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text(context.tr('my_students'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16))),
+                  Pill('${app.myStudents.length}', bg: AppColors.primarySoft, fg: AppColors.primary),
+                  const SizedBox(width: 6),
+                  const Icon(Icons.chevron_right_rounded, color: AppColors.text3),
+                ]),
+              ),
+              const SizedBox(height: 12),
 
               // Upcoming lessons
               SectionTitle(context.tr('upcoming_lessons'), action: context.tr('see_all'), onAction: () => TutorShell.of(context)?.go(2)),

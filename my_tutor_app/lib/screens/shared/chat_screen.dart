@@ -1,15 +1,19 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/models.dart';
 import '../../l10n.dart';
 import '../../services/calls.dart';
+import '../../services/media_bridge.dart';
 import '../../state/app_state.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../../widgets/media.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../student/booking_screen.dart';
 import 'call_screen.dart';
@@ -72,21 +76,94 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  void _toggleVoice(AppState app) {
+  Future<void> _toggleVoice(AppState app) async {
     if (_recording) {
       _timer?.cancel();
-      app.sendMessage(widget.conversation, Message(mine: true, text: '', time: DateTime.now(), type: MsgType.voice, seconds: _secs < 1 ? 1 : _secs));
       setState(() => _recording = false);
+      if (!app.live) {
+        app.sendMessage(widget.conversation, Message(mine: true, text: '', time: DateTime.now(), type: MsgType.voice, seconds: _secs < 1 ? 1 : _secs));
+        _toBottom();
+        return;
+      }
+      final clip = await MediaBridge.stopRecording();
+      if (!mounted) return;
+      if (clip == null || clip.bytes.isEmpty || clip.ms < 700) {
+        toast(context, context.isAr ? 'التسجيل قصير جداً — اضغط مطولاً وتكلّم' : 'Too short — tap, speak, then tap again', icon: Icons.mic_off_rounded);
+        return;
+      }
+      _toBottom();
+      await app.sendMedia(widget.conversation,
+          type: MsgType.voice, bytes: clip.bytes, name: 'voice.${clip.ext}', mime: clip.mime, seconds: (clip.ms / 1000).ceil());
       _toBottom();
     } else {
+      if (app.live) {
+        final r = await MediaBridge.startRecording();
+        if (!mounted) return;
+        if (r != 'ok') {
+          toast(
+            context,
+            r == 'permission'
+                ? (context.isAr ? 'اسمح للتطبيق باستخدام الميكروفون ثم اضغط مرة أخرى' : 'Allow the microphone, then tap again')
+                : (context.isAr ? 'تعذّر بدء التسجيل' : 'Could not start recording'),
+            icon: Icons.mic_off_rounded,
+          );
+          return;
+        }
+      }
       setState(() {
         _recording = true;
         _secs = 0;
       });
       _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _secs++);
-    });
+        if (!mounted) return;
+        setState(() => _secs++);
+        if (_secs >= 180) _toggleVoice(app); // 3 minutes max
+      });
     }
+  }
+
+  Future<void> _cancelVoice() async {
+    _timer?.cancel();
+    setState(() => _recording = false);
+    await MediaBridge.cancelRecording();
+  }
+
+  /// Photo / video from the gallery or the camera.
+  Future<void> _attach(AppState app) async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (sheet) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const SizedBox(height: 8),
+          ListTile(leading: const Icon(Icons.photo_library_outlined, color: AppColors.primary), title: Text(context.tr('send_photo')), onTap: () => Navigator.pop(sheet, 'photo')),
+          if (!kIsWeb)
+            ListTile(leading: const Icon(Icons.photo_camera_outlined, color: AppColors.primary), title: Text(context.tr('take_photo')), onTap: () => Navigator.pop(sheet, 'camera')),
+          ListTile(leading: const Icon(Icons.video_library_outlined, color: AppColors.primary), title: Text(context.tr('send_video')), onTap: () => Navigator.pop(sheet, 'video')),
+          const SizedBox(height: 8),
+        ]),
+      ),
+    );
+    if (choice == null || !mounted) return;
+    final picker = ImagePicker();
+    XFile? f;
+    try {
+      f = choice == 'video'
+          ? await picker.pickVideo(source: ImageSource.gallery, maxDuration: const Duration(minutes: 5))
+          : await picker.pickImage(source: choice == 'camera' ? ImageSource.camera : ImageSource.gallery, maxWidth: 1600, imageQuality: 80);
+    } catch (_) {
+      if (mounted) toast(context, context.isAr ? 'تعذّر فتح المعرض/الكاميرا' : 'Could not open the gallery/camera', icon: Icons.error_outline);
+      return;
+    }
+    if (f == null || !mounted) return;
+    final bytes = await f.readAsBytes();
+    final video = choice == 'video';
+    final name = f.name.isNotEmpty ? f.name : (video ? 'video.mp4' : 'photo.jpg');
+    final mime = f.mimeType ?? (video ? 'video/mp4' : 'image/jpeg');
+    _toBottom();
+    await app.sendMedia(widget.conversation, type: video ? MsgType.video : MsgType.image, bytes: bytes, name: name, mime: mime);
+    _toBottom();
   }
 
   @override
@@ -101,7 +178,7 @@ class _ChatScreenState extends State<ChatScreen> {
         surfaceTintColor: Colors.white,
         titleSpacing: 0,
         title: Row(children: [
-          Avatar(name: c.name, color: c.color, size: 40, online: c.online),
+          Avatar(name: c.name, color: c.color, size: 40, online: c.online, photo: c.tutor?.photoUrl ?? ''),
           const SizedBox(width: 10),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -183,13 +260,17 @@ class _ChatScreenState extends State<ChatScreen> {
               padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
               decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: AppColors.line))),
               child: Row(children: [
-                IconButton(
-                  onPressed: () {
-                    app.sendMessage(c, Message(mine: true, text: 'homework.pdf', time: DateTime.now(), type: MsgType.file));
-                    _toBottom();
-                  },
-                  icon: const Icon(Icons.attach_file_rounded, color: AppColors.text2),
-                ),
+                _recording
+                    ? IconButton(
+                        tooltip: context.isAr ? 'إلغاء' : 'Cancel',
+                        onPressed: _cancelVoice,
+                        icon: const Icon(Icons.delete_outline_rounded, color: AppColors.danger),
+                      )
+                    : IconButton(
+                        tooltip: context.tr('send_photo'),
+                        onPressed: () => _attach(app),
+                        icon: const Icon(Icons.attach_file_rounded, color: AppColors.text2),
+                      ),
                 Expanded(
                   child: _recording
                       ? Container(
@@ -199,7 +280,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           child: Row(children: [
                             const Icon(Icons.fiber_manual_record_rounded, color: AppColors.danger, size: 14),
                             const SizedBox(width: 8),
-                            Text('${context.tr('recording')}  0:${two(_secs)}', style: const TextStyle(color: AppColors.danger, fontWeight: FontWeight.w700)),
+                            Text('${context.tr('recording')}  ${_secs ~/ 60}:${two(_secs % 60)}', style: const TextStyle(color: AppColors.danger, fontWeight: FontWeight.w700)),
                           ]),
                         )
                       : TextField(
@@ -262,20 +343,18 @@ class _Bubble extends StatelessWidget {
     Widget content;
     switch (m.type) {
       case MsgType.voice:
-        content = Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(Icons.play_circle_fill_rounded, color: m.mine ? Colors.white : AppColors.primary, size: 32),
-          const SizedBox(width: 6),
-          for (int i = 0; i < 18; i++)
-            Container(
-              width: 3,
-              height: 6.0 + (i * 7 % 17),
-              margin: const EdgeInsets.symmetric(horizontal: 1),
-              decoration: BoxDecoration(color: fg.withOpacity(0.7), borderRadius: BorderRadius.circular(2)),
-            ),
-          const SizedBox(width: 8),
-          Text('0:${two(m.seconds)}', style: TextStyle(color: fg, fontSize: 12)),
-        ]);
+        content = VoiceNote(m: m);
         break;
+      case MsgType.image:
+        return Align(
+          alignment: m.mine ? AlignmentDirectional.centerEnd : AlignmentDirectional.centerStart,
+          child: Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: ChatImage(m: m)),
+        );
+      case MsgType.video:
+        return Align(
+          alignment: m.mine ? AlignmentDirectional.centerEnd : AlignmentDirectional.centerStart,
+          child: Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: ChatVideo(m: m)),
+        );
       case MsgType.call:
         final inv = Calls.parse(m.text);
         final video = inv?.video ?? false;

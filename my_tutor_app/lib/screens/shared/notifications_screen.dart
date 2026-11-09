@@ -30,6 +30,7 @@ class NotificationsScreen extends StatelessWidget {
                 itemBuilder: (_, i) {
                   final n = app.notifications[i];
                   return AppCard(
+                    onTap: () => app.openNotification(n),
                     color: n.read ? Colors.white : AppColors.primarySoft,
                     borderColor: n.read ? AppColors.line : AppColors.primarySoft,
                     child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -46,7 +47,11 @@ class NotificationsScreen extends StatelessWidget {
                           Text(n.body.of(context), style: const TextStyle(color: AppColors.text2)),
                         ]),
                       ),
-                      Text(ago(context, n.time), style: const TextStyle(color: AppColors.text3, fontSize: 12)),
+                      Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                        Text(ago(context, n.time), style: const TextStyle(color: AppColors.text3, fontSize: 12)),
+                        const SizedBox(height: 6),
+                        const Icon(Icons.chevron_right_rounded, color: AppColors.text3),
+                      ]),
                     ]),
                   );
                 },
