@@ -90,7 +90,7 @@ class LessonsScreen extends StatelessWidget {
           child: AppCard(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
-                Avatar(name: p.tutor.name, color: p.tutor.color, size: 46),
+                Avatar(name: p.tutor.name, color: p.tutor.color, size: 46, photo: p.tutor.photoUrl),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -282,7 +282,7 @@ class LessonCard extends StatelessWidget {
         builder: (ctx, set) => Padding(
           padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + MediaQuery.of(ctx).viewInsets.bottom),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Avatar(name: lesson.tutor.name, color: lesson.tutor.color, size: 60),
+            Avatar(name: lesson.tutor.name, color: lesson.tutor.color, size: 60, photo: lesson.tutor.photoUrl),
             const SizedBox(height: 10),
             Text(context.tr('your_review'), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
             Text(lesson.tutor.name.of(context), style: const TextStyle(color: AppColors.text2)),

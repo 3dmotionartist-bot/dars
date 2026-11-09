@@ -284,7 +284,7 @@ class _LiveHelpScreenState extends State<LiveHelpScreen> with SingleTickerProvid
                 for (int i = 0; i < _accepted.length; i++)
                   Transform.translate(
                     offset: Offset(105 * math.cos(i * 1.7 + 0.5), 105 * math.sin(i * 1.7 + 0.5)),
-                    child: Avatar(name: _accepted[i].name, color: _accepted[i].color, size: 46),
+                    child: Avatar(name: _accepted[i].name, color: _accepted[i].color, size: 46, photo: _accepted[i].photoUrl),
                   ),
               ]),
             ),

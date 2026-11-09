@@ -103,7 +103,7 @@ class AdaptiveShell extends StatelessWidget {
                 InkWell(
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountScreen())),
                   borderRadius: BorderRadius.circular(20),
-                  child: Avatar(name: L(app.name, app.name), color: AppColors.primary, size: 38),
+                  child: Avatar(name: L(app.name, app.name), color: AppColors.primary, size: 38, photo: app.avatarUrl),
                 ),
               ]),
             ),

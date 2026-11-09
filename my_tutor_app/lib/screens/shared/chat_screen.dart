@@ -178,7 +178,7 @@ class _ChatScreenState extends State<ChatScreen> {
         surfaceTintColor: Colors.white,
         titleSpacing: 0,
         title: Row(children: [
-          Avatar(name: c.name, color: c.color, size: 40, online: c.online, photo: c.tutor?.photoUrl ?? ''),
+          Avatar(name: c.name, color: c.color, size: 40, online: c.online, photo: c.photo),
           const SizedBox(width: 10),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

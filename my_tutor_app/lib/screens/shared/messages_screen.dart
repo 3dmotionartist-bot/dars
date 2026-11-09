@@ -52,7 +52,7 @@ class MessagesScreen extends StatelessWidget {
                           app.openConversation(c);
                           Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(conversation: c)));
                         },
-                        leading: Avatar(name: c.name, color: c.color, size: 52, online: c.online, photo: c.tutor?.photoUrl ?? ''),
+                        leading: Avatar(name: c.name, color: c.color, size: 52, online: c.online, photo: c.photo),
                         title: Row(children: [
                           Expanded(child: Text(c.name.of(context), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800))),
                           if (last != null) Text(ago(context, last.time), style: const TextStyle(color: AppColors.text3, fontSize: 12)),

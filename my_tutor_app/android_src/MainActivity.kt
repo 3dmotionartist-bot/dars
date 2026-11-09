@@ -51,9 +51,13 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun readIntent(i: Intent?) {
-        // Meeting links: dars://join?room=...&video=1 (from the call page "Open in the Dars app")
+        // Meeting links: dars://join?room=...&video=1 (from the call page "Open in the Dars app"), or the shared
+        // https link itself (https://3dmotionartist-bot.github.io/dars/call/?room=...) tapped in WhatsApp etc.
         val data = i?.data
-        if (data != null && data.scheme == "dars") pendingLink = data.toString()
+        if (data != null && (data.scheme == "dars" ||
+                (data.scheme == "https" && data.host == "3dmotionartist-bot.github.io" && (data.path ?: "").contains("/call")))) {
+            pendingLink = data.toString()
+        }
         val isCall = i != null && i.getBooleanExtra("dars_call", false)
         // Only an incoming call may appear over the lock screen; normal use still needs the phone unlocked.
         if (Build.VERSION.SDK_INT >= 27) {

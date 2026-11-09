@@ -261,5 +261,55 @@ select t_ok(tutor_start_conversation(:'stu') is not null, 'tutor can open the ch
 select t_err($$select tutor_start_conversation(auth.uid())$$, 'yourself', 'tutor cannot open a chat with himself');
 reset role;
 select t_ok((select count(*) from conversations where student_id = tutor_id) = 0, 'no self conversations exist');
+
+-- security monitor: contact details in chats
+select t_ok(contact_hits('رقمي ٠٩٣٣ ١٢٣ ٤٥٦') -> 0 ->> 'kind' = 'phone', 'Arabic-Indic phone digits are detected');
+select t_ok(contact_hits('صفر تسعة ثلاثة ثلاثة واحد اثنين ثلاثة اربعة خمسة') -> 0 ->> 'kind' = 'phone', 'numbers written as words are detected');
+select t_ok(contact_hits('0933-123-456') -> 0 ->> 'kind' = 'phone', 'dashed phone numbers are detected');
+select t_ok(contact_hits('شو رقم الواتس تبعك؟') -> 0 ->> 'kind' = 'contact_request', 'asking for WhatsApp is detected');
+select t_ok(contact_hits('what is your number?') -> 0 ->> 'kind' = 'contact_request', 'asking for a number (English) is detected');
+select t_ok(contact_hits('me@example.com') -> 0 ->> 'kind' = 'email', 'emails are detected');
+select t_ok(jsonb_array_length(contact_hits('lesson on 2026-11-09 at 10:30, price 1,500,000')) = 0, 'dates, times and prices are not flagged');
+select t_ok(jsonb_array_length(contact_hits('شكراً أستاذ، الدرس كان ممتاز')) = 0, 'normal messages are not flagged');
+select t_as(:'stu'); set role authenticated;
+select start_conversation(:'tut') as mc \gset
+insert into messages (conversation_id, sender_id, body) values (:'mc', auth.uid(), 'كلمني على ٠٩٤٤ ٥٥٥ ٦٦٦');
+insert into messages (conversation_id, sender_id, body) values (:'mc', auth.uid(), 'ممكن رقمك؟');
+select t_ok((select count(*) from message_flags) = 0, 'students cannot see security flags');
+reset role;
+select t_ok((select count(*) from message_flags where conversation_id = :'mc' and sender_id = :'stu') = 2, 'both messages are flagged for the admin');
+select t_ok((select count(*) from notifications where user_id = :'admin' and data ? 'security_flag') >= 2, 'the admin is notified');
+select t_ok((select count(*) from notifications where user_id in (:'stu', :'tut') and data ? 'security_flag') = 0, 'the student and tutor are not told');
+select t_as(:'tut'); set role authenticated;
+select t_ok((select count(*) from messages where conversation_id = :'mc' and body like '%٠٩٤٤%') = 0, 'the tutor does not see the number');
+select t_ok((select count(*) from message_flags) = 0, 'tutors cannot see security flags');
+reset role;
+select t_as(:'admin'); set role authenticated;
+select t_ok((select count(*) from admin_message_flags where conversation_id = :'mc') = 2, 'admin sees the flags with names');
+select t_ok((select open_flags from admin_conversations where id = :'mc') = 2, 'admin chat list counts open flags');
+select t_ok((select count(*) from messages where conversation_id = :'mc') >= 2, 'admin can read every message');
+reset role;
+
+-- working hours
+select t_as(:'tut'); set role authenticated;
+select set_working_hours(180, jsonb_build_array(
+  jsonb_build_object('weekday', 0, 'start', '09:00', 'end', '12:00'), jsonb_build_object('weekday', 1, 'start', '09:00', 'end', '12:00'),
+  jsonb_build_object('weekday', 2, 'start', '09:00', 'end', '12:00'), jsonb_build_object('weekday', 3, 'start', '09:00', 'end', '12:00'),
+  jsonb_build_object('weekday', 4, 'start', '09:00', 'end', '12:00'), jsonb_build_object('weekday', 5, 'start', '09:00', 'end', '12:00'),
+  jsonb_build_object('weekday', 6, 'start', '16:00', 'end', '24:00')));
+select t_ok((select count(*) from availability_slots where tutor_id = auth.uid()) = 7, 'tutor saves working hours for each day');
+select t_err($$select set_working_hours(180, '[{"weekday":1,"start":"12:00","end":"10:00"}]')$$, 'end after', 'a period must end after it starts');
+reset role;
+select t_ok((select count(*) from availability_slots where tutor_id = :'tut') = 7, 'bad input keeps the old hours');
+select t_ok(jsonb_array_length(tutor_schedule(:'tut') -> 'slots') = 7, 'visitors can read the working hours for booking');
+select t_as(:'stu2'); set role authenticated;
+-- 10:00 Damascus (UTC+3) = 07:00 UTC, ten days ahead on a weekday that is not Saturday
+select (date_trunc('day', now() at time zone 'UTC') + interval '10 days') as d10 \gset
+select (case when extract(dow from :'d10'::timestamp) = 6 then :'d10'::timestamp + interval '1 day' else :'d10'::timestamp end) as wd \gset
+select t_ok((book_lesson(:'tut', (:'wd'::timestamp + interval '7 hours') at time zone 'UTC', 60, 'math', p_use_wallet => false) ->> 'lesson_id') is not null,
+            'booking inside the working hours works');
+select t_err(format('select book_lesson(%L, %L, 60, %L, p_use_wallet => false)', :'tut', (:'wd'::timestamp + interval '15 hours') at time zone 'UTC', 'math'),
+             'working hours', 'booking outside the working hours is refused');
+reset role;
 \echo
 \echo 'ALL FLOW TESTS PASSED'

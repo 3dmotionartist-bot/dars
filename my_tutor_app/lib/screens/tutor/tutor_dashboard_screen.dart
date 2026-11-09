@@ -27,7 +27,7 @@ class TutorDashboardScreen extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Row(children: [
-                Avatar(name: me.name, color: me.color, size: 48, online: app.tutorAvailable),
+                Avatar(name: me.name, color: me.color, size: 48, online: app.tutorAvailable, photo: app.avatarUrl),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -178,7 +178,7 @@ class TutorDashboardScreen extends StatelessWidget {
                   padding: const EdgeInsets.only(bottom: 8),
                   child: AppCard(
                     child: Row(children: [
-                      Avatar(name: l.studentName, color: AppColors.info, size: 44),
+                      Avatar(name: l.studentName, color: AppColors.info, size: 44, photo: app.photoOf(l.studentId)),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

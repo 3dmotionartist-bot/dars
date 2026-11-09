@@ -5,11 +5,15 @@ import '../../l10n.dart';
 import '../../state/app_state.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import 'working_hours_screen.dart';
 
 /// Tutor settings: working days & booking method & real-time mode | packages & discounts.
 class TutorSettingsScreen extends StatelessWidget {
   final int initialTab;
   const TutorSettingsScreen({super.key, this.initialTab = 0});
+
+  static String _t(BuildContext context, int minutes) =>
+      minutes >= 1440 ? (context.isAr ? '12 ليلاً' : '12 AM') : timeOf(context, DateTime(2026, 1, 1).add(Duration(minutes: minutes)));
 
   @override
   Widget build(BuildContext context) {
@@ -35,16 +39,32 @@ class TutorSettingsScreen extends StatelessWidget {
             child: ListView(padding: const EdgeInsets.all(16), children: [
               SectionTitle(context.tr('my_availability')),
               AppCard(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Column(children: [
-                  for (final d in app.workingDays.keys)
-                    SwitchListTile(
-                      activeColor: AppColors.primary,
-                      title: Text(context.tr(d), style: const TextStyle(fontWeight: FontWeight.w700)),
-                      subtitle: Text(app.workingDays[d]! ? '16:00 – 22:00' : '—', textDirection: TextDirection.ltr, textAlign: context.isAr ? TextAlign.right : TextAlign.left),
-                      value: app.workingDays[d]!,
-                      onChanged: (_) => app.toggleWorkingDay(d),
+                key: const Key('hours-card'),
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WorkingHoursScreen())),
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  for (final d in const [6, 0, 1, 2, 3, 4, 5])
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 5),
+                      child: Row(children: [
+                        SizedBox(width: 90, child: Text(context.tr(const ['day_sun', 'day_mon', 'day_tue', 'day_wed', 'day_thu', 'day_fri', 'day_sat'][d]), style: const TextStyle(fontWeight: FontWeight.w700))),
+                        Expanded(
+                          child: Text(
+                            app.workHours.where((p) => p.weekday == d).isEmpty
+                                ? (context.isAr ? 'عطلة' : 'Day off')
+                                : app.workHours.where((p) => p.weekday == d).map((p) => '${_t(context, p.start)} – ${_t(context, p.end)}').join('  ·  '),
+                            style: TextStyle(color: app.workHours.any((p) => p.weekday == d) ? AppColors.ink : AppColors.text3),
+                          ),
+                        ),
+                      ]),
                     ),
+                  const Divider(height: 18),
+                  Row(children: [
+                    const Icon(Icons.edit_calendar_rounded, color: AppColors.primary, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(context.tr('edit_working_hours'), style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800))),
+                    const Icon(Icons.chevron_right_rounded, color: AppColors.text3),
+                  ]),
                 ]),
               ),
               SectionTitle(context.tr('booking_mode')),

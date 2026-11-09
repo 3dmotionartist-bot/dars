@@ -25,7 +25,8 @@ class _BookingScreenState extends State<BookingScreen> {
   int _hours = 8;
   int _minutes = 50;
   int _day = 0;
-  String? _slot;
+  DateTime? _slot; // chosen lesson start (my local time)
+  TutorSchedule? _schedule; // the tutor's working hours + booked times (null while loading)
   bool _online = true;
   bool _useBalance = true;
   String _method = 'card';
@@ -33,7 +34,66 @@ class _BookingScreenState extends State<BookingScreen> {
   bool _processing = false;
   final _notes = TextEditingController();
 
-  static const _slots = ['09:00', '10:00', '13:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00'];
+  // Used only when the tutor has not set working hours yet.
+  static const _defaultHours = [9, 10, 13, 16, 17, 18, 19, 20, 21];
+
+  @override
+  void initState() {
+    super.initState();
+    context.read<AppState>().scheduleFor(widget.tutor).then((s) {
+      if (!mounted) return;
+      setState(() {
+        _schedule = s;
+        // Start on the first day that has free times.
+        for (var i = 0; i < 14; i++) {
+          if (_timesFor(i).any((t) => !t.taken)) {
+            _day = i;
+            break;
+          }
+        }
+      });
+    });
+  }
+
+  int get _lessonMinutes => _package ? 60 : _minutes;
+
+  /// Start times on day [i] (from today), in my local time, with whether each one is already taken.
+  List<({DateTime time, bool taken})> _timesFor(int i) {
+    final day = _dayDate(i);
+    final now = DateTime.now();
+    final s = _schedule;
+    final len = Duration(minutes: _lessonMinutes);
+    final starts = <DateTime>[];
+    if (s == null || s.periods.isEmpty) {
+      for (final h in _defaultHours) {
+        starts.add(day.add(Duration(hours: h)));
+      }
+    } else {
+      // The tutor's hours are in their own time zone; check the tutor days around mine.
+      for (var k = -1; k <= 1; k++) {
+        final td = DateTime.utc(day.year, day.month, day.day + k);
+        final dow = td.weekday % 7; // 0 = Sunday
+        for (final p in s.periods.where((p) => p.weekday == dow)) {
+          for (var m = p.start; m + _lessonMinutes <= p.end; m += 60) {
+            final local = td.add(Duration(minutes: m - s.tzOffset)).toLocal();
+            if (local.year == day.year && local.month == day.month && local.day == day.day) starts.add(local);
+          }
+        }
+      }
+      starts.sort();
+    }
+    final out = <({DateTime time, bool taken})>[];
+    for (final t in starts) {
+      final end = t.add(len);
+      var taken = t.isBefore(now.add(const Duration(minutes: 30)));
+      for (final b in s?.busy ?? const <({DateTime start, DateTime end})>[]) {
+        if (t.isBefore(b.end) && end.isAfter(b.start)) taken = true;
+      }
+      if (!taken && !context.read<AppState>().live) taken = (i * 3 + t.hour) % 5 == 0; // demo: some taken
+      if (out.every((x) => x.time != t)) out.add((time: t, taken: taken));
+    }
+    return out;
+  }
 
   List<String> get _steps => _package ? ['step_type', 'step_summary', 'step_pay'] : ['step_type', 'step_time', 'step_summary', 'step_pay'];
   String get _current => _steps[_step];
@@ -41,13 +101,6 @@ class _BookingScreenState extends State<BookingScreen> {
   DateTime _dayDate(int i) {
     final n = DateTime.now();
     return DateTime(n.year, n.month, n.day + i);
-  }
-
-  bool _slotTaken(int day, String slot) {
-    final h = int.parse(slot.substring(0, 2));
-    if (day == 0 && h <= DateTime.now().hour) return true;
-    if (context.read<AppState>().live) return false; // the server checks the tutor's calendar when booking
-    return (day * 3 + h) % 5 == 0;
   }
 
   @override
@@ -141,6 +194,7 @@ class _BookingScreenState extends State<BookingScreen> {
               itemBuilder: (_, i) {
                 final d = _dayDate(i);
                 final sel = _day == i;
+                final dayOff = _schedule != null && _schedule!.periods.isNotEmpty && !_timesFor(i).any((x) => !x.taken);
                 const keys = ['day_mon', 'day_tue', 'day_wed', 'day_thu', 'day_fri', 'day_sat', 'day_sun'];
                 return InkWell(
                   onTap: () => setState(() {
@@ -150,6 +204,7 @@ class _BookingScreenState extends State<BookingScreen> {
                   borderRadius: BorderRadius.circular(16),
                   child: Container(
                     width: 64,
+                    foregroundDecoration: dayOff && !sel ? BoxDecoration(color: Colors.white.withOpacity(0.55), borderRadius: BorderRadius.circular(16)) : null,
                     decoration: BoxDecoration(
                       color: sel ? AppColors.primary : Colors.white,
                       borderRadius: BorderRadius.circular(16),
@@ -167,14 +222,21 @@ class _BookingScreenState extends State<BookingScreen> {
           ),
           const SizedBox(height: 18),
           _label(context.tr('time')),
+          if (_schedule == null)
+            const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator(strokeWidth: 2.4)))
+          else if (_timesFor(_day).isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Text(context.tr('no_times_day'), style: const TextStyle(color: AppColors.text3, fontWeight: FontWeight.w700)),
+            )
+          else
           Wrap(spacing: 8, runSpacing: 8, children: [
-            for (final s in _slots)
+            for (final x in _timesFor(_day))
               Builder(builder: (_) {
-                final taken = _slotTaken(_day, s);
-                final sel = _slot == s;
-                final h = int.parse(s.substring(0, 2));
+                final taken = x.taken;
+                final sel = _slot == x.time;
                 return ChoiceChip(
-                  label: Text(timeOf(context, DateTime(2026, 1, 1, h))),
+                  label: Text(timeOf(context, x.time)),
                   selected: sel,
                   showCheckmark: false,
                   selectedColor: AppColors.primary,
@@ -187,7 +249,7 @@ class _BookingScreenState extends State<BookingScreen> {
                     color: sel ? Colors.white : (taken ? AppColors.text3 : AppColors.ink),
                     decoration: taken ? TextDecoration.lineThrough : null,
                   ),
-                  onSelected: taken ? null : (_) => setState(() => _slot = s),
+                  onSelected: taken ? null : (_) => setState(() => _slot = x.time),
                 );
               }),
           ]),
@@ -213,7 +275,7 @@ class _BookingScreenState extends State<BookingScreen> {
         break;
 
       case 'step_summary':
-        final start = _slot == null ? null : _dayDate(_day).add(Duration(hours: int.parse(_slot!.substring(0, 2))));
+        final start = _slot;
         body = Column(children: [
           AppCard(
             child: Row(children: [
@@ -375,7 +437,7 @@ class _BookingScreenState extends State<BookingScreen> {
                           setState(() => _processing = true);
                           if (!app.live) await Future.delayed(const Duration(milliseconds: 1600));
                           if (!mounted) return;
-                          final start = _slot == null ? _dayDate(1).add(const Duration(hours: 18)) : _dayDate(_day).add(Duration(hours: int.parse(_slot!.substring(0, 2))));
+                          final start = _slot ?? _dayDate(1).add(const Duration(hours: 18));
                           try {
                             await app.book(
                               tutor: t,

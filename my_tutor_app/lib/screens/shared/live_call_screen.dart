@@ -475,6 +475,7 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
       _screen = screen;
       _sharing = true;
       _send('share', {'on': true});
+      _startShareQuality();
       if (mounted) setState(() {});
     } catch (e) {
       await MediaBridge.screenShareService(false);
@@ -489,6 +490,9 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
   Future<void> _stopShare() async {
     if (!_sharing) return;
     _sharing = false;
+    _qualityTimer?.cancel();
+    _qualityTimer = null;
+    await _applyQuality(null); // back to normal camera settings
     final screen = _screen;
     _screen = null;
     try {
@@ -509,6 +513,142 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     await MediaBridge.screenShareService(false);
     _send('share', {'on': false});
     if (mounted) setState(() {});
+  }
+
+  // ---- screen-share quality that follows the connection speed ----
+  // Every few seconds we read how fast the connection can send and how many packets get lost,
+  // then pick a level: slow internet → smaller picture, fewer frames, lower bitrate (text stays readable).
+  static const _levels = [
+    (bitrate: 250000, scale: 3.0, fps: 4, ar: 'منخفضة', en: 'Low'),
+    (bitrate: 600000, scale: 2.0, fps: 8, ar: 'متوسطة', en: 'Medium'),
+    (bitrate: 1200000, scale: 1.5, fps: 12, ar: 'جيدة', en: 'Good'),
+    (bitrate: 2500000, scale: 1.0, fps: 15, ar: 'عالية', en: 'High'),
+  ];
+  int _level = 2;
+  int _upVotes = 0;
+  Timer? _qualityTimer;
+  num? _lastBytes;
+  DateTime? _lastBytesAt;
+
+  void _startShareQuality() {
+    _level = 2;
+    _upVotes = 0;
+    _lastBytes = null;
+    _applyQuality(_level);
+    _qualityTimer?.cancel();
+    _qualityTimer = Timer.periodic(const Duration(seconds: 4), (_) => _checkQuality());
+  }
+
+  static num? _num(dynamic v) => v is num ? v : (v is String ? num.tryParse(v) : null);
+
+  Future<void> _checkQuality() async {
+    final pc = _pc;
+    if (pc == null || !_sharing) return;
+    try {
+      final stats = await pc.getStats();
+      num? avail;
+      num? loss;
+      num? rtt;
+      String limit = '';
+      num? sentBytes;
+      for (final r in stats) {
+        final v = r.values;
+        switch (r.type) {
+          case 'candidate-pair':
+            final ok = v['nominated'] == true || '${v['nominated']}' == 'true' || v['state'] == 'succeeded';
+            final a = _num(v['availableOutgoingBitrate']);
+            if (ok && a != null && a > 0) avail = a;
+            final t = _num(v['currentRoundTripTime']);
+            if (ok && t != null) rtt = t;
+            break;
+          case 'remote-inbound-rtp':
+            if ('${v['kind'] ?? v['mediaType']}' == 'video') {
+              loss = _num(v['fractionLost']) ?? loss;
+              rtt = _num(v['roundTripTime']) ?? rtt;
+            }
+            break;
+          case 'outbound-rtp':
+            if ('${v['kind'] ?? v['mediaType']}' == 'video') {
+              limit = '${v['qualityLimitationReason'] ?? ''}';
+              sentBytes = _num(v['bytesSent']) ?? sentBytes;
+            }
+            break;
+        }
+      }
+      // What we actually manage to send, for phones that don't report the available bitrate.
+      num? sendRate;
+      final now = DateTime.now();
+      if (sentBytes != null && _lastBytes != null && _lastBytesAt != null) {
+        final secs = now.difference(_lastBytesAt!).inMilliseconds / 1000;
+        if (secs > 0) sendRate = (sentBytes - _lastBytes!) * 8 / secs;
+      }
+      _lastBytes = sentBytes;
+      _lastBytesAt = now;
+
+      var next = _level;
+      final bad = (loss != null && loss > 0.08) || (rtt != null && rtt > 0.7) || limit == 'bandwidth';
+      if (avail != null) {
+        // Highest level that fits comfortably in the bandwidth the connection reports.
+        var fit = 0;
+        for (var i = 0; i < _levels.length; i++) {
+          if (_levels[i].bitrate <= avail * 0.85) fit = i;
+        }
+        if (fit < next) next = fit;
+        if (bad && next == _level && next > 0) next--;
+        if (!bad && fit > _level) {
+          _upVotes++;
+          if (_upVotes >= 2) next = _level + 1;
+        } else {
+          _upVotes = 0;
+        }
+      } else if (bad) {
+        next = _level > 0 ? _level - 1 : 0;
+        _upVotes = 0;
+      } else if ((loss ?? 0) < 0.02 && (sendRate == null || sendRate > _levels[_level].bitrate * 0.6)) {
+        _upVotes++;
+        if (_upVotes >= 3 && _level < _levels.length - 1) {
+          next = _level + 1;
+        }
+      } else {
+        _upVotes = 0;
+      }
+      if (next != _level) {
+        _upVotes = 0;
+        _level = next;
+        await _applyQuality(next);
+        if (mounted) setState(() {});
+      }
+    } catch (e) {
+      _lastError = 'quality: $e';
+    }
+  }
+
+  /// Sets bitrate / picture size / frame rate on the video we send ([level] null = camera defaults).
+  Future<void> _applyQuality(int? level) async {
+    try {
+      final senders = await _pc?.getSenders() ?? const <RTCRtpSender>[];
+      for (final x in senders) {
+        if (x.track?.kind != 'video') continue;
+        final p = x.parameters;
+        final encs = p.encodings;
+        if (encs == null || encs.isEmpty) continue;
+        for (final e in encs) {
+          if (level == null) {
+            e.maxBitrate = null;
+            e.maxFramerate = null;
+            e.scaleResolutionDownBy = 1.0;
+          } else {
+            final l = _levels[level];
+            e.maxBitrate = l.bitrate;
+            e.maxFramerate = l.fps;
+            e.scaleResolutionDownBy = l.scale;
+          }
+        }
+        await x.setParameters(p);
+      }
+    } catch (e) {
+      _lastError = 'quality: $e';
+    }
   }
 
   void _onShare(Map<String, dynamic> p) {
@@ -646,6 +786,7 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
 
   Future<void> _cleanup() async {
     _flush?.cancel();
+    _qualityTimer?.cancel();
     if (_sharing) {
       for (final t in _screen?.getTracks() ?? const <MediaStreamTrack>[]) {
         try {
@@ -827,6 +968,28 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(color: AppColors.danger, borderRadius: BorderRadius.circular(20)),
                   child: Text(context.isAr ? 'تشارك شاشتك' : 'Sharing your screen', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+                ),
+              ),
+            if (_sharing)
+              PositionedDirectional(
+                top: MediaQuery.of(context).padding.top + 214,
+                end: 16,
+                child: Container(
+                  key: const Key('share-quality'),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(color: const Color(0xCC0B1220), borderRadius: BorderRadius.circular(20)),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(
+                      Icons.speed_rounded,
+                      color: _level >= 2 ? const Color(0xFF4ADE80) : (_level == 1 ? const Color(0xFFFBBF24) : const Color(0xFFF87171)),
+                      size: 16,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      context.isAr ? 'الجودة: ${_levels[_level].ar}' : 'Quality: ${_levels[_level].en}',
+                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700),
+                    ),
+                  ]),
                 ),
               ),
             Positioned(

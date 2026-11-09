@@ -121,5 +121,32 @@
 
   const settings = { commission_rate: 0.15, vat_rate: 0, live_request_seconds: 90, live_max_tutors: 5, pending_payment_hours: 48, first_hour_guarantee: true, referral_commission: 0.1, support_whatsapp: "+963000000000" };
 
-  window.DARS_DEMO = { subjects, levels, tutors, students, lessons, payments, payouts, live_requests, reviews, reports, leads, settings };
+  // chat monitor + security alerts
+  const cv = (i) => "cv-000" + i;
+  const S1 = "st-1", S2 = "st-2", T1 = "tu-1", T2 = "tu-2";
+  const conversations = [
+    { id: cv(1), student_id: S1, student_name: "ليان", student_role: "student", student_phone: "+963 933 000 001", tutor_id: T1, tutor_name: "أ. سامر الحلبي", tutor_phone: "+963 944 000 011", message_count: 6, flag_count: 2, open_flags: 1, last_kind: "text", last_body: "ممكن رقمك؟", last_message_at: iso(now - 0.2 * H), created_at: iso(now - 50 * H) },
+    { id: cv(2), student_id: S2, student_name: "أبو أحمد", student_role: "parent", student_phone: "+962 79 000 0002", tutor_id: T2, tutor_name: "أ. لمى الخطيب", tutor_phone: "+962 79 000 0012", message_count: 3, flag_count: 0, open_flags: 0, last_kind: "voice", last_body: "🎤", last_message_at: iso(now - 3 * H), created_at: iso(now - 30 * H) },
+  ];
+  const messages = {
+    [cv(1)]: [
+      { id: 1, conversation_id: cv(1), sender_id: S1, kind: "text", body: "مرحباً أستاذ، عندي امتحان رياضيات الأحد", created_at: iso(now - 26 * H) },
+      { id: 2, conversation_id: cv(1), sender_id: T1, kind: "text", body: "أهلاً ليان، احجزي درس السبت الساعة 6 ونراجع كل شيء", created_at: iso(now - 25.8 * H) },
+      { id: 3, conversation_id: cv(1), sender_id: S1, kind: "image", body: "homework.jpg", file_url: "chat-files/demo/homework.jpg", created_at: iso(now - 25 * H) },
+      { id: 4, conversation_id: cv(1), sender_id: T1, kind: "text", body: "كلميني على واتساب أسهل ٠٩٤٤ ٥٥٥ ٦٦٦", blocked: true, created_at: iso(now - 1 * H) },
+      { id: 5, conversation_id: cv(1), sender_id: S1, kind: "voice", body: "🎤", duration_sec: 12, created_at: iso(now - 0.5 * H) },
+      { id: 6, conversation_id: cv(1), sender_id: S1, kind: "text", body: "ممكن رقمك؟", created_at: iso(now - 0.2 * H) },
+    ],
+    [cv(2)]: [
+      { id: 7, conversation_id: cv(2), sender_id: S2, kind: "text", body: "ابني بالصف التاسع ويحتاج تقوية بالإنجليزي", created_at: iso(now - 5 * H) },
+      { id: 8, conversation_id: cv(2), sender_id: T2, kind: "text", body: "أكيد، عندي باقة 8 ساعات بخصم", created_at: iso(now - 4 * H) },
+      { id: 9, conversation_id: cv(2), sender_id: S2, kind: "voice", body: "🎤", duration_sec: 20, created_at: iso(now - 3 * H) },
+    ],
+  };
+  const flags = [
+    { id: 2, message_id: 6, conversation_id: cv(1), sender_id: S1, sender_name: "ليان", sender_role: "student", sender_phone: "+963 933 000 001", kind: "contact_request", matched: "رقمك", excerpt: "ممكن رقمك؟", status: "new", student_name: "ليان", student_role: "student", tutor_name: "أ. سامر الحلبي", created_at: iso(now - 0.2 * H) },
+    { id: 1, message_id: 4, conversation_id: cv(1), sender_id: T1, sender_name: "أ. سامر الحلبي", sender_role: "tutor", sender_phone: "+963 944 000 011", kind: "phone", matched: "0944 555 666", excerpt: "كلميني على واتساب أسهل ٠٩٤٤ ٥٥٥ ٦٦٦", status: "reviewed", student_name: "ليان", student_role: "student", tutor_name: "أ. سامر الحلبي", created_at: iso(now - 1 * H) },
+  ];
+
+  window.DARS_DEMO = { subjects, levels, tutors, students, lessons, payments, payouts, live_requests, reviews, reports, leads, settings, conversations, flags, messages };
 })();

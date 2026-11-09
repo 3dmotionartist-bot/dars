@@ -75,7 +75,7 @@ class _StudentCard extends StatelessWidget {
       onTap: () => _details(context),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Avatar(name: s.name, color: color, size: 48),
+          Avatar(name: s.name, color: color, size: 48, photo: app.photoOf(s.id)),
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

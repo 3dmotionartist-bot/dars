@@ -34,7 +34,7 @@ class HomeScreen extends StatelessWidget {
                 InkWell(
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountScreen())),
                   borderRadius: BorderRadius.circular(16),
-                  child: Avatar(name: L(app.name, app.name), color: AppColors.primary, size: 46),
+                  child: Avatar(name: L(app.name, app.name), color: AppColors.primary, size: 46, photo: app.avatarUrl),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -81,7 +81,7 @@ class HomeScreen extends StatelessWidget {
                   color: AppColors.ink,
                   borderColor: AppColors.ink,
                   child: Row(children: [
-                    Avatar(name: next.tutor.name, color: next.tutor.color, size: 48),
+                    Avatar(name: next.tutor.name, color: next.tutor.color, size: 48, photo: next.tutor.photoUrl),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

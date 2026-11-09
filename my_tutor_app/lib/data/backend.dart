@@ -166,15 +166,21 @@ class Backend {
   Future<List<Map<String, dynamic>>> conversations() => db.from('conversations').select().order('last_message_at', ascending: false).limit(100);
   Future<List<Map<String, dynamic>>> messagesFor(List<String> conversationIds) => conversationIds.isEmpty
       ? Future.value(<Map<String, dynamic>>[])
-      : db.from('messages').select().inFilter('conversation_id', conversationIds).order('created_at').limit(2000);
+      : db.from('messages').select().inFilter('conversation_id', conversationIds).order('created_at').order('id').limit(2000);
 
   /// Names of people I share a lesson or chat with (allowed by the database rules).
   Future<Map<String, String>> names(Iterable<String> ids) async {
     final list = ids.toSet().toList();
     if (list.isEmpty) return {};
-    final rows = await db.from('profiles').select('id, full_name').inFilter('id', list);
+    final rows = await db.from('profiles').select('id, full_name, avatar_url').inFilter('id', list);
+    for (final r in rows) {
+      photos[r['id'] as String] = (r['avatar_url'] as String?) ?? '';
+    }
     return {for (final r in rows) r['id'] as String: (r['full_name'] as String?) ?? ''};
   }
+
+  /// Profile photos of the people I have chats / lessons with (filled by [names]).
+  final Map<String, String> photos = {};
 
   Future<List<Map<String, dynamic>>> openLiveRequests() async {
     final rows = await db.from('live_requests').select().eq('status', 'open').gt('expires_at', DateTime.now().toUtc().toIso8601String()).order('created_at', ascending: false);
@@ -190,6 +196,16 @@ class Backend {
 
   // ------------------------------------------------------------------ writes
   Future<dynamic> rpc(String fn, [Map<String, dynamic>? params]) => db.rpc(fn, params: params);
+
+  // ------------------------------------------------------------------ working hours
+  Future<List<Map<String, dynamic>>> myWorkHours() =>
+      db.from('availability_slots').select('weekday, start_time, end_time').eq('tutor_id', uid!).order('weekday').order('start_time');
+
+  Future<void> setWorkingHours(int tzOffset, List<Map<String, dynamic>> slots) =>
+      db.rpc('set_working_hours', params: {'p_tz_offset': tzOffset, 'p_slots': slots});
+
+  Future<Map<String, dynamic>> tutorSchedule(String tutorId) async =>
+      Map<String, dynamic>.from((await db.rpc('tutor_schedule', params: {'p_tutor': tutorId})) as Map);
 
   // ------------------------------------------------------------------ calls
   /// Servers that help two phones find each other. STUN is public; the TURN relay (needed on most

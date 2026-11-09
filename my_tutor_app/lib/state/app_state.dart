@@ -120,10 +120,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   double tutorPending = DarsConfig.live ? 0 : 180;
   double tutorConfirmed = DarsConfig.live ? 0 : 420;
   final Map<int, int> packageDiscounts = {4: 5, 8: 10, 12: 15, 20: 20};
-  final Map<String, bool> workingDays = {
-    'day_sat': true, 'day_sun': true, 'day_mon': true, 'day_tue': true,
-    'day_wed': true, 'day_thu': false, 'day_fri': false,
-  };
+  /// The signed-in tutor's weekly working hours (their own local time). Empty = not set yet.
+  List<WorkPeriod> workHours = const [
+    WorkPeriod(6, 16 * 60, 22 * 60), WorkPeriod(0, 16 * 60, 22 * 60), WorkPeriod(1, 16 * 60, 22 * 60),
+    WorkPeriod(2, 16 * 60, 22 * 60), WorkPeriod(3, 16 * 60, 22 * 60),
+  ];
   /// Live mode: 'pending' | 'approved' | 'rejected' for the signed-in tutor.
   String? tutorVerification;
   String? rejectionReason;
@@ -309,6 +310,12 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     instantBooking = tp['instant_booking'] != false;
     packagesEnabled = ((tp['max_package_discount'] as num?) ?? 0) > 0;
     realtimeMode = tp['realtime_any_time'] == false ? 'working' : 'any';
+    try {
+      workHours = [
+        for (final x in await _b.myWorkHours())
+          WorkPeriod((x['weekday'] as num).toInt(), WorkPeriod.parse('${x['start_time']}'), WorkPeriod.parse('${x['end_time']}')),
+      ];
+    } catch (_) {}
     final subjects = await _b.mySubjects();
     _me = Backend.tutorFromRow({...tp, 'id': _b.uid, 'full_name': name, 'subject_ids': subjects, 'avatar_url': avatarUrl});
     return name.trim().isNotEmpty && '${tp['headline'] ?? ''}'.trim().isNotEmpty;
@@ -405,6 +412,14 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       }));
   }
 
+  String _photoFor(String id, Tutor? tutor) {
+    final t = tutor?.photoUrl ?? '';
+    return t.isNotEmpty ? t : (_b.photos[id] ?? '');
+  }
+
+  /// Profile photo of someone I have a chat or lesson with ('' = show initials).
+  String photoOf(String userId) => userId.isEmpty ? '' : (_b.photos[userId] ?? '');
+
   Future<void> _loadConversations() async {
     final uid = _b.uid!;
     // Hide any old chat someone opened with themselves.
@@ -438,11 +453,26 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
       if (c != null) {
+        // Messages still on their way to the server stay at the end, in the order they were sent.
+        final unsent = <Message>[];
+        final used = <int>{};
+        for (final x in c.messages) {
+          if (!x.mine || x.remoteId != 0 || !x.sending) continue;
+          final j = messages.indexWhere((s) =>
+              s.mine && !used.contains(s.remoteId) && _sameMessage(x, s) && s.time.isAfter(x.time.subtract(const Duration(minutes: 2))));
+          if (j >= 0) {
+            used.add(messages[j].remoteId);
+          } else {
+            unsent.add(x);
+          }
+        }
         c.messages
           ..clear()
-          ..addAll(messages);
+          ..addAll(messages)
+          ..addAll(unsent);
         c.unread = identical(c, activeConversation) ? 0 : unread;
         c.online = tutor?.available ?? false;
+        c.photo = _photoFor(other, tutor);
       } else {
         c = Conversation(
           id: id,
@@ -453,6 +483,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
           messages: messages,
           unread: unread,
           online: tutor?.available ?? false,
+          photo: _photoFor(other, tutor),
         );
       }
       next.add(c);
@@ -536,6 +567,16 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (ch != null) _b.unlisten(ch).catchError((_) => '');
   }
 
+  /// Same message, local copy vs. the server's row (files by their stored path, others by text + kind).
+  static bool _sameMessage(Message local, Message server) {
+    if (server.url.isNotEmpty || local.url.isNotEmpty) return local.url == server.url;
+    final kindOk = local.type == server.type ||
+        (local.type == MsgType.video && server.type == MsgType.file) ||
+        (local.type == MsgType.file && server.type == MsgType.video);
+    final text = local.type == MsgType.voice ? '🎤' : local.text;
+    return kindOk && text == server.text;
+  }
+
   void _onRemoteMessage(Map<String, dynamic> r) {
     final cid = '${r['conversation_id']}';
     Conversation? c;
@@ -549,9 +590,13 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     final m = Backend.messageFromRow(r, _b.uid);
     if (c.messages.any((x) => x.remoteId == m.remoteId)) return;
     if (m.mine) {
-      final i = c.messages.lastIndexWhere((x) => x.mine && x.remoteId == 0 && x.text == m.text);
+      // My own message coming back from the server: swap it in for the local copy, keeping its place.
+      // (Oldest unconfirmed match first: messages are posted in order, so they come back in order.)
+      final i = c.messages.indexWhere((x) => x.mine && x.remoteId == 0 && _sameMessage(x, m));
       if (i >= 0) {
-        c.messages[i] = m;
+        c.messages[i] = m.bytes == null && c.messages[i].bytes != null ? Message(
+            mine: m.mine, text: m.text, time: m.time, type: m.type, seconds: m.seconds, remoteId: m.remoteId, url: m.url, bytes: c.messages[i].bytes) : m;
+        notifyListeners();
         return;
       }
     }
@@ -754,7 +799,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       say(_t('الملف كبير جداً (الحد 45 ميغابايت).', 'The file is too big (45 MB max).'), bad: true);
       return false;
     }
-    final draft = Message(mine: true, text: name, time: DateTime.now(), type: type, seconds: seconds, bytes: type == MsgType.image ? bytes : null, sending: true);
+    final draft = Message(mine: true, text: name, time: DateTime.now(), type: type, seconds: seconds, bytes: type == MsgType.image ? bytes : null, sending: live);
     c.messages.add(draft);
     if (conversations.remove(c)) conversations.insert(0, c);
     notifyListeners();
@@ -764,23 +809,45 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
       return true;
     }
-    try {
-      final id = await _ensure(c);
-      final bucket = type == MsgType.voice ? 'voice-notes' : 'chat-files';
-      final fallback = switch (type) { MsgType.voice => 'm4a', MsgType.image => 'jpg', MsgType.video => 'mp4', _ => 'bin' };
-      final stored = await _b.upload(bucket, '$id/${DateTime.now().millisecondsSinceEpoch}.${_ext(name, fallback)}', bytes, mime);
-      final sent = Message(mine: true, text: type == MsgType.voice ? '🎤' : name, time: draft.time, type: type, seconds: seconds, url: stored, bytes: draft.bytes);
-      final i = c.messages.indexOf(draft);
-      if (i >= 0) c.messages[i] = sent;
-      notifyListeners();
-      await _push(c, sent);
-      return true;
-    } catch (e) {
-      c.messages.remove(draft);
-      notifyListeners();
-      _error(e);
-      return false;
-    }
+    // Uploads run in the chat's send queue, so a text typed while a video uploads still lands after it.
+    return _inOrder(c, () async {
+      try {
+        final id = await _ensure(c);
+        final bucket = type == MsgType.voice ? 'voice-notes' : 'chat-files';
+        final fallback = switch (type) { MsgType.voice => 'm4a', MsgType.image => 'jpg', MsgType.video => 'mp4', _ => 'bin' };
+        final stored = await _b.upload(bucket, '$id/${DateTime.now().millisecondsSinceEpoch}.${_ext(name, fallback)}', bytes, mime);
+        final sent = draft.copyWith(text: type == MsgType.voice ? '🎤' : name, url: stored);
+        final i = c.messages.indexOf(draft);
+        if (i >= 0) c.messages[i] = sent;
+        notifyListeners();
+        await _pushNow(c, sent);
+        return true;
+      } catch (e) {
+        c.messages.remove(draft);
+        notifyListeners();
+        _error(e);
+        return false;
+      }
+    });
+  }
+
+  // ---- sending in order ----
+  // Each chat sends one message at a time, in the order they were written, so the server keeps
+  // the same order the sender sees (voice notes / photos / videos upload first, then post).
+  final Map<int, Future<void>> _sendQueue = {};
+
+  Future<T> _inOrder<T>(Conversation c, Future<T> Function() job) {
+    final key = identityHashCode(c);
+    final prev = _sendQueue[key] ?? Future<void>.value();
+    final next = prev.then((_) => job());
+    _sendQueue[key] = next.then<void>((_) {}, onError: (_) {});
+    return next;
+  }
+
+  /// Marks a local message as delivered to the server (it keeps its place in the list).
+  void _markSent(Conversation c, Message m) {
+    final i = c.messages.indexOf(m);
+    if (i >= 0) c.messages[i] = m.copyWith(sending: false);
   }
 
   /// Changes my name (and, for tutors, any part of the public profile).
@@ -1343,19 +1410,21 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (identical(activeConversation, c)) activeConversation = null;
   }
 
-  static final _contactPattern = RegExp(r'(\+?\d[\d\s\-]{6,}\d)|([\w.\-]+@[\w\-]+\.\w+)');
-
-  /// Returns false when the message was blocked by the contact-info filter.
+  /// Sends a message. (Phone numbers / contact details are not blocked here: the server flags them
+  /// silently for the admin's security monitor.)
   bool sendMessage(Conversation c, Message m) {
-    if (m.type == MsgType.text && _contactPattern.hasMatch(m.text)) return false;
-    c.messages.add(m);
+    final local = live && m.mine ? m.copyWith(sending: true) : m;
+    c.messages.add(local);
     if (conversations.remove(c)) conversations.insert(0, c);
     notifyListeners();
-    if (live && m.mine) _push(c, m);
+    if (live && m.mine) _push(c, local);
     return true;
   }
 
-  Future<void> _push(Conversation c, Message m) async {
+  /// Posts a message to the server after everything sent before it in this chat.
+  Future<void> _push(Conversation c, Message m) => _inOrder(c, () => _pushNow(c, m));
+
+  Future<void> _pushNow(Conversation c, Message m) async {
     try {
       final id = await _ensure(c);
       final kind = switch (m.type) {
@@ -1367,6 +1436,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       };
       final text = m.type == MsgType.voice ? '🎤' : m.text;
       await _b.sendMessage(id, text, kind: kind, seconds: m.seconds > 0 ? m.seconds : null, fileUrl: m.url);
+      _markSent(c, m);
+      notifyListeners();
     } catch (e) {
       _error(e);
     }
@@ -1549,9 +1620,49 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   int get _maxDiscount => packageDiscounts.values.fold(0, (a, b) => a > b ? a : b);
 
-  void toggleWorkingDay(String key) {
-    workingDays[key] = !(workingDays[key] ?? false);
-    notifyListeners();
+  /// Saves the tutor's weekly hours (students can only book inside them).
+  Future<bool> saveWorkHours(List<WorkPeriod> periods) async {
+    final sorted = [...periods]..sort((a, b) => a.weekday != b.weekday ? a.weekday - b.weekday : a.start - b.start);
+    if (!live) {
+      workHours = sorted;
+      notifyListeners();
+      say(_t('تم حفظ أوقات العمل', 'Working hours saved'));
+      return true;
+    }
+    try {
+      await _b.setWorkingHours(DateTime.now().timeZoneOffset.inMinutes, [
+        for (final p in sorted) {'weekday': p.weekday, 'start': WorkPeriod.hm(p.start), 'end': WorkPeriod.hm(p.end)},
+      ]);
+      workHours = sorted;
+      notifyListeners();
+      say(_t('تم حفظ أوقات العمل', 'Working hours saved'));
+      return true;
+    } catch (e) {
+      _error(e);
+      return false;
+    }
+  }
+
+  /// A tutor's working hours and already-booked times, for choosing a lesson time.
+  Future<TutorSchedule> scheduleFor(Tutor t) async {
+    if (!live || t.id.length < 20) {
+      return TutorSchedule(tzOffset: DateTime.now().timeZoneOffset.inMinutes, periods: const [], busy: const []);
+    }
+    try {
+      final r = await _b.tutorSchedule(t.id);
+      return TutorSchedule(
+        tzOffset: (r['tz_offset'] as num?)?.toInt() ?? 180,
+        periods: [
+          for (final x in (r['slots'] as List? ?? const []))
+            WorkPeriod((x['weekday'] as num).toInt(), WorkPeriod.parse('${x['start']}'), WorkPeriod.parse('${x['end']}')),
+        ],
+        busy: [
+          for (final x in (r['busy'] as List? ?? const [])) (start: Backend.time(x['start']), end: Backend.time(x['end'])),
+        ],
+      );
+    } catch (_) {
+      return TutorSchedule(tzOffset: DateTime.now().timeZoneOffset.inMinutes, periods: const [], busy: const []);
+    }
   }
 
   Conversation acceptRequest(LiveRequest r, String greeting) {

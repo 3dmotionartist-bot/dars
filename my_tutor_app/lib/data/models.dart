@@ -180,6 +180,18 @@ class Message {
     this.bytes,
     this.sending = false,
   });
+
+  Message copyWith({bool? sending, String? text, String? url}) => Message(
+        mine: mine,
+        text: text ?? this.text,
+        time: time,
+        type: type,
+        seconds: seconds,
+        remoteId: remoteId,
+        url: url ?? this.url,
+        bytes: bytes,
+        sending: sending ?? this.sending,
+      );
 }
 
 class Conversation {
@@ -191,8 +203,9 @@ class Conversation {
   final List<Message> messages;
   int unread;
   bool online;
+  String photo; // the other person's profile photo ('' = initials)
 
-  Conversation({required this.id, required this.name, required this.color, this.tutor, this.counterpartId, required this.messages, this.unread = 0, this.online = false});
+  Conversation({required this.id, required this.name, required this.color, this.tutor, this.counterpartId, required this.messages, this.unread = 0, this.online = false, this.photo = ''});
 
   Message? get last => messages.isEmpty ? null : messages.last;
 }
@@ -263,4 +276,28 @@ class StudentSummary {
     required this.last,
     required this.earned,
   });
+}
+
+/// One working period of a tutor's week, in the tutor's own local time.
+class WorkPeriod {
+  final int weekday; // 0 = Sunday … 6 = Saturday
+  final int start; // minutes after midnight
+  final int end; // minutes after midnight (1440 = end of the day)
+  const WorkPeriod(this.weekday, this.start, this.end);
+
+  static String hm(int minutes) => '${(minutes ~/ 60).toString().padLeft(2, '0')}:${(minutes % 60).toString().padLeft(2, '0')}';
+
+  /// "09:00" / "09:00:00" / "24:00:00" → minutes.
+  static int parse(String s) {
+    final p = s.split(':');
+    return (int.tryParse(p[0]) ?? 0) * 60 + (p.length > 1 ? int.tryParse(p[1]) ?? 0 : 0);
+  }
+}
+
+/// What a student needs to choose a lesson time with a tutor.
+class TutorSchedule {
+  final int tzOffset; // the tutor's UTC offset in minutes
+  final List<WorkPeriod> periods; // empty = the tutor has not set working hours
+  final List<({DateTime start, DateTime end})> busy; // times already booked
+  const TutorSchedule({required this.tzOffset, required this.periods, required this.busy});
 }

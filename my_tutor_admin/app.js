@@ -55,6 +55,15 @@
       not_admin: "هذا الحساب ليس حساب مدير", menu: "القائمة", ago_now: "الآن", ago_m: "د", ago_h: "س", ago_d: "يوم",
       wallet_hint: "يظهر في محفظة المستخدم مع السبب", lessons_count: "دروس", open_tutor: "فتح الملف",
       set_password: "تغيير كلمة المرور", new_password: "كلمة المرور الجديدة (6 أحرف على الأقل)", pw_hint: "كلمات المرور محفوظة مشفّرة ولا يمكن لأحد عرضها — اكتب كلمة جديدة وأرسلها للمستخدم.", pw_saved: "تم تغيير كلمة المرور", email: "البريد الإلكتروني",
+      g_safety: "الأمان والمراقبة", chats: "مراقبة المحادثات", alerts: "إنذارات الأمان", a_alerts: "إنذارات أمان جديدة",
+      k_phone: "رقم هاتف", k_email: "بريد إلكتروني", k_link: "رابط تواصل خارجي", k_contact_request: "طلب رقم / تواصل خارجي",
+      reviewed: "تمت المراجعة", mark_reviewed: "تمت المراجعة", open_chat: "فتح المحادثة", messages_n: "رسالة", flags_n: "تنبيه",
+      alarm_title: "إنذار أمني", alarm_did: "شارك أو طلب بيانات تواصل", alarm_where: "في المحادثة بين", and: "و", silence: "إيقاف الصوت",
+      hidden_other: "مخفية عن الطرف الآخر", sender: "المرسل", where: "المكان", detected: "ما تم رصده", message: "الرسالة",
+      flagged_only: "عليها تنبيهات", last_activity: "آخر نشاط", conversation: "المحادثة", kind_voice: "🎤 رسالة صوتية", kind_image: "📷 صورة",
+      kind_file: "📎 ملف / فيديو", kind_call: "📞 مكالمة / رابط جلسة", kind_system: "النظام", open_file: "فتح", alarm_enable: "تفعيل صوت الإنذار والإشعارات",
+      alarm_ready: "صوت الإنذار مفعّل", alarm_hint: "يرنّ الإنذار عند رصد رقم هاتف أو طلب تواصل خارج درس في أي محادثة. أبقِ هذه الصفحة مفتوحة.",
+      live_on: "مراقبة مباشرة", no_messages: "لا توجد رسائل", role_tutor: "مدرس", role_admin: "مدير", parties: "الطرفان",
     },
     en: {
       brand: "Dars", console: "Admin console", demo: "Demo mode — sample data", live: "Connected to Supabase",
@@ -104,6 +113,15 @@
       not_admin: "This account is not an admin", menu: "Menu", ago_now: "now", ago_m: "m", ago_h: "h", ago_d: "d",
       wallet_hint: "Shows in the user's wallet with the reason", lessons_count: "lessons", open_tutor: "Open profile",
       set_password: "Change password", new_password: "New password (at least 6 characters)", pw_hint: "Passwords are stored encrypted and can't be viewed by anyone — type a new one and send it to the user.", pw_saved: "Password changed", email: "Email",
+      g_safety: "Safety & monitoring", chats: "Chat monitor", alerts: "Security alerts", a_alerts: "New security alerts",
+      k_phone: "Phone number", k_email: "Email address", k_link: "Outside contact link", k_contact_request: "Asked for contact outside Dars",
+      reviewed: "Reviewed", mark_reviewed: "Mark reviewed", open_chat: "Open chat", messages_n: "messages", flags_n: "alerts",
+      alarm_title: "Security alert", alarm_did: "shared or asked for contact details", alarm_where: "in the chat between", and: "and", silence: "Silence",
+      hidden_other: "Hidden from the other person", sender: "Sender", where: "Where", detected: "Detected", message: "Message",
+      flagged_only: "With alerts", last_activity: "Last activity", conversation: "Chat", kind_voice: "🎤 Voice message", kind_image: "📷 Photo",
+      kind_file: "📎 File / video", kind_call: "📞 Call / session link", kind_system: "System", open_file: "Open", alarm_enable: "Turn on alarm sound & notifications",
+      alarm_ready: "Alarm sound is on", alarm_hint: "The alarm rings when a phone number or a request to talk outside Dars is detected in any chat. Keep this page open.",
+      live_on: "Live monitoring", no_messages: "No messages", role_tutor: "Tutor", role_admin: "Admin", parties: "People",
     },
   };
 
@@ -112,10 +130,11 @@
     get(k) { try { return localStorage.getItem("dars-admin-" + k); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem("dars-admin-" + k, v); } catch (e) { /* ignore */ } },
   };
-  const PAGES = ["overview", "tutors", "students", "lessons", "live", "payments", "payouts", "reviews", "reports", "leads", "catalog", "config"];
+  const PAGES = ["overview", "tutors", "students", "lessons", "live", "payments", "payouts", "alerts", "chats", "reviews", "reports", "leads", "catalog", "config"];
   const S = {
     lang: store.get("lang") || "ar", page: "overview", mode: "demo", user: null, ready: false,
     data: {}, tab: {}, q: {}, drawer: null, dialog: null, toast: null, navOpen: false, busy: false,
+    openFlags: 0, alarm: null, thread: null,
   };
   const t = (k) => (I18N[S.lang][k] ?? I18N.en[k] ?? k);
 
@@ -145,7 +164,7 @@
     paid: "good", under_review: "warn", failed: "bad", refunded: "info",
     requested: "warn", open: "warn", matched: "good", expired: "",
     visible: "good", hidden: "", resolved: "good", dismissed: "",
-    new: "warn", contacted: "info", converted: "good", closed: "",
+    new: "warn", contacted: "info", converted: "good", closed: "", reviewed: "good",
   };
   const REPORT_OPEN_TONE = "bad";
   const pill = (status, label) => `<span class="pill ${status === "open" && label === "report" ? REPORT_OPEN_TONE : TONE[status] || ""}">${esc(t(status))}</span>`;
@@ -165,6 +184,8 @@
       catalog: '<path d="M4 5a2 2 0 012-2h13v16H6a2 2 0 00-2 2z"/><path d="M4 19a2 2 0 012-2h13"/>',
       config: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
       menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+      chats: '<path d="M4 5h12v8H8l-4 3z"/><path d="M8 16v1h8l4 3V9h-4"/>',
+      alerts: '<path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17v.5"/>',
     }[name] || "";
     return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
   };
@@ -178,7 +199,7 @@
     return {
       async load(name) {
         if (name === "settings") return wait({ ...DB.settings });
-        return wait(JSON.parse(JSON.stringify(DB[name])));
+        return wait(JSON.parse(JSON.stringify(DB[name] ?? [])));
       },
       async stats() {
         const since = Date.now() - 30 * 864e5, today = day(Date.now());
@@ -233,6 +254,10 @@
       async updateLead(id, status) { find("leads", id).status = status; return wait(); },
       async saveSubject(row) { Object.assign(find("subjects", row.id), row); return wait(); },
       async saveSettings(obj) { Object.assign(DB.settings, obj); return wait(); },
+      async thread(id) { return wait({ messages: JSON.parse(JSON.stringify((DB.messages || {})[id] || [])) }); },
+      async setFlag(id, status) { const f = (DB.flags || []).find((x) => String(x.id) === String(id)); if (f) f.status = status; return wait(); },
+      async flagCount() { return (DB.flags || []).filter((f) => f.status === "new").length; },
+      async flagRow(id) { return (DB.flags || []).find((x) => String(x.id) === String(id)); },
     };
   }
 
@@ -250,6 +275,8 @@
       leads: () => sb.from("leads").select("*").order("created_at", { ascending: false }).limit(500),
       subjects: () => sb.from("subjects").select("*").order("sort"),
       levels: () => sb.from("study_levels").select("*").order("sort"),
+      conversations: () => sb.from("admin_conversations").select("*").order("last_message_at", { ascending: false }).limit(500),
+      flags: () => sb.from("admin_message_flags").select("*").order("created_at", { ascending: false }).limit(500),
     };
     return {
       async load(name) {
@@ -285,6 +312,18 @@
       updateLead: (id, status) => rpc("admin_update_lead", { p_lead: id, p_status: status }),
       async saveSubject(row) { const { id, ...rest } = row; must(await sb.from("subjects").update(rest).eq("id", id)); },
       async saveSettings(obj) { for (const [k, v] of Object.entries(obj)) await rpc("admin_set_setting", { p_key: k, p_value: v }); },
+      async thread(id) {
+        const messages = must(await sb.from("messages").select("*").eq("conversation_id", id).order("created_at").order("id").limit(3000));
+        return { messages };
+      },
+      async setFlag(id, status) {
+        must(await sb.from("message_flags").update({ status, reviewed_by: S.user?.id || null, reviewed_at: new Date().toISOString() }).eq("id", id));
+      },
+      async flagCount() {
+        const r = await sb.from("message_flags").select("id", { count: "exact", head: true }).eq("status", "new");
+        return r.count || 0;
+      },
+      async flagRow(id) { return must(await sb.from("admin_message_flags").select("*").eq("id", id).maybeSingle()); },
       async receiptUrl(path) { const [bucket, ...rest] = path.split("/"); const r = await sb.storage.from(bucket).createSignedUrl(rest.join("/"), 300); return r.data?.signedUrl; },
     };
   }
@@ -296,6 +335,7 @@
     overview: ["stats", "subjects"], tutors: ["tutors", "subjects"], students: ["students", "levels"], lessons: ["lessons", "subjects"],
     live: ["live_requests", "subjects"], payments: ["payments"], payouts: ["payouts"], reviews: ["reviews"], reports: ["reports"],
     leads: ["leads", "subjects", "levels"], catalog: ["subjects", "levels"], config: ["settings"],
+    chats: ["conversations", "flags"], alerts: ["flags"],
   };
   async function loadPage(force) {
     const need = NEEDS[S.page] || [];
@@ -313,7 +353,8 @@
     try {
       await fn();
       reloadNames.concat("stats").forEach((n) => delete S.data[n]);
-      S.drawer = null; S.dialog = null;
+      if (!S.drawer || S.drawer.type !== "chat") S.drawer = null;
+      S.dialog = null;
       toast(msg || t("done"));
       await loadPage(true);
     } catch (e) { toast(e.message || t("error"), true); }
@@ -346,6 +387,7 @@
       ["tutors", "a_tutors", s.tutors_pending, "pending"], ["payments", "a_receipts", s.receipts_to_review, "under_review"],
       ["payouts", "a_payouts", s.payouts_requested_count, "requested"], ["reports", "a_reports", s.open_reports, "open"],
       ["lessons", "a_disputes", s.disputed_lessons, "disputed"], ["leads", "a_leads", s.new_leads, "new"],
+      ["alerts", "a_alerts", S.openFlags || 0, "new"],
     ];
     const top = s.top_subjects || [];
     const topMax = Math.max(1, ...top.map((x) => x.lessons));
@@ -584,17 +626,195 @@
       </div><div class="panel-head" style="border-top:1px solid var(--line);border-bottom:0"><span style="flex:1"></span><button class="btn primary" type="submit">${t("save")}</button></div></form>`;
   }
 
-  const RENDER = { overview: pageOverview, tutors: pageTutors, students: pageStudents, lessons: pageLessons, live: pageLive, payments: pagePayments, payouts: pagePayouts, reviews: pageReviews, reports: pageReports, leads: pageLeads, catalog: pageCatalog, config: pageConfig };
+
+  // ------------------------------------------------------------------ safety: chat monitor + security alerts
+  const roleName = (r) => t(r === "tutor" ? "role_tutor" : r === "admin" ? "role_admin" : r === "parent" ? "parent" : "student");
+  const kindLabel = (k) => t("k_" + k);
+  const msgPreview = (kind, body) => kind === "voice" ? t("kind_voice") : kind === "image" ? t("kind_image") : kind === "file" ? t("kind_file") : kind === "call" ? t("kind_call") : (body || "");
+
+  function pageAlerts() {
+    const rows = S.data.flags || [];
+    const tab = S.tab.alerts ?? "new", q = S.q.alerts || "";
+    const list = rows.filter((r) => (tab === "all" || r.status === tab) && match(r, q, ["sender_name", "student_name", "tutor_name", "matched", "excerpt"]));
+    const sound = window.__darsAlarmReady
+      ? `<span class="pill good">${t("alarm_ready")}</span>`
+      : `<button class="btn primary" data-act="alarm-enable">${t("alarm_enable")}</button>`;
+    return `<section class="panel"><div class="panel-body" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <span class="live-dot"></span><b>${t("live_on")}</b><span class="muted small" style="flex:1;min-width:220px">${t("alarm_hint")}</span>${sound}
+      </div></section>
+      <section class="panel"><div class="panel-head">${tabsBar("alerts", ["new", "reviewed", "dismissed", "all"], countBy(rows, "status", ["new", "reviewed", "dismissed"]))}<span style="flex:1"></span>${searchBox("alerts")}</div>
+      ${table([{ label: t("time") }, { label: t("sender") }, { label: t("detected") }, { label: t("where"), cls: "hide-sm" }, { label: t("status") }, { label: "" }],
+        list.map((r) => `<tr class="${r.status === "new" ? "row-alert" : ""}">
+          <td>${fmtDateTime(r.created_at)}<div class="small muted">${ago(r.created_at)}</div></td>
+          <td>${person(r.sender_name || "—", roleName(r.sender_role) + (r.sender_phone ? " · " + r.sender_phone : ""))}</td>
+          <td style="max-width:320px"><span class="pill bad">${esc(kindLabel(r.kind))}</span><div class="mono small" style="margin-top:4px;direction:ltr;unicode-bidi:plaintext">${esc(r.matched)}</div><div class="small muted">${esc(r.excerpt)}</div></td>
+          <td class="hide-sm">${esc(r.student_name || "—")} <span class="muted">(${esc(roleName(r.student_role))})</span><br>${esc(r.tutor_name || "—")} <span class="muted">(${t("role_tutor")})</span></td>
+          <td>${pill(r.status)}</td>
+          <td class="actions"><button class="btn" data-act="chat" data-id="${esc(r.conversation_id)}" data-msg="${esc(r.message_id)}">${t("open_chat")}</button>${r.status === "new" ? `<button class="btn good" data-act="flag" data-id="${esc(r.id)}" data-status="reviewed">${t("mark_reviewed")}</button><button class="btn" data-act="flag" data-id="${esc(r.id)}" data-status="dismissed">${t("dismiss")}</button>` : ""}</td>
+        </tr>`))}</section>`;
+  }
+
+  function pageChats() {
+    const rows = S.data.conversations || [];
+    const tab = S.tab.chats ?? "all", q = S.q.chats || "";
+    const list = rows.filter((r) => (tab === "all" || Number(r.flag_count) > 0) && match(r, q, ["student_name", "tutor_name", "student_phone", "tutor_phone", "last_body"]));
+    const counts = { all: rows.length, flagged_only: rows.filter((r) => Number(r.flag_count) > 0).length };
+    return `<section class="panel"><div class="panel-head">${tabsBar("chats", ["all", "flagged_only"], counts)}<span style="flex:1"></span>${searchBox("chats")}</div>
+      ${table([{ label: t("parties") }, { label: t("message"), cls: "hide-sm" }, { label: t("messages_n") }, { label: t("alerts") }, { label: t("last_activity") }],
+        list.map((r) => `<tr class="clickable ${Number(r.open_flags) > 0 ? "row-alert" : ""}" tabindex="0" data-act="chat" data-id="${esc(r.id)}">
+          <td>${person(r.student_name || "—", roleName(r.student_role) + (r.student_phone ? " · " + r.student_phone : ""))}${person(r.tutor_name || "—", t("role_tutor") + (r.tutor_phone ? " · " + r.tutor_phone : ""))}</td>
+          <td class="hide-sm" style="max-width:340px"><span class="small">${esc(msgPreview(r.last_kind, r.last_body)).slice(0, 140)}</span></td>
+          <td class="num">${r.message_count}</td>
+          <td>${Number(r.open_flags) > 0 ? `<span class="pill bad num">${r.open_flags} ${t("new")}</span>` : Number(r.flag_count) > 0 ? `<span class="pill num">${r.flag_count}</span>` : "—"}</td>
+          <td>${ago(r.last_message_at)}</td>
+        </tr>`))}</section>`;
+  }
+
+  function chatDrawer() {
+    const th = S.thread;
+    if (!th) return "";
+    const c = (S.data.conversations || []).find((x) => x.id === th.id) || th.meta || {};
+    const flags = (S.data.flags || []).filter((f) => f.conversation_id === th.id);
+    const byMsg = {};
+    flags.forEach((f) => { (byMsg[f.message_id] = byMsg[f.message_id] || []).push(f); });
+    const name = (uid) => uid === c.student_id ? (c.student_name || t("student_c")) : uid === c.tutor_id ? (c.tutor_name || t("tutor")) : t("kind_system");
+    const msgs = th.messages || [];
+    const body = th.loading ? `<div class="empty">…</div>` : msgs.length ? msgs.map((m) => {
+      const mine = m.sender_id === c.tutor_id;
+      const fl = byMsg[m.id] || [];
+      const media = m.file_url ? `<button class="btn small" data-act="receipt" data-path="${esc(m.file_url)}">${t("open_file")}</button>` : "";
+      return `<div class="msg ${mine ? "right" : ""} ${fl.length ? "flagged" : ""}" id="msg-${esc(m.id)}">
+        <div class="msg-who">${esc(name(m.sender_id))} · <span class="muted">${fmtDateTime(m.created_at)}</span></div>
+        <div class="msg-body">${esc(msgPreview(m.kind, m.body))}${m.kind !== "text" && m.body && m.kind !== "voice" ? `<div class="small muted" style="direction:ltr;unicode-bidi:plaintext">${esc(m.body)}</div>` : ""} ${media}</div>
+        ${fl.map((f) => `<div class="msg-flag">⚠ ${esc(kindLabel(f.kind))}${m.blocked ? " · " + t("hidden_other") : ""}${f.status === "new" ? ` <button class="btn small good" data-act="flag" data-id="${esc(f.id)}" data-status="reviewed">${t("mark_reviewed")}</button>` : " · " + esc(t(f.status))}</div>`).join("")}
+      </div>`;
+    }).join("") : `<div class="empty">${t("no_messages")}</div>`;
+    return `<div class="drawer-head"><div style="display:grid;gap:6px">${person(c.student_name || "—", roleName(c.student_role) + (c.student_phone ? " · " + c.student_phone : ""))}${person(c.tutor_name || "—", t("role_tutor") + (c.tutor_phone ? " · " + c.tutor_phone : ""))}</div><span style="flex:1"></span><span class="live-dot" title="${esc(t("live_on"))}"></span></div>
+      <div class="drawer-body thread" id="thread-body">${body}</div>
+      <div class="drawer-foot"><span class="muted small">${msgs.length} ${t("messages_n")} · ${flags.length} ${t("flags_n")}</span><span style="flex:1"></span><button class="btn" data-act="close">${t("close")}</button></div>`;
+  }
+
+  async function openChat(id, msgId) {
+    S.drawer = { type: "chat", id };
+    S.thread = { id, loading: true, messages: [], focus: msgId };
+    render();
+    try {
+      if (!S.data.flags) S.data.flags = await api.load("flags");
+      const r = await api.thread(id);
+      if (!S.thread || S.thread.id !== id) return;
+      S.thread = { id, messages: r.messages, focus: msgId };
+      render();
+      setTimeout(() => {
+        const el = msgId ? document.getElementById("msg-" + msgId) : null;
+        const box = document.getElementById("thread-body");
+        if (el) el.scrollIntoView({ block: "center" }); else if (box) box.scrollTop = box.scrollHeight;
+      }, 30);
+    } catch (e) { toast(e.message || t("error"), true); }
+  }
+
+  // ---- live alarm: rings when a phone number / contact request is detected in any chat
+  let audioCtx = null, sirenTimer = null;
+  function unlockAudio() {
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      window.__darsAlarmReady = audioCtx.state !== "closed";
+    } catch (e) { /* no audio */ }
+  }
+  function beep(freq, at, dur) {
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = "square"; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(0.25, at + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    o.connect(g).connect(audioCtx.destination); o.start(at); o.stop(at + dur + 0.02);
+  }
+  function startSiren() {
+    stopSiren();
+    if (!audioCtx) return;
+    let n = 0;
+    const ring = () => {
+      if (!audioCtx || n++ > 18) return stopSiren();
+      const now = audioCtx.currentTime;
+      beep(960, now, 0.35); beep(720, now + 0.4, 0.35);
+    };
+    ring();
+    sirenTimer = setInterval(ring, 900);
+  }
+  function stopSiren() { if (sirenTimer) clearInterval(sirenTimer); sirenTimer = null; }
+  let titleTimer = null;
+  function flashTitle(on) {
+    clearInterval(titleTimer); titleTimer = null;
+    if (!on) return render();
+    let k = 0;
+    titleTimer = setInterval(() => { document.title = (k++ % 2 ? "🚨 " : "⚠️ ") + t("alarm_title"); }, 900);
+  }
+
+  async function onFlag(row) {
+    let full = row;
+    try { full = (await api.flagRow(row.id)) || row; } catch (e) { /* keep the raw row */ }
+    S.openFlags = (S.openFlags || 0) + 1;
+    S.data.flags = [full, ...(S.data.flags || []).filter((f) => f.id !== full.id)];
+    delete S.data.conversations;
+    S.alarm = full;
+    startSiren(); flashTitle(true);
+    try {
+      if (document.hidden && "Notification" in window && Notification.permission === "granted") {
+        const n = new Notification("🚨 " + t("alarm_title"), { body: `${full.sender_name || ""}: ${kindLabel(full.kind)} — ${full.matched || ""}`, requireInteraction: true });
+        n.onclick = () => { window.focus(); openChat(full.conversation_id, full.message_id); };
+      }
+    } catch (e) { /* ignore */ }
+    if (S.thread && S.thread.id === full.conversation_id) openChat(full.conversation_id, full.message_id); else render();
+  }
+
+  function alarmHtml() {
+    const a = S.alarm;
+    if (!a) return "";
+    return `<div class="alarm" role="alertdialog" aria-live="assertive">
+      <div class="alarm-icon">🚨</div>
+      <div class="alarm-text">
+        <b>${t("alarm_title")} — ${esc(kindLabel(a.kind))}</b>
+        <div><b>${esc(a.sender_name || "—")}</b> <span class="muted">(${esc(roleName(a.sender_role))}${a.sender_phone ? " · " + esc(a.sender_phone) : ""})</span> ${t("alarm_did")}</div>
+        <div>${t("alarm_where")} <b>${esc(a.student_name || "—")}</b> ${t("and")} <b>${esc(a.tutor_name || "—")}</b> · ${fmtDateTime(a.created_at)}</div>
+        <div class="mono small" style="direction:ltr;unicode-bidi:plaintext">${esc(a.matched || "")}</div>
+        <div class="small">“${esc(a.excerpt || "")}”</div>
+      </div>
+      <div class="alarm-actions">
+        <button class="btn primary" data-act="alarm-open">${t("open_chat")}</button>
+        <button class="btn good" data-act="alarm-reviewed">${t("mark_reviewed")}</button>
+        <button class="btn" data-act="alarm-silence">${t("silence")}</button>
+      </div>
+    </div>`;
+  }
+
+  let monitor = null;
+  async function startMonitor() {
+    if (S.mode !== "live" || monitor) return;
+    try { S.openFlags = await api.flagCount(); } catch (e) { /* ignore */ }
+    monitor = sb.channel("admin-monitor")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "message_flags" }, (p) => onFlag(p.new))
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (p) => {
+        const m = p.new;
+        if (S.thread && S.thread.id === m.conversation_id && !S.thread.loading && !S.thread.messages.some((x) => x.id === m.id)) {
+          S.thread.messages.push(m);
+          render();
+          const box = document.getElementById("thread-body"); if (box) box.scrollTop = box.scrollHeight;
+        }
+        if (S.page === "chats") { delete S.data.conversations; loadPage(false); } else delete S.data.conversations;
+      })
+      .subscribe();
+    render();
+  }
+
+  const RENDER = { alerts: pageAlerts, chats: pageChats, overview: pageOverview, tutors: pageTutors, students: pageStudents, lessons: pageLessons, live: pageLive, payments: pagePayments, payouts: pagePayouts, reviews: pageReviews, reports: pageReports, leads: pageLeads, catalog: pageCatalog, config: pageConfig };
 
   // ------------------------------------------------------------------ shell
   function navCounts() {
     const s = S.data.stats || {};
-    return { tutors: s.tutors_pending, payments: s.receipts_to_review, payouts: s.payouts_requested_count, reports: s.open_reports, leads: s.new_leads };
+    return { tutors: s.tutors_pending, payments: s.receipts_to_review, payouts: s.payouts_requested_count, reports: s.open_reports, leads: s.new_leads, alerts: S.openFlags };
   }
   function shell() {
     const c = navCounts();
     const item = (p) => `<button class="nav-item ${S.page === p ? "on" : ""}" data-act="nav" data-page="${p}">${icon(p)}<span>${t(p)}</span>${c[p] ? `<span class="count num">${c[p]}</span>` : ""}</button>`;
-    const groups = [["g_ops", ["overview", "tutors", "students", "lessons", "live"]], ["g_money", ["payments", "payouts"]], ["g_quality", ["reviews", "reports", "leads"]], ["g_setup", ["catalog", "config"]]];
+    const groups = [["g_ops", ["overview", "tutors", "students", "lessons", "live"]], ["g_money", ["payments", "payouts"]], ["g_safety", ["alerts", "chats"]], ["g_quality", ["reviews", "reports", "leads"]], ["g_setup", ["catalog", "config"]]];
     const body = S.busy && !hasData() ? `<div class="empty">…</div>` : RENDER[S.page]();
     return `<div class="shell">
       <aside class="side ${S.navOpen ? "open" : ""}" aria-label="${esc(t("menu"))}">
@@ -616,7 +836,8 @@
         <main class="content">${body}</main>
       </div>
     </div>
-    ${S.drawer ? `<div class="scrim" data-act="close"></div><aside class="drawer" role="dialog" aria-modal="true">${tutorDrawer(S.drawer.id)}</aside>` : ""}
+    ${S.drawer ? `<div class="scrim" data-act="close"></div><aside class="drawer ${S.drawer.type === "chat" ? "wide" : ""}" role="dialog" aria-modal="true">${S.drawer.type === "chat" ? chatDrawer() : tutorDrawer(S.drawer.id)}</aside>` : ""}
+    ${alarmHtml()}
     ${S.dialog ? dialogHtml() : ""}
     ${S.toast ? `<div class="toast ${S.toast.bad ? "bad" : ""}" role="status">${esc(S.toast.text)}</div>` : ""}`;
   }
@@ -651,7 +872,7 @@
   function render() {
     document.documentElement.lang = S.lang;
     document.documentElement.dir = S.lang === "ar" ? "rtl" : "ltr";
-    document.title = (S.lang === "ar" ? "درس — " : "Dars — ") + t(S.page);
+    if (!titleTimer) document.title = (S.lang === "ar" ? "درس — " : "Dars — ") + t(S.page);
     if (!S.ready) return;
     const active = document.activeElement;
     const focusId = active && active.id, selStart = active && active.selectionStart;
@@ -669,6 +890,7 @@
   }
 
   document.addEventListener("click", async (e) => {
+    if (S.mode === "live" && S.user) unlockAudio();
     const el = e.target.closest("[data-act]");
     if (!el) return;
     const a = el.dataset.act, id = el.dataset.id;
@@ -681,8 +903,14 @@
       case "tab": S.tab[el.dataset.key] = el.dataset.val; render(); break;
       case "refresh": loadPage(true); break;
       case "lang": S.lang = S.lang === "ar" ? "en" : "ar"; store.set("lang", S.lang); render(); break;
-      case "close": S.drawer = null; render(); break;
-      case "tutor": S.drawer = { id }; render(); break;
+      case "close": S.drawer = null; S.thread = null; render(); break;
+      case "chat": openChat(id, el.dataset.msg); break;
+      case "flag": act(async () => { await api.setFlag(id, el.dataset.status); S.openFlags = Math.max(0, (S.openFlags || 0) - 1); try { S.openFlags = await api.flagCount(); } catch (e2) { /* ignore */ } }, ["flags", "conversations"]).then(() => { if (S.thread) openChat(S.thread.id); }); break;
+      case "alarm-enable": unlockAudio(); try { if ("Notification" in window && Notification.permission === "default") await Notification.requestPermission(); } catch (e2) { /* ignore */ } render(); break;
+      case "alarm-silence": stopSiren(); flashTitle(false); S.alarm = null; render(); break;
+      case "alarm-open": { const a = S.alarm; stopSiren(); flashTitle(false); S.alarm = null; if (a) openChat(a.conversation_id, a.message_id); break; }
+      case "alarm-reviewed": { const a = S.alarm; stopSiren(); flashTitle(false); S.alarm = null; if (a) act(() => api.setFlag(a.id, "reviewed").then(async () => { try { S.openFlags = await api.flagCount(); } catch (e2) { /* ignore */ } }), ["flags", "conversations"]); else render(); break; }
+      case "tutor": S.drawer = { type: "tutor", id }; render(); break;
       case "approve": act(() => api.verifyTutor(id, "approved"), ["tutors"]); break;
       case "reject": ask({ title: t("reject"), label: t("reject_reason"), confirm: t("reject"), danger: true, required: true, run: (v) => act(() => api.verifyTutor(id, "rejected", v), ["tutors"]) }); break;
       case "block": act(() => api.setUserStatus(id, el.dataset.status), ["students", "tutors"]); break;
@@ -728,7 +956,7 @@
     if (el.dataset.change === "lead") act(() => api.updateLead(el.dataset.id, el.value), ["leads"]);
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && (S.dialog || S.drawer || S.navOpen)) { S.dialog = null; S.drawer = null; S.navOpen = false; render(); }
+    if (e.key === "Escape" && (S.dialog || S.drawer || S.navOpen)) { S.dialog = null; S.drawer = null; S.thread = null; S.navOpen = false; render(); }
     if (e.key === "Enter" && e.target.matches("tr.clickable")) e.target.click();
   });
   document.addEventListener("submit", async (e) => {
@@ -768,6 +996,7 @@
     if (!prof || prof.role !== "admin") { await sb.auth.signOut(); S.loginError = t("not_admin"); S.user = null; return render(); }
     S.user = { id: user.id, name: prof.full_name || user.email }; S.loginError = null;
     go(PAGES.includes(location.hash.slice(1)) ? location.hash.slice(1) : "overview");
+    startMonitor();
   }
   async function boot() {
     if (CFG.supabaseUrl && CFG.supabaseAnonKey) {
@@ -789,6 +1018,7 @@
       }
     }
     S.mode = "demo"; api = demoApi(); S.ready = true;
+    api.flagCount().then((n) => { S.openFlags = n; render(); });
     S.user = { id: "demo", name: S.lang === "ar" ? "مدير تجريبي" : "Demo admin" };
     go(PAGES.includes(location.hash.slice(1)) ? location.hash.slice(1) : "overview");
   }
