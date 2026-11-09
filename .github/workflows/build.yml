@@ -98,12 +98,18 @@ jobs:
       - name: Build APK (test build, debug-signed)
         run: flutter build apk --release --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}
 
-      - name: Check the APK signing key (must match assetlinks.json)
+      # Sign the finished APK with the Dars key itself (Gradle may pick its own debug key).
+      - name: Sign the APK with the Dars key (must match assetlinks.json)
         if: env.DARS_SIGNED == '1'
         run: |
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          "$BT/apksigner" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | grep -i "SHA-256" | tee "$RUNNER_TEMP/certs.txt"
-          grep -qi "e2266f71a024f6e1ea89f594acb9ea5796ac0ead10b60e3e74405ea212560a52" "$RUNNER_TEMP/certs.txt"
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          "$BT/apksigner" sign --ks "$RUNNER_TEMP/dars.keystore" --ks-pass pass:android --key-pass pass:android --ks-key-alias androiddebugkey "$APK"
+          "$BT/apksigner" verify --print-certs "$APK" | grep -i "SHA-256" | tee "$RUNNER_TEMP/certs.txt"
+          if ! grep -qi "e2266f71a024f6e1ea89f594acb9ea5796ac0ead10b60e3e74405ea212560a52" "$RUNNER_TEMP/certs.txt"; then
+            echo "::error::The DARS_KEYSTORE_B64 secret is not the Dars key (see the fingerprint above). Paste the contents of DARS_KEYSTORE_B64.txt into the secret again."
+            exit 1
+          fi
 
       - name: Build web app
         run: flutter build web --release --base-href "/${{ github.event.repository.name }}/app/" --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}
