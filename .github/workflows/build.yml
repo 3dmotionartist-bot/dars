@@ -67,15 +67,43 @@ jobs:
             sed -i 's#</application>#    <service android:name=".ScreenShareService" android:exported="false" android:foregroundServiceType="mediaProjection"/>\n    </application>#' android/app/src/main/AndroidManifest.xml
           grep -q 'android:scheme="dars"' android/app/src/main/AndroidManifest.xml || \
             sed -i 's#</activity>#    <intent-filter>\n                <action android:name="android.intent.action.VIEW"/>\n                <category android:name="android.intent.category.DEFAULT"/>\n                <category android:name="android.intent.category.BROWSABLE"/>\n                <data android:scheme="dars" android:host="join"/>\n            </intent-filter>\n        </activity>#' android/app/src/main/AndroidManifest.xml
+          # Shared meeting links (https://3dmotionartist-bot.github.io/dars/call/?room=...) open the app directly.
+          # Android checks https://3dmotionartist-bot.github.io/.well-known/assetlinks.json against the signing key.
+          grep -q 'android:autoVerify' android/app/src/main/AndroidManifest.xml || \
+            sed -i 's#</activity>#    <intent-filter android:autoVerify="true">\n                <action android:name="android.intent.action.VIEW"/>\n                <category android:name="android.intent.category.DEFAULT"/>\n                <category android:name="android.intent.category.BROWSABLE"/>\n                <data android:scheme="https" android:host="3dmotionartist-bot.github.io" android:pathPrefix="/dars/call"/>\n            </intent-filter>\n        </activity>#' android/app/src/main/AndroidManifest.xml
           printf -- '-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**\n-keep class com.cloudwebrtc.webrtc.** { *; }\n' > android/app/proguard-rules.pro
           cat android/app/src/main/AndroidManifest.xml
 
       - run: flutter pub get
 
+      # Same signing key on every build, so updates install over the old app and Android can verify meeting links.
+      # The key is a private repository secret: Settings → Secrets and variables → Actions → DARS_KEYSTORE_B64
+      # (base64 of the keystore; store password "android", alias "androiddebugkey").
+      - name: Use the Dars signing key
+        env:
+          KS: ${{ secrets.DARS_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KS" ]; then
+            echo "::warning::DARS_KEYSTORE_B64 is not set: this APK uses a temporary key, so meeting links open in the browser and updates need a reinstall."
+            exit 0
+          fi
+          echo "$KS" | base64 -d > "$RUNNER_TEMP/dars.keystore"
+          for d in "$HOME/.android" "${ANDROID_USER_HOME:-}" "${ANDROID_SDK_HOME:+$ANDROID_SDK_HOME/.android}"; do
+            [ -n "$d" ] && mkdir -p "$d" && cp "$RUNNER_TEMP/dars.keystore" "$d/debug.keystore"
+          done
+          echo "DARS_SIGNED=1" >> "$GITHUB_ENV"
+
       # Backend connection: set repository variables SUPABASE_URL and SUPABASE_ANON_KEY
       # (GitHub → Settings → Secrets and variables → Actions → Variables). Empty = demo mode.
       - name: Build APK (test build, debug-signed)
         run: flutter build apk --release --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}
+
+      - name: Check the APK signing key (must match assetlinks.json)
+        if: env.DARS_SIGNED == '1'
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | grep -i "SHA-256" | tee "$RUNNER_TEMP/certs.txt"
+          grep -qi "e2266f71a024f6e1ea89f594acb9ea5796ac0ead10b60e3e74405ea212560a52" "$RUNNER_TEMP/certs.txt"
 
       - name: Build web app
         run: flutter build web --release --base-href "/${{ github.event.repository.name }}/app/" --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}
