@@ -994,6 +994,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   // meeting links opened from outside the app
   // =====================================================================
   Uri? _pendingJoin;
+  String _joinAskedFor = '';
+  DateTime _joinAskedAt = DateTime(2000);
 
   Future<void> checkLaunchLink() async {
     final u = await MediaBridge.takeLaunchLink();
@@ -1012,6 +1014,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     final ctx = navigatorKey.currentContext;
     if (ctx == null) return;
     _pendingJoin = null;
+    final key = '$room|${u.queryParameters['video']}';
+    final now = DateTime.now();
+    if (_joinAskedFor == key && now.difference(_joinAskedAt).inSeconds < 60) return; // just asked about this link
+    _joinAskedFor = key;
+    _joinAskedAt = now;
     final video = u.queryParameters['video'] != '0';
     showDialog<void>(
       context: ctx,
