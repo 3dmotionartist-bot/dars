@@ -132,7 +132,7 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
         Text(money(levelPrice.round()), style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
         Text(' ${context.tr('per_hour')}', style: const TextStyle(color: AppColors.text3)),
         const Spacer(),
-        Pill('25 ${context.tr('min')}: ${money((levelPrice / 2).round())}', bg: AppColors.surface, fg: AppColors.text2),
+        Pill('30 ${context.tr('min')}: ${money((levelPrice / 2 * 100).round() / 100)}', bg: AppColors.surface, fg: AppColors.text2),
       ]),
       if (t.hasPackages) ...[
         const SizedBox(height: 14),

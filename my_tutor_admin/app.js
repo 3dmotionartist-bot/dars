@@ -63,7 +63,7 @@
       flagged_only: "عليها تنبيهات", last_activity: "آخر نشاط", conversation: "المحادثة", kind_voice: "🎤 رسالة صوتية", kind_image: "📷 صورة",
       kind_file: "📎 ملف / فيديو", kind_call: "📞 مكالمة / رابط جلسة", kind_system: "النظام", open_file: "فتح", alarm_enable: "تفعيل صوت الإنذار والإشعارات",
       alarm_ready: "صوت الإنذار مفعّل", alarm_hint: "يرنّ الإنذار عند رصد رقم هاتف أو طلب تواصل خارج درس في أي محادثة. أبقِ هذه الصفحة مفتوحة.",
-      live_on: "مراقبة مباشرة", no_messages: "لا توجد رسائل", role_tutor: "مدرس", role_admin: "مدير", parties: "الطرفان",
+      live_on: "مراقبة مباشرة", live_question: "سؤال مساعدة فورية", live_question_by: "في سؤال مساعدة فورية من", no_messages: "لا توجد رسائل", role_tutor: "مدرس", role_admin: "مدير", parties: "الطرفان",
     },
     en: {
       brand: "Dars", console: "Admin console", demo: "Demo mode — sample data", live: "Connected to Supabase",
@@ -121,7 +121,7 @@
       flagged_only: "With alerts", last_activity: "Last activity", conversation: "Chat", kind_voice: "🎤 Voice message", kind_image: "📷 Photo",
       kind_file: "📎 File / video", kind_call: "📞 Call / session link", kind_system: "System", open_file: "Open", alarm_enable: "Turn on alarm sound & notifications",
       alarm_ready: "Alarm sound is on", alarm_hint: "The alarm rings when a phone number or a request to talk outside Dars is detected in any chat. Keep this page open.",
-      live_on: "Live monitoring", no_messages: "No messages", role_tutor: "Tutor", role_admin: "Admin", parties: "People",
+      live_on: "Live monitoring", live_question: "Live-help question", live_question_by: "in a live-help question by", no_messages: "No messages", role_tutor: "Tutor", role_admin: "Admin", parties: "People",
     },
   };
 
@@ -648,9 +648,9 @@
           <td>${fmtDateTime(r.created_at)}<div class="small muted">${ago(r.created_at)}</div></td>
           <td>${person(r.sender_name || "—", roleName(r.sender_role) + (r.sender_phone ? " · " + r.sender_phone : ""))}</td>
           <td style="max-width:320px"><span class="pill bad">${esc(kindLabel(r.kind))}</span><div class="mono small" style="margin-top:4px;direction:ltr;unicode-bidi:plaintext">${esc(r.matched)}</div><div class="small muted">${esc(r.excerpt)}</div></td>
-          <td class="hide-sm">${esc(r.student_name || "—")} <span class="muted">(${esc(roleName(r.student_role))})</span><br>${esc(r.tutor_name || "—")} <span class="muted">(${t("role_tutor")})</span></td>
+          <td class="hide-sm">${r.conversation_id ? `${esc(r.student_name || "—")} <span class="muted">(${esc(roleName(r.student_role))})</span><br>${esc(r.tutor_name || "—")} <span class="muted">(${t("role_tutor")})</span>` : `<span class="pill">${t("live_question")}</span><br>${esc(r.student_name || "—")}`}</td>
           <td>${pill(r.status)}</td>
-          <td class="actions"><button class="btn" data-act="chat" data-id="${esc(r.conversation_id)}" data-msg="${esc(r.message_id)}">${t("open_chat")}</button>${r.status === "new" ? `<button class="btn good" data-act="flag" data-id="${esc(r.id)}" data-status="reviewed">${t("mark_reviewed")}</button><button class="btn" data-act="flag" data-id="${esc(r.id)}" data-status="dismissed">${t("dismiss")}</button>` : ""}</td>
+          <td class="actions">${r.conversation_id ? `<button class="btn" data-act="chat" data-id="${esc(r.conversation_id)}" data-msg="${esc(r.message_id)}">${t("open_chat")}</button>` : ""}${r.status === "new" ? `<button class="btn good" data-act="flag" data-id="${esc(r.id)}" data-status="reviewed">${t("mark_reviewed")}</button><button class="btn" data-act="flag" data-id="${esc(r.id)}" data-status="dismissed">${t("dismiss")}</button>` : ""}</td>
         </tr>`))}</section>`;
   }
 
@@ -759,10 +759,10 @@
     try {
       if (document.hidden && "Notification" in window && Notification.permission === "granted") {
         const n = new Notification("🚨 " + t("alarm_title"), { body: `${full.sender_name || ""}: ${kindLabel(full.kind)} — ${full.matched || ""}`, requireInteraction: true });
-        n.onclick = () => { window.focus(); openChat(full.conversation_id, full.message_id); };
+        n.onclick = () => { window.focus(); if (full.conversation_id) openChat(full.conversation_id, full.message_id); else go("alerts"); };
       }
     } catch (e) { /* ignore */ }
-    if (S.thread && S.thread.id === full.conversation_id) openChat(full.conversation_id, full.message_id); else render();
+    if (full.conversation_id && S.thread && S.thread.id === full.conversation_id) openChat(full.conversation_id, full.message_id); else render();
   }
 
   function alarmHtml() {
@@ -773,12 +773,12 @@
       <div class="alarm-text">
         <b>${t("alarm_title")} — ${esc(kindLabel(a.kind))}</b>
         <div><b>${esc(a.sender_name || "—")}</b> <span class="muted">(${esc(roleName(a.sender_role))}${a.sender_phone ? " · " + esc(a.sender_phone) : ""})</span> ${t("alarm_did")}</div>
-        <div>${t("alarm_where")} <b>${esc(a.student_name || "—")}</b> ${t("and")} <b>${esc(a.tutor_name || "—")}</b> · ${fmtDateTime(a.created_at)}</div>
+        <div>${a.conversation_id ? `${t("alarm_where")} <b>${esc(a.student_name || "—")}</b> ${t("and")} <b>${esc(a.tutor_name || "—")}</b>` : `${t("live_question_by")} <b>${esc(a.student_name || "—")}</b>`} · ${fmtDateTime(a.created_at)}</div>
         <div class="mono small" style="direction:ltr;unicode-bidi:plaintext">${esc(a.matched || "")}</div>
         <div class="small">“${esc(a.excerpt || "")}”</div>
       </div>
       <div class="alarm-actions">
-        <button class="btn primary" data-act="alarm-open">${t("open_chat")}</button>
+        ${a.conversation_id ? `<button class="btn primary" data-act="alarm-open">${t("open_chat")}</button>` : ""}
         <button class="btn good" data-act="alarm-reviewed">${t("mark_reviewed")}</button>
         <button class="btn" data-act="alarm-silence">${t("silence")}</button>
       </div>
@@ -908,7 +908,7 @@
       case "flag": act(async () => { await api.setFlag(id, el.dataset.status); S.openFlags = Math.max(0, (S.openFlags || 0) - 1); try { S.openFlags = await api.flagCount(); } catch (e2) { /* ignore */ } }, ["flags", "conversations"]).then(() => { if (S.thread) openChat(S.thread.id); }); break;
       case "alarm-enable": unlockAudio(); try { if ("Notification" in window && Notification.permission === "default") await Notification.requestPermission(); } catch (e2) { /* ignore */ } render(); break;
       case "alarm-silence": stopSiren(); flashTitle(false); S.alarm = null; render(); break;
-      case "alarm-open": { const a = S.alarm; stopSiren(); flashTitle(false); S.alarm = null; if (a) openChat(a.conversation_id, a.message_id); break; }
+      case "alarm-open": { const a = S.alarm; stopSiren(); flashTitle(false); S.alarm = null; if (a && a.conversation_id) openChat(a.conversation_id, a.message_id); break; }
       case "alarm-reviewed": { const a = S.alarm; stopSiren(); flashTitle(false); S.alarm = null; if (a) act(() => api.setFlag(a.id, "reviewed").then(async () => { try { S.openFlags = await api.flagCount(); } catch (e2) { /* ignore */ } }), ["flags", "conversations"]); else render(); break; }
       case "tutor": S.drawer = { type: "tutor", id }; render(); break;
       case "approve": act(() => api.verifyTutor(id, "approved"), ["tutors"]); break;

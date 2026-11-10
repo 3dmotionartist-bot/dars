@@ -9,3 +9,4 @@ psql -q -v ON_ERROR_STOP=1 -d "$DB" -c "do \$\$ begin if not exists (select from
 sed '/^create role/d;/^grant anon, authenticated, service_role to authenticator/d' "$HERE/tests/supabase_stub.sql" | psql -q -v ON_ERROR_STOP=1 -d "$DB"
 for f in "$HERE"/supabase/migrations/*.sql "$HERE/supabase/seed.sql"; do psql -q -v ON_ERROR_STOP=1 -d "$DB" -f "$f"; done
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/flows.sql"
+psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/week_fixes.sql"

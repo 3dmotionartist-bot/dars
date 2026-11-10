@@ -466,8 +466,21 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
             unsent.add(x);
           }
         }
+        // Older messages already loaded by scrolling up stay in front of the newest page.
+        final newIds = {for (final m in messages) m.remoteId};
+        final first = messages.isEmpty ? null : messages.first;
+        final older = first == null
+            ? const <Message>[]
+            : c.messages
+                .where((x) =>
+                    x.remoteId != 0 &&
+                    !newIds.contains(x.remoteId) &&
+                    (x.time.isBefore(first.time) || (x.time == first.time && x.remoteId < first.remoteId)))
+                .toList();
+        if (older.isEmpty) c.hasOlder = mrows.length >= Backend.pageSize;
         c.messages
           ..clear()
+          ..addAll(older)
           ..addAll(messages)
           ..addAll(unsent);
         c.unread = identical(c, activeConversation) ? 0 : unread;
@@ -484,7 +497,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
           unread: unread,
           online: tutor?.available ?? false,
           photo: _photoFor(other, tutor),
-        );
+        )..hasOlder = mrows.length >= Backend.pageSize;
       }
       next.add(c);
     }
@@ -829,6 +842,77 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         return false;
       }
     });
+  }
+
+  /// Loads the next page of older messages of a chat (when the user scrolls to the top).
+  Future<void> loadOlder(Conversation c) async {
+    if (!live || c.id.isEmpty || !c.hasOlder || c.loadingOlder) return;
+    Message? oldest;
+    for (final m in c.messages) {
+      if (m.remoteId != 0) {
+        oldest = m;
+        break;
+      }
+    }
+    if (oldest == null) {
+      c.hasOlder = false;
+      return;
+    }
+    c.loadingOlder = true;
+    notifyListeners();
+    try {
+      final rows = await _b.olderMessages(c.id, oldest.time, oldest.remoteId);
+      final have = {for (final m in c.messages) m.remoteId};
+      final uid = _b.uid;
+      final more = [
+        for (final r in rows)
+          if (!have.contains(Backend.messageFromRow(r, uid).remoteId)) Backend.messageFromRow(r, uid),
+      ];
+      c.messages.insertAll(0, more);
+      c.hasOlder = rows.length >= Backend.pageSize;
+    } catch (e) {
+      _error(e);
+    } finally {
+      c.loadingOlder = false;
+      notifyListeners();
+    }
+  }
+
+  /// Sends a "report this chat" to the Dars team. Returns true when it reached the server.
+  Future<bool> reportConversation(Conversation c, String reason) async {
+    final r = reason.trim();
+    if (!live) return true;
+    if (c.id.isEmpty || r.isEmpty) return false;
+    try {
+      await _b.reportConversation(c.id, r.length > 500 ? r.substring(0, 500) : r);
+      return true;
+    } catch (e) {
+      _error(e);
+      return false;
+    }
+  }
+
+  final Map<String, ({double hourly, Map<int, int> discounts})> _quotes = {};
+
+  /// The price the server will charge for this tutor at my level (null in demo mode or offline).
+  Future<({double hourly, Map<int, int> discounts})?> priceQuote(Tutor t) async {
+    if (!live || t.id.length < 20) return null;
+    final key = '${t.id}|$levelId';
+    final hit = _quotes[key];
+    if (hit != null) return hit;
+    try {
+      final r = await _b.priceQuote(t.id, levelId);
+      if (r == null) return null;
+      final d = Map<String, dynamic>.from((r['discounts'] as Map?) ?? const {});
+      final q = (
+        hourly: ((r['hourly'] as num?) ?? t.pricePerHour).toDouble(),
+        discounts: {for (final e in d.entries) int.parse(e.key): ((e.value as num?) ?? 0).toInt()},
+      );
+      _quotes[key] = q;
+      return q;
+    } catch (_) {
+      return null;
+    }
   }
 
   // ---- sending in order ----

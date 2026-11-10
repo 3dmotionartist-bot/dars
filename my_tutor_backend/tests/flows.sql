@@ -98,9 +98,9 @@ reset role;
 select t_as(:'stu'); set role authenticated;
 select (book_lesson(:'tut', date_trunc('hour', now()) + interval '4 days 17 hours', 60, 'physics') ->> 'lesson_id') as wl \gset
 select t_ok((select status from lessons where id = :'wl') = 'confirmed', 'fully wallet-paid lesson is confirmed instantly');
-select t_ok(wallet_balance(auth.uid()) = 5, 'wallet 20 − 15 = 5');
+select t_ok((select balance from wallet_balances where user_id = auth.uid()) = 5, 'wallet 20 − 15 = 5');
 select t_ok((cancel_lesson(:'wl', 'Exam moved') ->> 'refunded')::numeric = 15, 'early cancel refunds 15');
-select t_ok(wallet_balance(auth.uid()) = 20, 'wallet back to 20');
+select t_ok((select balance from wallet_balances where user_id = auth.uid()) = 20, 'wallet back to 20');
 
 \echo '--- package'
 select (buy_package(:'tut', 8)) as pk \gset
@@ -121,7 +121,7 @@ reset role;
 update lessons set starts_at = now() - interval '2 hours' where id = (:'b1_r'::jsonb ->> 'lesson_id')::uuid;
 select t_as(:'tut'); set role authenticated;
 select mark_lesson_delivered((:'b1_r'::jsonb ->> 'lesson_id')::uuid);
-select t_ok(wallet_balance(auth.uid()) = 10.62, 'tutor earns 12.50 − 15% commission = 10.62');
+select t_ok((select balance from wallet_balances where user_id = auth.uid()) = 10.62, 'tutor earns 12.50 − 15% commission = 10.62');
 select t_ok((select count(*) from lessons) = 3, 'tutor sees his 3 lessons (incl. cancelled)');
 reset role;
 select t_as(:'stu'); set role authenticated;
@@ -150,8 +150,8 @@ select respond_live_request(:'lq', true) as conv \gset
 reset role;
 select t_as(:'stu2'); set role authenticated;
 select t_ok((select status from live_requests where id = :'lq') = 'matched', 'request matched');
-select t_ok((select body from messages where conversation_id = :'conv' order by created_at limit 1) = 'عندي سؤال في النهايات', 'the question opens the chat');
-select t_ok((select kind from messages where conversation_id = :'conv' order by created_at desc limit 1) = 'system', 'student gets the greeting in chat');
+select t_ok((select body from messages where conversation_id = :'conv' order by created_at, id limit 1) = 'عندي سؤال في النهايات', 'the question opens the chat');
+select t_ok((select sender_id from messages where conversation_id = :'conv' order by created_at desc, id desc limit 1) = :'tut', 'student gets the greeting from the tutor (not a system message)');
 \echo '--- chat contact filter'
 insert into messages (conversation_id, sender_id, body) values (:'conv', auth.uid(), 'call me on 0933 123 456');
 insert into messages (conversation_id, sender_id, body) values (:'conv', auth.uid(), 'Can we start now?');
@@ -169,7 +169,7 @@ select t_ok(expire_live_requests() = 1, 'cron job expires old requests');
 select t_as(:'tut'); set role authenticated;
 select t_err($$select request_payout(500, 'bank_transfer', '{}')$$, 'more than your available balance', 'cannot withdraw more than balance');
 select request_payout(10, 'bank_transfer', '{"iban":"SY00..."}') as po \gset
-select t_ok(wallet_balance(auth.uid()) = 0.62, 'payout reserves money');
+select t_ok((select balance from wallet_balances where user_id = auth.uid()) = 0.62, 'payout reserves money');
 reset role;
 select t_as(:'admin'); set role authenticated;
 select admin_process_payout(:'po', 'rejected', 'IBAN missing');
@@ -235,7 +235,7 @@ insert into messages (conversation_id, sender_id, kind, body)
   select id, auth.uid(), 'call', 'meet:kqzpt-mwhra-bcdeg-xyzab' from conversations where student_id = :'stu' and tutor_id = :'tut';
 select t_ok((select count(*) from messages where kind = 'call' and body like 'meet:%') = 1, 'student can share a meeting link');
 select t_err($$insert into messages (conversation_id, sender_id, kind, body)
-  select id, auth.uid(), 'call', 'call me on +1 555 123 4567' from conversations limit 1$$, 'messages_call_body', 'call messages cannot carry free text');
+  select id, auth.uid(), 'call', 'call me on +1 555 123 4567' from conversations limit 1$$, 'Invalid call message', 'call messages cannot carry free text');
 reset role;
 select t_as(:'tut'); set role authenticated;
 select t_ok((select count(*) from messages where kind = 'call') = 2, 'tutor receives the call invitation and the meeting link');

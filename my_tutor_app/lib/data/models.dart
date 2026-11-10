@@ -204,6 +204,8 @@ class Conversation {
   int unread;
   bool online;
   String photo; // the other person's profile photo ('' = initials)
+  bool hasOlder = false; // older messages exist on the server (load on scroll)
+  bool loadingOlder = false;
 
   Conversation({required this.id, required this.name, required this.color, this.tutor, this.counterpartId, required this.messages, this.unread = 0, this.online = false, this.photo = ''});
 

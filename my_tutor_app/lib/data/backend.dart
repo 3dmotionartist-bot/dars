@@ -164,15 +164,41 @@ class Backend {
 
   Future<List<Map<String, dynamic>>> notifications() => db.from('notifications').select().eq('user_id', uid!).order('created_at', ascending: false).limit(60);
   Future<List<Map<String, dynamic>>> conversations() => db.from('conversations').select().order('last_message_at', ascending: false).limit(100);
-  Future<List<Map<String, dynamic>>> messagesFor(List<String> conversationIds) => conversationIds.isEmpty
-      ? Future.value(<Map<String, dynamic>>[])
-      : db.from('messages').select().inFilter('conversation_id', conversationIds).order('created_at').order('id').limit(2000);
+  /// How many of the newest messages of each chat are loaded at first (older ones load on scroll).
+  static const pageSize = 50;
 
-  /// Names of people I share a lesson or chat with (allowed by the database rules).
+  /// The newest [pageSize] messages of each chat, oldest first (asked 20 chats at a time,
+  /// so no answer goes over the server's 1,000-row limit).
+  Future<List<Map<String, dynamic>>> messagesFor(List<String> conversationIds) async {
+    if (conversationIds.isEmpty) return [];
+    final chunks = [
+      for (var i = 0; i < conversationIds.length; i += 20)
+        conversationIds.sublist(i, i + 20 > conversationIds.length ? conversationIds.length : i + 20),
+    ];
+    final parts = await Future.wait<List<Map<String, dynamic>>>([
+      for (final ids in chunks) _rows('recent_messages', {'p_conversations': ids, 'p_limit': pageSize}),
+    ]);
+    return [for (final p in parts) ...p];
+  }
+
+  Future<List<Map<String, dynamic>>> _rows(String fn, Map<String, dynamic> params) async {
+    final r = await db.rpc(fn, params: params);
+    return [for (final x in (r as List)) Map<String, dynamic>.from(x as Map)];
+  }
+
+  /// [pageSize] messages of a chat written before the given one, oldest first.
+  Future<List<Map<String, dynamic>>> olderMessages(String conversationId, DateTime beforeAt, int beforeId) => _rows('older_messages', {
+        'p_conversation': conversationId,
+        'p_before_at': beforeAt.toUtc().toIso8601String(),
+        'p_before_id': beforeId,
+        'p_limit': pageSize,
+      });
+
+  /// Names and photos of people I share a lesson or chat with (never their phone or email).
   Future<Map<String, String>> names(Iterable<String> ids) async {
     final list = ids.toSet().toList();
     if (list.isEmpty) return {};
-    final rows = await db.from('profiles').select('id, full_name, avatar_url').inFilter('id', list);
+    final rows = await _rows('partner_profiles', {'p_ids': list});
     for (final r in rows) {
       photos[r['id'] as String] = (r['avatar_url'] as String?) ?? '';
     }
@@ -299,12 +325,16 @@ class Backend {
     return db.storage.from(stored.substring(0, i)).getPublicUrl(stored.substring(i + 1));
   }
 
-  Future<void> markRead(String conversationId) => db
-      .from('messages')
-      .update({'read_at': DateTime.now().toUtc().toIso8601String()})
-      .eq('conversation_id', conversationId)
-      .neq('sender_id', uid!)
-      .isFilter('read_at', null);
+  Future<void> markRead(String conversationId) => db.rpc('mark_conversation_read', params: {'p_conversation': conversationId});
+
+  Future<void> reportConversation(String conversationId, String reason) =>
+      db.rpc('report_conversation', params: {'p_conversation': conversationId, 'p_reason': reason});
+
+  /// The price the server will charge: hourly price for my level and the real package discounts.
+  Future<Map<String, dynamic>?> priceQuote(String tutorId, String level) async {
+    final r = await db.rpc('price_quote', params: {'p_tutor': tutorId, 'p_level': level});
+    return r == null ? null : Map<String, dynamic>.from(r as Map);
+  }
 
   Future<void> markNotificationRead(int id) =>
       db.from('notifications').update({'read_at': DateTime.now().toUtc().toIso8601String()}).eq('id', id).eq('user_id', uid!);

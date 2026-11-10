@@ -39,6 +39,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _app = context.read<AppState>();
+    _scroll.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _app.openConversation(widget.conversation);
     });
@@ -53,9 +54,52 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
+  // The list is reversed: offset 0 is the newest message (the chat opens there and stays
+  // there when new messages arrive); scrolling up reaches older messages.
   void _toBottom() => WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scroll.hasClients) _scroll.animateTo(_scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+        if (_scroll.hasClients) _scroll.animateTo(0, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
       });
+
+  void _onScroll() {
+    if (!_scroll.hasClients) return;
+    final p = _scroll.position;
+    if (p.pixels >= p.maxScrollExtent - 300) _app.loadOlder(widget.conversation);
+  }
+
+  Future<void> _report(AppState app) async {
+    final reason = TextEditingController();
+    final send = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text(context.tr('report_chat')),
+        content: TextField(
+          controller: reason,
+          autofocus: true,
+          maxLength: 500,
+          minLines: 2,
+          maxLines: 5,
+          decoration: InputDecoration(
+            hintText: context.isAr ? 'ما المشكلة في هذه المحادثة؟' : 'What is wrong in this chat?',
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: Text(context.isAr ? 'إلغاء' : 'Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: Text(context.isAr ? 'إرسال البلاغ' : 'Send report')),
+        ],
+      ),
+    );
+    final text = reason.text.trim();
+    reason.dispose();
+    if (send != true || !mounted) return;
+    if (text.isEmpty) {
+      toast(context, context.isAr ? 'اكتب سبب البلاغ' : 'Please write the reason', icon: Icons.info_outline);
+      return;
+    }
+    final ok = await app.reportConversation(widget.conversation, text);
+    if (!mounted) return;
+    if (ok) toast(context, context.tr('report_sent'));
+  }
 
   void _send(AppState app) {
     final text = _ctrl.text.trim();
@@ -205,7 +249,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 await Clipboard.setData(ClipboardData(text: link));
                 if (context.mounted) toast(context, context.tr('meeting_created'));
               } else {
-                toast(context, context.tr('report_sent'));
+                await _report(app);
               }
             },
             itemBuilder: (_) => [
@@ -249,9 +293,19 @@ class _ChatScreenState extends State<ChatScreen> {
           Expanded(
             child: ListView.builder(
               controller: _scroll,
+              reverse: true,
               padding: const EdgeInsets.all(12),
-              itemCount: c.messages.length,
-              itemBuilder: (_, i) => _Bubble(m: c.messages[i], color: c.color),
+              itemCount: c.messages.length + (c.hasOlder ? 1 : 0),
+              itemBuilder: (_, i) {
+                if (i >= c.messages.length) {
+                  return const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.4))),
+                  );
+                }
+                final m = c.messages[c.messages.length - 1 - i];
+                return _Bubble(key: ValueKey(m.remoteId != 0 ? 'r${m.remoteId}' : identityHashCode(m)), m: m, color: c.color);
+              },
             ),
           ),
           SafeArea(
@@ -325,7 +379,7 @@ class _ChatScreenState extends State<ChatScreen> {
 class _Bubble extends StatelessWidget {
   final Message m;
   final Color color;
-  const _Bubble({required this.m, required this.color});
+  const _Bubble({super.key, required this.m, required this.color});
 
   @override
   Widget build(BuildContext context) {

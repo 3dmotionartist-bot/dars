@@ -23,7 +23,7 @@ class _BookingScreenState extends State<BookingScreen> {
   int _step = 0;
   bool _package = false;
   int _hours = 8;
-  int _minutes = 50;
+  int _minutes = 60;
   int _day = 0;
   DateTime? _slot; // chosen lesson start (my local time)
   TutorSchedule? _schedule; // the tutor's working hours + booked times (null while loading)
@@ -37,9 +37,20 @@ class _BookingScreenState extends State<BookingScreen> {
   // Used only when the tutor has not set working hours yet.
   static const _defaultHours = [9, 10, 13, 16, 17, 18, 19, 20, 21];
 
+  // The price the server will charge (per 60 minutes at my level + real package discounts).
+  ({double hourly, Map<int, int> discounts})? _quote;
+  double get _hourly => _quote?.hourly ?? widget.hourPrice;
+  int _discount(AppState app, int hours) => _quote?.discounts[hours] ?? app.discountFor(widget.tutor, hours);
+  static double _r2(num v) => (v * 100).round() / 100;
+  /// Same rule as the server: hourly price × minutes / 60, rounded to cents.
+  double _lessonPrice(int minutes) => _r2(_hourly * minutes / 60);
+
   @override
   void initState() {
     super.initState();
+    context.read<AppState>().priceQuote(widget.tutor).then((q) {
+      if (mounted && q != null) setState(() => _quote = q);
+    });
     context.read<AppState>().scheduleFor(widget.tutor).then((s) {
       if (!mounted) return;
       setState(() {
@@ -113,9 +124,9 @@ class _BookingScreenState extends State<BookingScreen> {
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final t = widget.tutor;
-    final discount = _package ? app.discountFor(t, _hours) : 0;
-    final original = _package ? widget.hourPrice * _hours : widget.hourPrice * _minutes / 50;
-    final subtotal = original * (1 - discount / 100);
+    final discount = _package ? _discount(app, _hours) : 0;
+    final original = _package ? _r2(_hourly * _hours) : _lessonPrice(_minutes);
+    final subtotal = _package ? _r2(_hourly * _hours * (100 - discount) / 100) : original;
     final balanceUsed = _useBalance ? (app.walletBalance < subtotal ? app.walletBalance : subtotal) : 0.0;
     final total = subtotal - balanceUsed;
 
@@ -157,7 +168,7 @@ class _BookingScreenState extends State<BookingScreen> {
                       selected: _hours == h,
                       onTap: () => setState(() => _hours = h),
                       top: '$h',
-                      bottom: '-${app.discountFor(t, h)}%',
+                      bottom: '-${_discount(app, h)}%',
                     ),
                   ),
                 ),
@@ -165,7 +176,7 @@ class _BookingScreenState extends State<BookingScreen> {
           ] else ...[
             _label(context.tr('duration')),
             Row(children: [
-              for (final m in [25, 50, 100])
+              for (final m in [30, 60, 90])
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsetsDirectional.only(end: 8),
@@ -173,7 +184,7 @@ class _BookingScreenState extends State<BookingScreen> {
                       selected: _minutes == m,
                       onTap: () => setState(() => _minutes = m),
                       top: '$m ${context.tr('min')}',
-                      bottom: money((widget.hourPrice * m / 50).round()),
+                      bottom: money(_lessonPrice(m)),
                     ),
                   ),
                 ),
@@ -294,7 +305,7 @@ class _BookingScreenState extends State<BookingScreen> {
             child: Column(children: [
               if (_package) ...[
                 _line(context.tr('package'), '$_hours ${context.tr('hours')}'),
-                _line(context.tr('package_price'), money(original.round())),
+                _line(context.tr('package_price'), money(original)),
                 _line(context.tr('discount'), '-$discount%  (-${money(double.parse((original - subtotal).toStringAsFixed(2)))})', color: AppColors.success),
               ] else ...[
                 if (start != null) _line(context.tr('date'), '${dayOf(context, start)} · ${timeOf(context, start)}'),
