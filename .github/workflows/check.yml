@@ -1,0 +1,32 @@
+# Checks app changes on any branch other than main: analyzer, tests and a compile.
+# Nothing is published (main is built and shipped by build.yml).
+name: Check app (branches)
+
+on:
+  push:
+    branches-ignore: [main, master]
+  workflow_dispatch:
+
+jobs:
+  app:
+    name: Analyze, test, compile
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: my_tutor_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.27.4'
+          channel: stable
+          cache: true
+      - name: Generate Android & web platform folders
+        run: flutter create --org com.dars --project-name my_tutor_app --platforms=android,web .
+      - run: flutter pub get
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+      - name: Tests
+        run: flutter test
+      - name: Compile web
+        run: flutter build web --release
