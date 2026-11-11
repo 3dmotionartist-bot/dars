@@ -10,3 +10,4 @@ sed '/^create role/d;/^grant anon, authenticated, service_role to authenticator/
 for f in "$HERE"/supabase/migrations/*.sql "$HERE/supabase/seed.sql"; do psql -q -v ON_ERROR_STOP=1 -d "$DB" -f "$f"; done
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/flows.sql"
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/week_fixes.sql"
+psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/retest_fixes.sql"

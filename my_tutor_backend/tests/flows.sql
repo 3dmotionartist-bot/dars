@@ -229,7 +229,7 @@ reset role;
 -- calls: a call invitation is a chat message of kind 'call'
 select t_as(:'stu'); set role authenticated;
 insert into messages (conversation_id, sender_id, kind, body)
-  select id, auth.uid(), 'call', 'video:0a1b2c3d4e5f6a7b' from conversations where student_id = :'stu' and tutor_id = :'tut';
+  select id, auth.uid(), 'call', 'video:abcde-fghjk-mnpqr-stuvw' from conversations where student_id = :'stu' and tutor_id = :'tut';
 select t_ok((select count(*) from messages where kind = 'call' and not blocked) = 1, 'student can invite the tutor to a video call');
 insert into messages (conversation_id, sender_id, kind, body)
   select id, auth.uid(), 'call', 'meet:kqzpt-mwhra-bcdeg-xyzab' from conversations where student_id = :'stu' and tutor_id = :'tut';
