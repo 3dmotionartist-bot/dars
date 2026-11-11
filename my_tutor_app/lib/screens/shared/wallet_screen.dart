@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/models.dart';
 import '../../l10n.dart';
 import '../../state/app_state.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import 'transfer_screens.dart';
 
-/// Student wallet: balance, refund request, payment history.
+/// Student wallet: balance, add credit (transfer + receipt), refund request, payment history.
 class WalletScreen extends StatelessWidget {
   const WalletScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
+    final canTopUp = app.role != UserRole.tutor;
     return Scaffold(
       appBar: AppBar(backgroundColor: AppColors.surface, surfaceTintColor: AppColors.surface, title: Text(context.tr('wallet'), style: const TextStyle(fontWeight: FontWeight.w800))),
       body: MaxWidth(
@@ -29,6 +32,14 @@ class WalletScreen extends StatelessWidget {
               const SizedBox(height: 4),
               Text(money(app.walletBalance), style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.w800)),
               const SizedBox(height: 14),
+              Wrap(spacing: 10, runSpacing: 10, children: [
+              if (canTopUp)
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: AppColors.ink, minimumSize: const Size(0, 42)),
+                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TopUpScreen())),
+                  icon: const Icon(Icons.add_rounded),
+                  label: Text(context.isAr ? 'شحن الرصيد' : 'Add credit'),
+                ),
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Color(0x66FFFFFF)), minimumSize: const Size(0, 42)),
                 onPressed: app.walletBalance <= 0
@@ -40,8 +51,13 @@ class WalletScreen extends StatelessWidget {
                 icon: const Icon(Icons.undo_rounded),
                 label: Text(context.tr('request_refund')),
               ),
+              ]),
             ]),
           ),
+          if (canTopUp && app.topUps.isNotEmpty) ...[
+            SectionTitle(context.isAr ? 'عمليات الشحن' : 'My top-ups'),
+            for (final p in app.topUps) TopUpTile(p: p),
+          ],
           SectionTitle(context.tr('transactions')),
           for (final tx in app.transactions)
             Padding(

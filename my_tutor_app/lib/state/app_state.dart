@@ -7,7 +7,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase/supabase.dart' show RealtimeChannel;
+import 'package:supabase/supabase.dart' show PostgrestException, RealtimeChannel;
 
 import '../config.dart';
 import '../data/backend.dart';
@@ -16,6 +16,7 @@ import '../data/models.dart';
 import '../l10n.dart';
 import '../screens/shared/incoming_call_screen.dart';
 import '../screens/shared/live_call_screen.dart';
+import '../screens/shared/transfer_screens.dart';
 import '../services/calls.dart';
 import '../services/media_bridge.dart';
 import '../services/ringer.dart';
@@ -47,9 +48,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _resume() async {
     _handleLaunchAction();
     checkLaunchLink();
+    checkAppVersion();
     if (await _b.restore()) {
       _startRealtime();
       await refresh();
+      retryFailedMessages();
     } else {
       _scheduleRestore();
     }
@@ -108,6 +111,12 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   String callPermission = 'mine'; // all | mine | ask
   /// Amount still to pay for the last booking (live mode; 0 = fully paid).
   double lastAmountDue = 0;
+  /// The waiting payment of the last booking (live mode; null = nothing to pay).
+  String? lastPaymentId;
+  /// Pay-to accounts set up by Dars, by method: sham_cash, syriatel_cash, mtn_cash, bank ('' = not offered).
+  Map<String, String> payTo = const {};
+  /// My wallet top-ups (newest first).
+  final List<PaymentInfo> topUps = [];
 
   // ---------- tutor data ----------
   final List<Lesson> tutorLessons = DarsConfig.live ? <Lesson>[] : MockData.tutorLessons();
@@ -184,6 +193,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     } catch (e) {
       _error(e);
     }
+    checkAppVersion();
     try {
       await _loadTutors();
     } catch (_) {/* offline — retried on refresh */}
@@ -349,6 +359,84 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     transactions
       ..clear()
       ..addAll(tx.map(Backend.txFromRow));
+    if (role == UserRole.tutor) return;
+    try {
+      payTo = await _b.payToAccounts();
+      final rows = await _b.myTopUps();
+      topUps
+        ..clear()
+        ..addAll(rows.map(Backend.paymentFromRow));
+    } catch (_) {/* payments by transfer not set up on this server yet */}
+  }
+
+  // ---------- "please update" switch ----------
+  /// True when the admin requires a newer app build than this one (min_app_build setting).
+  bool updateRequired = false;
+
+  /// Checks min_app_build (on start and whenever the app comes back to the front).
+  /// Builds without a build number (older versions, local builds) are never blocked.
+  Future<void> checkAppVersion() async {
+    if (!live || DarsConfig.build <= 0) return;
+    try {
+      final v = await _b.setting('min_app_build');
+      final min = v is num ? v.toInt() : int.tryParse('${v ?? 0}') ?? 0;
+      final need = DarsConfig.build < min;
+      if (need != updateRequired) {
+        updateRequired = need;
+        notifyListeners();
+      }
+    } catch (_) {/* offline: check again next time */}
+  }
+
+  // ---------- paying by transfer (wallet top-up, or a booking) ----------
+  /// Payment method value for a pay-to key ('bank' → 'bank_transfer').
+  static String methodValue(String key) => key == 'bank' ? 'bank_transfer' : key;
+
+  /// Starts a wallet top-up; returns where to send the money (null if refused — the reason is shown).
+  Future<TransferInfo?> requestTopUp(double amount, String methodKey) async {
+    if (!live) {
+      say(_t('الشحن متاح في النسخة الحقيقية فقط.', 'Top-up works in the live app only.'));
+      return null;
+    }
+    try {
+      final r = await _b.rpc('request_top_up', {'p_amount': amount, 'p_method': methodValue(methodKey)}) as Map;
+      _loadWallet().then((_) => notifyListeners()).catchError((_) {});
+      return Backend.transferFromJson(r);
+    } catch (e) {
+      _error(e);
+      return null;
+    }
+  }
+
+  /// Transfer details for a payment that is waiting (a booking, or a top-up started earlier).
+  Future<TransferInfo?> transferFor(String paymentId, String methodKey) async {
+    try {
+      final r = await _b.rpc('transfer_instructions', {'p_payment': paymentId, 'p_method': methodValue(methodKey)}) as Map;
+      return Backend.transferFromJson(r);
+    } catch (e) {
+      _error(e);
+      return null;
+    }
+  }
+
+  /// Uploads the transfer screenshot and sends it for checking. True when it was received.
+  Future<bool> submitReceipt(TransferInfo info, Uint8List bytes, String fileName, String? mime) async {
+    if (bytes.length > 5 * 1024 * 1024) {
+      say(_t('الصورة كبيرة جداً (الحد 5 ميغابايت).', 'The picture is too big (5 MB max).'), bad: true);
+      return false;
+    }
+    final e0 = _ext(fileName, 'jpg');
+    final ext = const {'jpg', 'jpeg', 'png', 'webp', 'pdf'}.contains(e0) ? e0 : 'jpg';
+    final type = mime ?? (ext == 'pdf' ? 'application/pdf' : (ext == 'png' ? 'image/png' : (ext == 'webp' ? 'image/webp' : 'image/jpeg')));
+    try {
+      final stored = await _b.uploadReceipt(info.paymentId, bytes, ext, type);
+      await _b.rpc('submit_bank_receipt', {'p_payment': info.paymentId, 'p_receipt_url': stored, 'p_method': info.method});
+      await refresh();
+      return true;
+    } catch (e) {
+      _error(e);
+      return false;
+    }
   }
 
   Future<void> _loadNotifications() async {
@@ -457,7 +545,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         final unsent = <Message>[];
         final used = <int>{};
         for (final x in c.messages) {
-          if (!x.mine || x.remoteId != 0 || !x.sending) continue;
+          if (!x.mine || x.remoteId != 0 || !(x.sending || x.failed)) continue;
           final j = messages.indexWhere((s) =>
               s.mine && !used.contains(s.remoteId) && _sameMessage(x, s) && s.time.isAfter(x.time.subtract(const Duration(minutes: 2))));
           if (j >= 0) {
@@ -560,6 +648,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
           }
         },
         onLiveRequest: role == UserRole.tutor ? (_) => _loadLiveRequests().then((_) => notifyListeners()).catchError((_) {}) : null,
+        onMessageUpdate: _onRemoteMessageUpdate,
+        // (Re)connected: send anything that could not go out while offline.
+        onConnected: retryFailedMessages,
       );
     } catch (_) {}
     // Fallback in case realtime is not enabled on the project.
@@ -607,8 +698,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       // (Oldest unconfirmed match first: messages are posted in order, so they come back in order.)
       final i = c.messages.indexWhere((x) => x.mine && x.remoteId == 0 && _sameMessage(x, m));
       if (i >= 0) {
-        c.messages[i] = m.bytes == null && c.messages[i].bytes != null ? Message(
-            mine: m.mine, text: m.text, time: m.time, type: m.type, seconds: m.seconds, remoteId: m.remoteId, url: m.url, bytes: c.messages[i].bytes) : m;
+        c.messages[i] = m.withPreviewOf(c.messages[i]);
         notifyListeners();
         return;
       }
@@ -624,6 +714,20 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     }
     if (conversations.remove(c)) conversations.insert(0, c);
     notifyListeners();
+  }
+
+  /// A message changed on the server — the other person read it (double tick).
+  void _onRemoteMessageUpdate(Map<String, dynamic> r) {
+    final id = (r['id'] as num?)?.toInt() ?? 0;
+    if (id == 0) return;
+    for (final c in conversations) {
+      if (c.id != '${r['conversation_id']}') continue;
+      final i = c.messages.indexWhere((x) => x.remoteId == id);
+      if (i < 0) return;
+      c.messages[i] = Backend.messageFromRow(r, _b.uid).withPreviewOf(c.messages[i]);
+      notifyListeners();
+      return;
+    }
   }
 
   @override
@@ -928,12 +1032,6 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     return next;
   }
 
-  /// Marks a local message as delivered to the server (it keeps its place in the list).
-  void _markSent(Conversation c, Message m) {
-    final i = c.messages.indexOf(m);
-    if (i >= 0) c.messages[i] = m.copyWith(sending: false);
-  }
-
   /// Changes my name (and, for tutors, any part of the public profile).
   Future<bool> saveMyProfile({
     String? fullName,
@@ -1212,8 +1310,6 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     return up.isEmpty ? null : up.first;
   }
 
-  static const _methods = {'card': 'card', 'apple': 'apple_pay', 'bnpl': 'bnpl', 'bank': 'bank_transfer', 'mada': 'mada'};
-
   /// Books a single lesson or buys a package. Returns the new lesson (single) or null (package).
   /// Live mode throws a readable error if the server refuses (slot taken, tutor unavailable…).
   Future<Lesson?> book({
@@ -1227,10 +1323,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     required double balanceUsed,
     required L subject,
     String? subjectId,
-    String method = 'card',
+    String method = 'bank', // pay-to key of the transfer method (used when credit does not cover it)
+    String notes = '',
   }) async {
     if (live) {
-      final pm = _methods[method] ?? 'card';
+      final pm = methodValue(method);
       final Map res;
       if (isPackage) {
         res = await _b.rpc('buy_package', {'p_tutor': tutor.id, 'p_hours': hours, 'p_level': levelId, 'p_use_wallet': balanceUsed > 0, 'p_method': pm}) as Map;
@@ -1244,9 +1341,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
           'p_mode': online ? 'online' : 'in_person',
           'p_use_wallet': balanceUsed > 0,
           'p_method': pm,
+          if (notes.trim().isNotEmpty) 'p_notes': notes.trim(),
         }) as Map;
       }
       lastAmountDue = ((res['amount_due'] as num?) ?? 0).toDouble();
+      lastPaymentId = res['payment_id'] == null ? null : '${res['payment_id']}';
       await refresh();
       final id = res['lesson_id'];
       for (final l in lessons) {
@@ -1256,6 +1355,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     lastAmountDue = 0;
+    lastPaymentId = null;
     walletBalance -= balanceUsed;
     transactions.insert(
       0,
@@ -1317,14 +1417,33 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  void payPending(Lesson l) {
-    if (live) {
-      say(_t('حجزك محفوظ. يؤكد فريق درس الدفع فور استلامه (التحويل البنكي من لوحة الإدارة).', 'Your booking is held. The Dars team confirms the payment as soon as it is received.'));
-      refresh();
+  /// "Complete payment" on a booking that waits for payment: opens the transfer + receipt screens.
+  Future<void> payPending(Lesson l) async {
+    if (!live) {
+      l.status = LessonStatus.upcoming;
+      notifyListeners();
       return;
     }
-    l.status = LessonStatus.upcoming;
-    notifyListeners();
+    try {
+      final r = await _b.latestPaymentFor(l.id);
+      final p = r == null ? null : Backend.paymentFromRow(r);
+      if (p == null || p.status == 'paid') {
+        await refresh();
+        return;
+      }
+      if (p.status == 'under_review') {
+        say(_t('وصلنا إيصالك وهو قيد المراجعة. سيصلك إشعار عند التأكيد.', 'We have your receipt and are checking it. You will be notified once it is confirmed.'));
+        return;
+      }
+      if (p.status != 'pending') {
+        say(_t('انتهت مهلة الدفع لهذا الحجز. احجز موعداً جديداً.', 'The time to pay for this booking has passed. Please book again.'), bad: true);
+        await refresh();
+        return;
+      }
+      navigatorKey.currentState?.push(MaterialPageRoute<void>(builder: (_) => PayByTransferScreen(paymentId: p.id, amount: p.amount)));
+    } catch (e) {
+      _error(e);
+    }
   }
 
   void reschedule(Lesson l, DateTime when) {
@@ -1519,11 +1638,60 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         _ => 'text',
       };
       final text = m.type == MsgType.voice ? '🎤' : m.text;
-      await _b.sendMessage(id, text, kind: kind, seconds: m.seconds > 0 ? m.seconds : null, fileUrl: m.url);
-      _markSent(c, m);
+      final row = await _b.sendMessage(id, text, kind: kind, seconds: m.seconds > 0 ? m.seconds : null, fileUrl: m.url);
+      // Swap in the server's copy (id for read ticks, and whether the contact filter hid it).
+      final server = Backend.messageFromRow(row, _b.uid);
+      final i = c.messages.indexOf(m);
+      if (c.messages.any((x) => x.remoteId == server.remoteId)) {
+        if (i >= 0) c.messages.removeAt(i); // realtime already delivered it
+      } else if (i >= 0) {
+        c.messages[i] = server.withPreviewOf(m);
+      }
       notifyListeners();
     } catch (e) {
-      _error(e);
+      // Kept in the chat with a red "!" — tap to retry (also retried when the connection is back).
+      final i = c.messages.indexOf(m);
+      final failed = m.copyWith(sending: false, failed: true);
+      if (i >= 0) c.messages[i] = failed;
+      notifyListeners();
+      if (_permanentSendError(e)) {
+        _refused.add(failed); // retried only when the user taps it
+        _error(e);
+      }
+    }
+  }
+
+  /// Failed messages the server refused (not a connection problem): no automatic retry.
+  final Set<Message> _refused = Set.identity();
+
+  /// Errors that a retry cannot fix (the server refused the message itself).
+  static bool _permanentSendError(Object e) => e is PostgrestException && !(e.code ?? '').startsWith('PGRST3');
+
+  /// Tap on a failed message: send it again, in order with the rest of the chat.
+  void retryMessage(Conversation c, Message m) {
+    final i = c.messages.indexOf(m);
+    if (i < 0 || !m.failed) return;
+    _refused.remove(m);
+    final again = m.copyWith(sending: true, failed: false);
+    c.messages[i] = again;
+    notifyListeners();
+    _push(c, again);
+  }
+
+  bool _retrying = false;
+
+  /// Re-sends every failed message (app back in front, or realtime reconnected).
+  void retryFailedMessages() {
+    if (!live || _retrying) return;
+    _retrying = true;
+    try {
+      for (final c in conversations) {
+        for (final m in c.messages.where((x) => x.mine && x.failed && x.remoteId == 0 && !_refused.contains(x)).toList()) {
+          retryMessage(c, m);
+        }
+      }
+    } finally {
+      _retrying = false;
     }
   }
 
@@ -1546,6 +1714,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       ));
     } finally {
       _inCall = false;
+      Ringer.callEnded(); // the app stops showing over the lock screen
     }
   }
 
@@ -1640,7 +1809,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     final r = _ringRoute;
     _ringRoute = null;
     if (r != null && r.isActive) navigatorKey.currentState?.removeRoute(r);
-    if (accept && call != null) joinCall(room: call.room, video: call.video, peer: call.who);
+    if (accept && call != null) {
+      joinCall(room: call.room, video: call.video, peer: call.who);
+    } else {
+      Ringer.callEnded(); // declined / missed: lock-screen access ends here
+    }
   }
 
   /// Opened from the ringing notification ("Join" button / tap).
@@ -1811,19 +1984,34 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (live) _run(() => _b.rpc('report_student_no_show', {'p_lesson': l.id}));
   }
 
-  static const _payoutMethods = {'bank': 'bank_transfer', 'paypal': 'paypal', 'wu': 'western_union'};
+  static const _payoutMethods = {
+    'sham_cash': 'sham_cash',
+    'syriatel_cash': 'syriatel_cash',
+    'mtn_cash': 'mtn_cash',
+    'bank': 'bank_transfer',
+    'paypal': 'paypal',
+    'wu': 'western_union',
+  };
 
-  void requestPayout({String method = 'bank'}) {
-    if (live) {
-      final amount = tutorConfirmed;
-      _run(() => _b.rpc('request_payout', {
-            'p_amount': double.parse(amount.toStringAsFixed(2)),
-            'p_method': _payoutMethods[method] ?? 'bank_transfer',
-            'p_details': {'requested_from': 'app', 'name': name, 'phone': phone},
-          }));
-      return;
+  /// Asks Dars to send my earnings to the given account. True only when the server accepted it
+  /// (the server's reason is shown otherwise). Nothing changes on screen before the server answers.
+  Future<bool> requestPayout({required String method, required double amount, required String holderName, required String account}) async {
+    if (!live) {
+      tutorConfirmed = 0;
+      notifyListeners();
+      return true;
     }
-    tutorConfirmed = 0;
-    notifyListeners();
+    try {
+      await _b.rpc('request_payout', {
+        'p_amount': double.parse(amount.toStringAsFixed(2)),
+        'p_method': _payoutMethods[method] ?? 'bank_transfer',
+        'p_details': {'holder_name': holderName.trim(), 'account': account.trim()},
+      });
+      await refresh();
+      return true;
+    } catch (e) {
+      _error(e);
+      return false;
+    }
   }
 }

@@ -290,14 +290,66 @@ class Backend {
     }
   }
 
-  Future<void> sendMessage(String conversationId, String text, {String kind = 'text', int? seconds, String? fileUrl}) => db.from('messages').insert({
+  /// Posts a message and returns the server's copy (id, time, and whether the contact filter hid it).
+  Future<Map<String, dynamic>> sendMessage(String conversationId, String text, {String kind = 'text', int? seconds, String? fileUrl}) => db
+      .from('messages')
+      .insert({
         'conversation_id': conversationId,
         'sender_id': uid,
         'kind': kind,
         'body': text,
         if (seconds != null) 'duration_sec': seconds,
         if (fileUrl != null && fileUrl.isNotEmpty) 'file_url': fileUrl,
-      });
+      })
+      .select()
+      .single();
+
+  // ------------------------------------------------------------------ payments (transfer + receipt)
+  /// Pay-to accounts the owner has set up, by method ('' = not offered).
+  Future<Map<String, String>> payToAccounts() async {
+    final rows = await db.from('app_settings').select('key, value').like('key', 'pay_to_%');
+    final out = <String, String>{};
+    for (final r in rows) {
+      final v = r['value'];
+      final s = (v is String ? v : '${v ?? ''}').trim();
+      if (s.isNotEmpty) out['${r['key']}'.substring(7)] = s; // pay_to_sham_cash → sham_cash, pay_to_bank → bank
+    }
+    return out;
+  }
+
+  /// A setting everyone can read (e.g. min_app_build, top_up_min).
+  Future<dynamic> setting(String key) async => (await db.from('app_settings').select('value').eq('key', key).maybeSingle())?['value'];
+
+  Future<List<Map<String, dynamic>>> myTopUps() =>
+      db.from('payments').select().eq('user_id', uid!).eq('purpose', 'top_up').order('created_at', ascending: false).limit(30);
+
+  /// The latest payment of one of my lessons (null if none).
+  Future<Map<String, dynamic>?> latestPaymentFor(String lessonId) async {
+    final rows = await db.from('payments').select().eq('user_id', uid!).eq('lesson_id', lessonId).order('created_at', ascending: false).limit(1);
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  static PaymentInfo paymentFromRow(Map<String, dynamic> r) => PaymentInfo(
+        id: '${r['id']}',
+        amount: _num(r['amount']),
+        method: '${r['method'] ?? ''}',
+        status: '${r['status'] ?? ''}',
+        reference: (r['reference'] as String?) ?? '',
+        failReason: (r['fail_reason'] as String?) ?? '',
+        created: time(r['created_at']),
+      );
+
+  static TransferInfo transferFromJson(Map r) => TransferInfo(
+        paymentId: '${r['payment_id']}',
+        amount: _num(r['amount']),
+        method: '${r['method']}',
+        payTo: '${r['pay_to'] ?? ''}',
+        reference: '${r['reference'] ?? ''}',
+      );
+
+  /// Uploads a receipt as receipts/<me>/<payment id>.<ext> and returns the stored path.
+  Future<String> uploadReceipt(String paymentId, Uint8List bytes, String ext, String mime) =>
+      upload('receipts', '$paymentId.$ext', bytes, mime);
 
   // ------------------------------------------------------------------ files
   /// Uploads into "<my id>/<name>" of a storage bucket; returns "<bucket>/<path>".
@@ -365,16 +417,24 @@ class Backend {
   RealtimeChannel listen({
     required void Function(Map<String, dynamic>) onMessage,
     required void Function(Map<String, dynamic>) onNotification,
+    void Function(Map<String, dynamic>)? onMessageUpdate,
     void Function(Map<String, dynamic>)? onLiveRequest,
+    void Function()? onConnected,
   }) {
     var ch = db
         .channel('dars-${uid ?? 'anon'}')
         .onPostgresChanges(event: PostgresChangeEvent.insert, schema: 'public', table: 'messages', callback: (p) => onMessage(p.newRecord))
         .onPostgresChanges(event: PostgresChangeEvent.insert, schema: 'public', table: 'notifications', callback: (p) => onNotification(p.newRecord));
+    if (onMessageUpdate != null) {
+      // "read" ticks: the other person opened the chat.
+      ch = ch.onPostgresChanges(event: PostgresChangeEvent.update, schema: 'public', table: 'messages', callback: (p) => onMessageUpdate(p.newRecord));
+    }
     if (onLiveRequest != null) {
       ch = ch.onPostgresChanges(event: PostgresChangeEvent.insert, schema: 'public', table: 'live_requests', callback: (p) => onLiveRequest(p.newRecord));
     }
-    return ch.subscribe();
+    return ch.subscribe((status, error) {
+      if (status == RealtimeSubscribeStatus.subscribed) onConnected?.call();
+    });
   }
 
   Future<void> unlisten(RealtimeChannel ch) => db.removeChannel(ch);
@@ -495,6 +555,8 @@ class Backend {
       seconds: _int(r['duration_sec']),
       remoteId: _int(r['id']),
       url: url,
+      readAt: r['read_at'] == null ? null : time(r['read_at']),
+      blocked: r['blocked'] == true,
     );
   }
 

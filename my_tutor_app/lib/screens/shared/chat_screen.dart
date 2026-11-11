@@ -17,6 +17,7 @@ import '../../widgets/media.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../student/booking_screen.dart';
 import 'call_screen.dart';
+import 'chat_logic.dart';
 
 /// Chat with text, voice notes (tap to record), attachments, contact-info filter,
 /// safety banner, "Book a lesson" shortcut and in-app call.
@@ -34,11 +35,15 @@ class _ChatScreenState extends State<ChatScreen> {
   int _secs = 0;
   Timer? _timer;
   late final AppState _app;
+  int _firstUnreadId = 0; // where the "unread messages" line goes (fixed when the chat opens)
+  DateTime? _awaySince; // when I scrolled away from the newest message (null = at the bottom)
 
   @override
   void initState() {
     super.initState();
     _app = context.read<AppState>();
+    final c = widget.conversation;
+    _firstUnreadId = firstUnreadOf(c.messages, c.unread)?.remoteId ?? 0;
     _scroll.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _app.openConversation(widget.conversation);
@@ -49,6 +54,8 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     _app.closeConversation(widget.conversation);
     _timer?.cancel();
+    // Leaving the chat while recording: stop the microphone and drop the clip.
+    if (_recording) MediaBridge.cancelRecording();
     _ctrl.dispose();
     _scroll.dispose();
     super.dispose();
@@ -64,6 +71,19 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!_scroll.hasClients) return;
     final p = _scroll.position;
     if (p.pixels >= p.maxScrollExtent - 300) _app.loadOlder(widget.conversation);
+    final away = p.pixels > 240;
+    if (away && _awaySince == null) {
+      setState(() => _awaySince = DateTime.now());
+    } else if (!away && _awaySince != null) {
+      setState(() => _awaySince = null);
+    }
+  }
+
+  /// New messages from the other person since I scrolled away from the bottom.
+  int _newWhileAway(Conversation c) {
+    final since = _awaySince;
+    if (since == null) return 0;
+    return c.messages.where((m) => !m.mine && m.remoteId != 0 && m.time.isAfter(since)).length;
   }
 
   Future<void> _report(AppState app) async {
@@ -291,22 +311,50 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
           Expanded(
-            child: ListView.builder(
-              controller: _scroll,
-              reverse: true,
-              padding: const EdgeInsets.all(12),
-              itemCount: c.messages.length + (c.hasOlder ? 1 : 0),
-              itemBuilder: (_, i) {
-                if (i >= c.messages.length) {
-                  return const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.4))),
-                  );
-                }
-                final m = c.messages[c.messages.length - 1 - i];
-                return _Bubble(key: ValueKey(m.remoteId != 0 ? 'r${m.remoteId}' : identityHashCode(m)), m: m, color: c.color);
-              },
-            ),
+            child: Builder(builder: (_) {
+              // Rows oldest → newest; the list is reversed, so row 0 of the list is the newest.
+              final items = buildChatItems(c.messages, firstUnreadId: _firstUnreadId);
+              final away = _newWhileAway(c);
+              return Stack(children: [
+                ListView.builder(
+                  controller: _scroll,
+                  reverse: true,
+                  padding: const EdgeInsets.all(12),
+                  itemCount: items.length + (c.hasOlder ? 1 : 0),
+                  itemBuilder: (_, i) {
+                    if (i >= items.length) {
+                      return const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.4))),
+                      );
+                    }
+                    final it = items[items.length - 1 - i];
+                    final day = it.day;
+                    if (day != null) return _DayHeader(key: ValueKey('d${day.year}-${day.month}-${day.day}'), day: day);
+                    if (it.unreadLine) return const _UnreadLine(key: ValueKey('unread'));
+                    final m = it.message!;
+                    return _Bubble(
+                      key: ValueKey(m.remoteId != 0 ? 'r${m.remoteId}' : identityHashCode(m)),
+                      m: m,
+                      color: c.color,
+                      onRetry: m.failed ? () => app.retryMessage(c, m) : null,
+                    );
+                  },
+                ),
+                if (_awaySince != null)
+                  PositionedDirectional(
+                    end: 14,
+                    bottom: 12,
+                    child: _JumpToNewest(
+                      count: away,
+                      onTap: () {
+                        setState(() => _awaySince = null);
+                        _toBottom();
+                      },
+                    ),
+                  ),
+              ]);
+            }),
           ),
           SafeArea(
             top: false,
@@ -379,7 +427,8 @@ class _ChatScreenState extends State<ChatScreen> {
 class _Bubble extends StatelessWidget {
   final Message m;
   final Color color;
-  const _Bubble({super.key, required this.m, required this.color});
+  final VoidCallback? onRetry; // set for a failed message of mine
+  const _Bubble({super.key, required this.m, required this.color, this.onRetry});
 
   @override
   Widget build(BuildContext context) {
@@ -400,14 +449,24 @@ class _Bubble extends StatelessWidget {
         content = VoiceNote(m: m);
         break;
       case MsgType.image:
-        return Align(
-          alignment: m.mine ? AlignmentDirectional.centerEnd : AlignmentDirectional.centerStart,
-          child: Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: ChatImage(m: m)),
-        );
       case MsgType.video:
-        return Align(
-          alignment: m.mine ? AlignmentDirectional.centerEnd : AlignmentDirectional.centerStart,
-          child: Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: ChatVideo(m: m)),
+        return _withStatus(
+          context,
+          Align(
+            alignment: m.mine ? AlignmentDirectional.centerEnd : AlignmentDirectional.centerStart,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Column(
+                crossAxisAlignment: m.mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  m.type == MsgType.image ? ChatImage(m: m) : ChatVideo(m: m),
+                  const SizedBox(height: 2),
+                  _Footer(m: m, color: AppColors.text3),
+                ],
+              ),
+            ),
+          ),
         );
       case MsgType.call:
         final inv = Calls.parse(m.text);
@@ -453,7 +512,7 @@ class _Bubble extends StatelessWidget {
         final meetLink = Calls.fromUrl(m.text);
         final url = meetLink == null ? RegExp(r'https?://[^\s]+').firstMatch(m.text)?.group(0) : null;
         content = Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-          SelectableText(m.text, style: TextStyle(color: fg, height: 1.5)),
+          SelectableText(m.text, textDirection: directionOf(m.text), style: TextStyle(color: fg, height: 1.5)),
           if (meetLink != null) ...[
             const SizedBox(height: 8),
             _JoinButton(mine: m.mine, label: context.tr('join_meeting'), onTap: () => _join(context, meetLink.room, meetLink.video)),
@@ -470,7 +529,7 @@ class _Bubble extends StatelessWidget {
         ]);
     }
 
-    return Align(
+    return _withStatus(context, Align(
       alignment: m.mine ? AlignmentDirectional.centerEnd : AlignmentDirectional.centerStart,
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75 > 520 ? 520.0 : MediaQuery.of(context).size.width * 0.75),
@@ -490,12 +549,130 @@ class _Bubble extends StatelessWidget {
           child: Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
             content,
             const SizedBox(height: 2),
-            Text(timeOf(context, m.time), style: TextStyle(color: fg.withOpacity(0.65), fontSize: 10.5)),
+            _Footer(m: m, color: fg.withOpacity(0.7)),
           ]),
         ),
       ),
-    );
+    ));
   }
+
+  /// Adds "tap to retry" for a failed message and the notice under a message the filter hid.
+  Widget _withStatus(BuildContext context, Widget bubble) {
+    final tick = tickFor(m);
+    if (tick != Tick.failed && tick != Tick.hidden) return bubble;
+    final ar = context.isAr;
+    final failed = tick == Tick.failed;
+    final note = failed
+        ? (ar ? 'لم تُرسل · اضغط لإعادة المحاولة' : 'Not sent · Tap to retry')
+        : (ar ? 'لم تُرسل: لا يمكن مشاركة أرقام الهاتف أو وسائل التواصل في درس' : "Not delivered: phone numbers and contact links can't be shared on Dars");
+    final body = Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
+      Opacity(opacity: failed ? 1 : 0.55, child: bubble),
+      Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Align(
+          alignment: AlignmentDirectional.centerEnd,
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(failed ? Icons.error_rounded : Icons.block_rounded, size: 15, color: AppColors.danger),
+            const SizedBox(width: 4),
+            Flexible(child: Text(note, style: const TextStyle(color: AppColors.danger, fontSize: 12, fontWeight: FontWeight.w600))),
+          ]),
+        ),
+      ),
+    ]);
+    return failed && onRetry != null ? InkWell(onTap: onRetry, borderRadius: BorderRadius.circular(18), child: body) : body;
+  }
+}
+
+/// Time + status mark under a message: clock (sending), ✓ (sent), ✓✓ (read), ! (failed).
+class _Footer extends StatelessWidget {
+  final Message m;
+  final Color color;
+  const _Footer({required this.m, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final tick = tickFor(m);
+    final IconData? icon = switch (tick) {
+      Tick.sending => Icons.schedule_rounded,
+      Tick.sent => Icons.done_rounded,
+      Tick.read => Icons.done_all_rounded,
+      Tick.failed => Icons.error_rounded,
+      Tick.hidden => Icons.block_rounded,
+      Tick.none => null,
+    };
+    final iconColor = tick == Tick.read
+        ? (m.mine && m.type != MsgType.image && m.type != MsgType.video ? const Color(0xFFB9F3E8) : AppColors.info)
+        : (tick == Tick.failed || tick == Tick.hidden ? AppColors.danger : color);
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Text(timeOf(context, m.time), style: TextStyle(color: color, fontSize: 10.5)),
+      if (icon != null) ...[
+        const SizedBox(width: 3),
+        Icon(icon, key: ValueKey('tick-${tick.name}'), size: 14, color: iconColor),
+      ],
+    ]);
+  }
+}
+
+/// "Today" / "Yesterday" / a date, between messages of different days.
+class _DayHeader extends StatelessWidget {
+  final DateTime day;
+  const _DayHeader({super.key, required this.day});
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.line)),
+          child: Text(dayLabel(day, ar: context.isAr), style: const TextStyle(color: AppColors.text2, fontSize: 12, fontWeight: FontWeight.w700)),
+        ),
+      );
+}
+
+/// Marks where the messages I had not read yet start.
+class _UnreadLine extends StatelessWidget {
+  const _UnreadLine({super.key});
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(children: [
+          const Expanded(child: Divider(color: AppColors.accent)),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Text(context.isAr ? 'رسائل غير مقروءة' : 'Unread messages', style: const TextStyle(color: Color(0xFFB7791F), fontSize: 12, fontWeight: FontWeight.w800)),
+          ),
+          const Expanded(child: Divider(color: AppColors.accent)),
+        ]),
+      );
+}
+
+/// Floating "jump to newest" button, with how many new messages arrived meanwhile.
+class _JumpToNewest extends StatelessWidget {
+  final int count;
+  final VoidCallback onTap;
+  const _JumpToNewest({required this.count, required this.onTap});
+  @override
+  Widget build(BuildContext context) => Stack(clipBehavior: Clip.none, children: [
+        Material(
+          color: Colors.white,
+          shape: const CircleBorder(side: BorderSide(color: AppColors.line)),
+          elevation: 3,
+          child: IconButton(
+            tooltip: context.isAr ? 'إلى أحدث رسالة' : 'Jump to newest',
+            onPressed: onTap,
+            icon: const Icon(Icons.keyboard_double_arrow_down_rounded, color: AppColors.primary),
+          ),
+        ),
+        if (count > 0)
+          PositionedDirectional(
+            top: -4,
+            end: -4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(10)),
+              child: Text(count > 99 ? '99+' : '$count', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800)),
+            ),
+          ),
+      ]);
 }
 
 void _join(BuildContext context, String room, bool video) {

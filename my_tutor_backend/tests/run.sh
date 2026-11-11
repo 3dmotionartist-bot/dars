@@ -11,3 +11,4 @@ for f in "$HERE"/supabase/migrations/*.sql "$HERE/supabase/seed.sql"; do psql -q
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/flows.sql"
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/week_fixes.sql"
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/retest_fixes.sql"
+psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/week2.sql"

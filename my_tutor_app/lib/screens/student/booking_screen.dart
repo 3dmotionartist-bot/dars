@@ -9,6 +9,7 @@ import '../../state/app_state.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../shared/chat_screen.dart';
+import '../shared/transfer_screens.dart';
 
 /// Booking wizard: type (single / package) → time → summary → payment → success.
 class BookingScreen extends StatefulWidget {
@@ -29,7 +30,7 @@ class _BookingScreenState extends State<BookingScreen> {
   TutorSchedule? _schedule; // the tutor's working hours + booked times (null while loading)
   bool _online = true;
   bool _useBalance = true;
-  String _method = 'card';
+  String? _method; // transfer method (pay-to key) when credit does not cover the booking
   bool _terms = true;
   bool _processing = false;
   final _notes = TextEditingController();
@@ -130,9 +131,12 @@ class _BookingScreenState extends State<BookingScreen> {
     final balanceUsed = _useBalance ? (app.walletBalance < subtotal ? app.walletBalance : subtotal) : 0.0;
     final total = subtotal - balanceUsed;
 
+    final methods = transferMethodKeys.where((k) => (app.payTo[k] ?? '').isNotEmpty).toList();
+    final ar = context.isAr;
+    final dueNow = double.parse(total.toStringAsFixed(2));
     bool canNext = true;
     if (_current == 'step_time') canNext = _slot != null;
-    if (_current == 'step_pay') canNext = _terms && !_processing;
+    if (_current == 'step_pay') canNext = _terms && !_processing && (dueNow <= 0 || methods.isEmpty || !app.live || _method != null);
 
     Widget body;
     switch (_current) {
@@ -340,37 +344,66 @@ class _BookingScreenState extends State<BookingScreen> {
 
       default: // step_pay
         body = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _label(context.tr('pay_method')),
-          ChoiceTile(title: context.tr('pm_card'), subtitle: context.tr('pm_card_d'), icon: Icons.credit_card_rounded, color: AppColors.info, selected: _method == 'card', onTap: () => setState(() => _method = 'card')),
-          const SizedBox(height: 8),
-          ChoiceTile(title: context.tr('pm_apple'), icon: Icons.phone_iphone_rounded, color: AppColors.ink, selected: _method == 'apple', onTap: () => setState(() => _method = 'apple')),
-          const SizedBox(height: 8),
-          ChoiceTile(title: context.tr('pm_bnpl'), subtitle: context.tr('pm_bnpl_d'), icon: Icons.splitscreen_rounded, color: AppColors.lavenderInk, selected: _method == 'bnpl', onTap: () => setState(() => _method = 'bnpl')),
-          const SizedBox(height: 8),
-          ChoiceTile(title: context.tr('pm_bank'), subtitle: context.tr('pm_bank_d'), icon: Icons.account_balance_rounded, color: AppColors.primary, selected: _method == 'bank', onTap: () => setState(() => _method = 'bank')),
-          if (app.live) ...[
-            const SizedBox(height: 14),
+          if (dueNow <= 0)
             AppCard(
-              color: AppColors.infoSoft,
-              borderColor: AppColors.infoSoft,
+              color: AppColors.successSoft,
+              borderColor: AppColors.successSoft,
               child: Row(children: [
-                const Icon(Icons.info_outline_rounded, color: AppColors.info),
+                const Icon(Icons.verified_rounded, color: AppColors.success),
                 const SizedBox(width: 10),
-                Expanded(child: Text(context.tr(_method == 'bank' ? 'pay_note_bank' : 'pay_note_live'), style: const TextStyle(fontSize: 13.5, height: 1.5))),
+                Expanded(
+                  child: Text(ar ? 'سيُدفع الحجز كاملاً من رصيدك ويتأكد فوراً.' : 'Paid in full from your credit — confirmed right away.',
+                      style: const TextStyle(fontWeight: FontWeight.w700)),
+                ),
+              ]),
+            )
+          else ...[
+            AppCard(
+              color: AppColors.accentSoft,
+              borderColor: AppColors.accentSoft,
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(
+                  balanceUsed > 0
+                      ? (ar ? 'رصيدك يغطي ${money(_r2(balanceUsed))}. المتبقي ${money(dueNow)}.' : 'Your credit covers ${money(_r2(balanceUsed))}. ${money(dueNow)} is still due.')
+                      : (ar ? 'المبلغ المطلوب ${money(dueNow)}.' : '${money(dueNow)} to pay.'),
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 6),
+                Text(ar ? 'اشحن رصيدك ثم احجز، فيتأكد الحجز فوراً.' : 'Add credit, then book — the booking is confirmed right away.',
+                    style: const TextStyle(color: AppColors.text2, fontSize: 13.5)),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40)),
+                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TopUpScreen(suggested: dueNow))),
+                  icon: const Icon(Icons.add_rounded),
+                  label: Text(ar ? 'شحن الرصيد' : 'Add credit'),
+                ),
               ]),
             ),
-          ],
-          if (_method == 'card' && !app.live) ...[
-            const SizedBox(height: 16),
-            TextField(keyboardType: TextInputType.number, decoration: InputDecoration(hintText: context.tr('card_number'), prefixIcon: const Icon(Icons.credit_card_rounded))),
-            const SizedBox(height: 10),
-            Row(children: [
-              Expanded(child: TextField(keyboardType: TextInputType.datetime, decoration: InputDecoration(hintText: context.tr('card_expiry')))),
-              const SizedBox(width: 10),
-              Expanded(child: TextField(keyboardType: TextInputType.number, obscureText: true, decoration: InputDecoration(hintText: context.tr('card_cvv')))),
-            ]),
-            const SizedBox(height: 10),
-            TextField(decoration: InputDecoration(hintText: context.tr('card_name'))),
+            const SizedBox(height: 18),
+            _label(ar ? 'أو ادفع هذا الحجز بالتحويل' : 'Or pay this booking by transfer'),
+            if (methods.isNotEmpty)
+              TransferMethodTiles(accounts: app.payTo, selected: _method, onSelect: (k) => setState(() => _method = k))
+            else
+              AppCard(
+                color: AppColors.infoSoft,
+                borderColor: AppColors.infoSoft,
+                child: Text(
+                  ar
+                      ? 'الدفع بالتحويل قيد التجهيز. سيُحجز موعدك ٤٨ ساعة ويتواصل معك فريق درس لإتمام الدفع.'
+                      : 'Paying by transfer is being set up. Your time is held for 48 hours and the Dars team will contact you to complete payment.',
+                  style: const TextStyle(fontSize: 13.5, height: 1.5),
+                ),
+              ),
+            if (methods.isNotEmpty && app.live) ...[
+              const SizedBox(height: 6),
+              Text(
+                ar
+                    ? 'بعد الحجز ستظهر لك بيانات الحساب ورقم مرجع، ثم ترفع صورة الإيصال. يُحجز موعدك ٤٨ ساعة.'
+                    : 'After booking you will see the account and a reference, then upload the receipt. Your time is held for 48 hours.',
+                style: const TextStyle(color: AppColors.text2, fontSize: 13, height: 1.5),
+              ),
+            ],
           ],
           const SizedBox(height: 10),
           CheckboxListTile(
@@ -381,11 +414,6 @@ class _BookingScreenState extends State<BookingScreen> {
             onChanged: (v) => setState(() => _terms = v ?? false),
             title: Text(context.tr('accept_terms'), style: const TextStyle(fontSize: 14)),
           ),
-          Row(children: [
-            const Icon(Icons.lock_rounded, size: 16, color: AppColors.text3),
-            const SizedBox(width: 6),
-            Text('SSL · PCI-DSS', style: TextStyle(color: AppColors.text3.withOpacity(0.9), fontSize: 12)),
-          ]),
         ]);
     }
 
@@ -461,7 +489,8 @@ class _BookingScreenState extends State<BookingScreen> {
                               balanceUsed: balanceUsed,
                               subject: MockData.subject(t.subjectIds.first).name,
                               subjectId: t.subjectIds.first,
-                              method: _method,
+                              method: _method ?? 'bank',
+                              notes: _notes.text,
                             );
                           } catch (e) {
                             if (mounted) setState(() => _processing = false);
@@ -469,6 +498,17 @@ class _BookingScreenState extends State<BookingScreen> {
                             return;
                           }
                           if (!mounted) return;
+                          // Something left to pay by transfer: go straight to the account, reference and receipt screen.
+                          final payId = app.lastPaymentId;
+                          final m = _method;
+                          if (app.live && app.lastAmountDue > 0 && payId != null && m != null) {
+                            final info = await app.transferFor(payId, m);
+                            if (!mounted) return;
+                            if (info != null) {
+                              Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => TransferScreen(info: info)));
+                              return;
+                            }
+                          }
                           Navigator.pushReplacement(
                             context,
                             MaterialPageRoute(builder: (_) => BookingSuccessScreen(tutor: t, isPackage: _package, awaitingPayment: app.lastAmountDue > 0)),
@@ -480,7 +520,9 @@ class _BookingScreenState extends State<BookingScreen> {
                           const SizedBox(width: 10),
                           Text(context.tr('paying')),
                         ])
-                      : Text(_current == 'step_pay' ? context.tr('pay_now') : context.tr('next')),
+                      : Text(_current != 'step_pay'
+                          ? context.tr('next')
+                          : (dueNow <= 0 || !app.live ? (ar ? 'تأكيد الحجز' : 'Confirm booking') : (ar ? 'احجز وادفع بالتحويل' : 'Book & pay by transfer'))),
                 ),
               ),
             ]),

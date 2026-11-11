@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:supabase/supabase.dart' show RealtimeChannel, RealtimeSubscribeStatus;
@@ -992,6 +992,7 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
                   ]),
                 ),
               ),
+            if (kDebugMode || widget.testMode)
             Positioned(
               left: 12,
               right: 12,

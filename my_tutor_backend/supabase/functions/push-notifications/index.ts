@@ -5,8 +5,10 @@
 //   1. Firebase console → Project settings → Service accounts → Generate new private key (JSON).
 //   2. supabase secrets set FCM_SERVICE_ACCOUNT="$(cat service-account.json)"
 //   3. supabase functions deploy push-notifications
-//   4. Supabase dashboard → Database → Webhooks → new webhook on table `notifications`, event INSERT,
-//      type "Supabase Edge Functions" → push-notifications.
+//   4. Pick a long random secret: supabase secrets set DARS_HOOK_SECRET="<random text>"
+//   5. Supabase dashboard → Database → Webhooks → new webhook on table `notifications`, event INSERT,
+//      type "Supabase Edge Functions" → push-notifications, and add the HTTP header
+//      x-dars-hook: <the same random text>. Requests without it are refused (401).
 // The app saves the device token in profiles.fcm_token after sign-in.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
@@ -41,7 +43,21 @@ async function googleAccessToken(): Promise<string> {
   return cached.token;
 }
 
+const hookSecret = Deno.env.get("DARS_HOOK_SECRET") ?? "";
+
+// Constant-time comparison, so the secret cannot be guessed from response times.
+function sameSecret(a: string, b: string): boolean {
+  const x = new TextEncoder().encode(a), y = new TextEncoder().encode(b);
+  let diff = x.length ^ y.length;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] ?? 0) ^ (y[i] ?? 0);
+  return diff === 0;
+}
+
 Deno.serve(async (req) => {
+  // Only the database webhook may call this (anyone with the public app key could otherwise send fake notifications).
+  if (!hookSecret || !sameSecret(req.headers.get("x-dars-hook") ?? "", hookSecret)) {
+    return new Response("Unauthorized", { status: 401 });
+  }
   const payload = await req.json();                       // Database webhook: { type, table, record, ... }
   const n = payload.record;
   if (!n?.user_id) return new Response("No record", { status: 400 });
