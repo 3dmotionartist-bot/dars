@@ -172,6 +172,7 @@ class Message {
   final bool failed; // could not reach the server (tap to retry)
   final DateTime? readAt; // when the other person read it (my messages)
   final bool blocked; // hidden by the contact filter (only the sender sees it)
+  final String? clientId; // made once per message, sent on every attempt (no duplicates on retry)
   const Message({
     required this.mine,
     required this.text,
@@ -185,9 +186,10 @@ class Message {
     this.failed = false,
     this.readAt,
     this.blocked = false,
+    this.clientId,
   });
 
-  Message copyWith({bool? sending, bool? failed, String? text, String? url, DateTime? readAt}) => Message(
+  Message copyWith({bool? sending, bool? failed, String? text, String? url, DateTime? readAt, String? clientId}) => Message(
         mine: mine,
         text: text ?? this.text,
         time: time,
@@ -200,6 +202,7 @@ class Message {
         failed: failed ?? this.failed,
         readAt: readAt ?? this.readAt,
         blocked: blocked,
+        clientId: clientId ?? this.clientId,
       );
 
   /// The server's copy of this message, keeping the local photo preview.
@@ -207,7 +210,7 @@ class Message {
       ? this
       : Message(
           mine: mine, text: text, time: time, type: type, seconds: seconds, remoteId: remoteId, url: url,
-          bytes: local.bytes, readAt: readAt, blocked: blocked);
+          bytes: local.bytes, readAt: readAt, blocked: blocked, clientId: clientId);
 }
 
 class Conversation {

@@ -31,6 +31,8 @@
       pending_payment: "بانتظار الدفع", confirmed: "مؤكد", delivered: "تم", cancelled: "ملغى", disputed: "اعتراض", no_show: "لم يحضر",
       refund: "استرداد للطالب", release: "تحرير للمدرس", refund_note: "ملاحظة الاسترداد", release_note: "ملاحظة (تُغلق البلاغ)",
       method: "الطريقة", card: "بطاقة", mada: "مدى", apple_pay: "Apple Pay", bnpl: "تقسيط", bank_transfer: "تحويل بنكي", wallet: "رصيد", sham_cash: "شام كاش", syriatel_cash: "سيريتل كاش", mtn_cash: "MTN كاش",
+      check_wallet: "تحقق من رقم المرجع والمبلغ داخل تطبيق المحفظة قبل التأكيد. يمكن تعديل لقطات الشاشة.", confirmed_amount: "المبلغ الذي وصل فعلاً",
+      overdue_review: "ينتظر أكثر من ٧٢ ساعة — الموعد محجوز", asked_for: "طلب",
       purpose: "النوع", p_booking: "حجز", p_top_up: "شحن رصيد", reference: "المرجع", fail_reason: "سبب الرفض (يراه المستخدم)",
       s_top_up_min: "أقل مبلغ شحن", s_top_up_max: "أعلى مبلغ شحن", s_pay_sham: "حساب الاستلام — شام كاش", s_pay_syriatel: "حساب الاستلام — سيريتل كاش",
       s_pay_mtn: "حساب الاستلام — MTN كاش", s_pay_bank: "حساب الاستلام — البنك (IBAN)", s_pay_h: "اتركه فارغاً لإخفاء هذه الطريقة من التطبيق",
@@ -93,6 +95,8 @@
       pending_payment: "Awaiting payment", confirmed: "Confirmed", delivered: "Delivered", cancelled: "Cancelled", disputed: "Disputed", no_show: "No-show",
       refund: "Refund student", release: "Release to tutor", refund_note: "Refund note", release_note: "Note (closes the report)",
       method: "Method", card: "Card", mada: "Mada", apple_pay: "Apple Pay", bnpl: "Instalments", bank_transfer: "Bank transfer", wallet: "Wallet", sham_cash: "Sham Cash", syriatel_cash: "Syriatel Cash", mtn_cash: "MTN Cash",
+      check_wallet: "Check this reference and amount inside the wallet app before confirming. Screenshots can be edited.", confirmed_amount: "Amount that actually arrived",
+      overdue_review: "Waiting more than 72 h — the tutor's time is held", asked_for: "asked",
       purpose: "Type", p_booking: "Booking", p_top_up: "Credit top-up", reference: "Reference", fail_reason: "Reason (the user sees it)",
       s_top_up_min: "Minimum top-up", s_top_up_max: "Maximum top-up", s_pay_sham: "Pay-to account — Sham Cash", s_pay_syriatel: "Pay-to account — Syriatel Cash",
       s_pay_mtn: "Pay-to account — MTN Cash", s_pay_bank: "Pay-to account — Bank (IBAN)", s_pay_h: "Leave empty to hide this method in the app",
@@ -250,8 +254,9 @@
         DB.reports.filter((r) => r.target_id === id && r.status === "open").forEach((r) => { r.status = "dismissed"; r.resolution_note = note; });
         return wait();
       },
-      async confirmPayment(id) {
+      async confirmPayment(id, amount) {
         const p = find("payments", id); p.status = "paid"; p.paid_at = new Date().toISOString();
+        if (amount != null && p.purpose === "top_up" && amount !== p.amount) { p.requested_amount = p.amount; p.amount = amount; }
         const l = find("lessons", p.lesson_id); if (l && l.status === "pending_payment") l.status = "confirmed";
         return wait();
       },
@@ -312,7 +317,7 @@
       setPassword: (id, password) => rpc("admin_set_user_password", { p_user: id, p_password: password }),
       refundLesson: (id, note) => rpc("admin_refund_lesson", { p_lesson: id, p_note: note || null }),
       releaseLesson: (id, note) => rpc("admin_release_lesson", { p_lesson: id, p_note: note || null }),
-      confirmPayment: (id) => rpc("confirm_payment", { p_payment: id, p_provider: "manual", p_ref: null }),
+      confirmPayment: (id, amount) => rpc("confirm_payment", { p_payment: id, p_provider: "manual", p_ref: null, ...(amount != null ? { p_amount: amount } : {}) }),
       failPayment: (id, reason) => rpc("fail_payment", { p_payment: id, p_ref: null, p_reason: reason || null }),
       processPayout: (id, status, note) => rpc("admin_process_payout", { p_payout: id, p_status: status, p_note: note || null }),
       setReviewStatus: (id, status) => rpc("admin_set_review_status", { p_review: id, p_status: status }),
@@ -525,14 +530,17 @@
     const rows = S.data.payments || [];
     const keys = ["under_review", "pending", "paid", "failed", "refunded"];
     const tab = S.tab.payments ?? "under_review", q = S.q.payments || "";
-    const list = rows.filter((r) => (tab === "all" || r.status === tab) && match(r, q, ["user_name", "provider_ref", "lesson_number", "reference"]));
+    const alertH = Number((S.data.settings || {}).review_alert_hours) || 72;
+    const overdue = (r) => r.status === "under_review" && r.purpose !== "top_up" && Date.now() - new Date(r.receipt_at || r.created_at).getTime() > alertH * 3600e3;
+    const list = rows.filter((r) => (tab === "all" || r.status === tab) && match(r, q, ["user_name", "provider_ref", "lesson_number", "reference"]))
+      .sort((a, b) => overdue(b) - overdue(a));
     return `<section class="panel"><div class="panel-head">${tabsBar("payments", [...keys, "all"], countBy(rows, "status", keys))}<span style="flex:1"></span>${searchBox("payments")}</div>
       ${table([{ label: t("time") }, { label: t("name") }, { label: t("purpose") }, { label: t("method") }, { label: t("amount") }, { label: t("status") }, { label: "" }],
-        list.slice(0, 300).map((r) => `<tr class="${r.status === "under_review" ? "row-alert" : ""}">
+        list.slice(0, 300).map((r) => `<tr class="${r.status === "under_review" ? "row-alert" : ""}"${overdue(r) ? ' style="outline:2px solid var(--bad);outline-offset:-2px"' : ""}>
           <td>${fmtDateTime(r.created_at)}</td><td>${person(r.user_name, r.user_phone || "")}</td>
           <td><span class="pill">${t(r.purpose === "top_up" ? "p_top_up" : "p_booking")}</span>${r.lesson_number ? ` <span class="muted">#${esc(r.lesson_number)}</span>` : ""}${r.reference ? `<div class="mono small" style="direction:ltr;unicode-bidi:plaintext">${esc(r.reference)}</div>` : ""}</td>
-          <td>${t(r.method)}</td><td class="num"><b>${money(r.amount)}</b></td>
-          <td>${pill(r.status)}${r.fail_reason ? `<div class="small muted">${esc(r.fail_reason)}</div>` : ""}</td>
+          <td>${t(r.method)}</td><td class="num"><b>${money(r.amount)}</b>${r.requested_amount ? `<div class="small muted">${t("asked_for")} ${money(r.requested_amount)}</div>` : ""}</td>
+          <td>${pill(r.status)}${overdue(r) ? `<div class="pill bad" style="margin-top:4px">${t("overdue_review")}</div>` : ""}${r.fail_reason ? `<div class="small muted">${esc(r.fail_reason)}</div>` : ""}</td>
           <td class="actions">${r.receipt_url ? `<button class="btn" data-act="receipt" data-path="${esc(r.receipt_url)}">${t("view_receipt")}</button>` : ""}${["under_review", "pending"].includes(r.status) ? `<button class="btn good" data-act="pay-ok" data-id="${esc(r.id)}">${t("confirm_payment")}</button><button class="btn bad" data-act="pay-fail" data-id="${esc(r.id)}">${t("fail_payment")}</button>` : ""}</td>
         </tr>`))}</section>`;
   }
@@ -862,10 +870,11 @@
     const d = S.dialog;
     return `<div class="scrim" data-act="dialog-cancel"></div><form class="dialog" id="dialog-form" role="dialog" aria-modal="true">
       <h3>${esc(d.title)}</h3>
-      ${d.amount ? `<label class="field"><span>${t("adjust_amount")}</span><input class="input" id="dlg-amount" type="number" step="0.01" required></label>` : ""}
-      <label class="field"><span>${esc(d.label)}</span>${d.pw
+      ${d.info || ""}
+      ${d.amount ? `<label class="field"><span>${esc(d.amountLabel || t("adjust_amount"))}</span><input class="input" id="dlg-amount" type="number" step="0.01" required${d.amountValue != null ? ` value="${esc(d.amountValue)}"` : ""}></label>` : ""}
+      ${d.noText ? "" : `<label class="field"><span>${esc(d.label)}</span>${d.pw
         ? `<input class="input" id="dlg-text" type="text" minlength="6" required autocomplete="new-password" dir="ltr" spellcheck="false">`
-        : `<textarea class="input" id="dlg-text" rows="3" ${d.required ? "required" : ""}></textarea>`}${d.hint ? `<small class="muted">${esc(d.hint)}</small>` : ""}</label>
+        : `<textarea class="input" id="dlg-text" rows="3" ${d.required ? "required" : ""}></textarea>`}${d.hint ? `<small class="muted">${esc(d.hint)}</small>` : ""}</label>`}
       <div class="row" style="justify-content:flex-end"><button class="btn" type="button" data-act="dialog-cancel">${t("cancel")}</button><button class="btn ${d.danger ? "bad" : "primary"}" type="submit">${esc(d.confirm)}</button></div>
     </form>`;
   }
@@ -933,7 +942,20 @@
       case "adjust": ask({ title: t("adjust"), label: t("adjust_note"), hint: t("wallet_hint"), confirm: t("save"), amount: true, required: true, run: (v, amt) => act(() => api.walletAdjust(id, amt, v), ["students"]) }); break;
       case "refund": ask({ title: t("refund"), label: t("refund_note"), confirm: t("refund"), danger: true, run: (v) => act(() => api.refundLesson(id, v), ["lessons", "reports", "payments"]) }); break;
       case "release": ask({ title: t("release"), label: t("release_note"), confirm: t("release"), run: (v) => act(() => api.releaseLesson(id, v), ["lessons", "reports"]) }); break;
-      case "pay-ok": act(() => api.confirmPayment(id), ["payments", "lessons"]); break;
+      case "pay-ok": {
+        const r = (S.data.payments || []).find((x) => x.id === id) || {};
+        const topUp = r.purpose === "top_up";
+        ask({
+          title: t("confirm_payment"), confirm: t("confirm_payment"), noText: true,
+          info: `<div style="text-align:center;padding:8px 0"><div class="mono" style="font-size:28px;font-weight:800;letter-spacing:2px;direction:ltr">${esc(r.reference || "—")}</div>
+            <div style="font-size:30px;font-weight:800;margin-top:4px">${money(r.amount)}</div>
+            <div class="small muted">${esc(r.user_name || "")} · ${t(r.method || "")}</div></div>
+            <div class="pill bad" style="white-space:normal;line-height:1.5;padding:8px 10px">${t("check_wallet")}</div>`,
+          amount: topUp, amountLabel: t("confirmed_amount"), amountValue: r.amount,
+          run: (v, amt) => act(() => api.confirmPayment(id, topUp && amt != null && amt !== Number(r.amount) ? amt : undefined), ["payments", "lessons"]),
+        });
+        break;
+      }
       case "pay-fail": ask({ title: t("fail_payment"), label: t("fail_reason"), confirm: t("fail_payment"), danger: true, required: true, run: (v) => act(() => api.failPayment(id, v), ["payments", "lessons"]) }); break;
       case "payout": {
         const st = el.dataset.status;
@@ -978,7 +1000,7 @@
     e.preventDefault();
     const f = e.target;
     if (f.id === "dialog-form") {
-      const v = document.getElementById("dlg-text").value.trim();
+      const v = (document.getElementById("dlg-text") || { value: "" }).value.trim();
       const amtEl = document.getElementById("dlg-amount");
       const amt = amtEl ? Number(amtEl.value) : undefined;
       const run = S.dialog.run;

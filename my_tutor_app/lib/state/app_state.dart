@@ -117,6 +117,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Map<String, String> payTo = const {};
   /// My wallet top-ups (newest first).
   final List<PaymentInfo> topUps = [];
+  /// How long a booking without a receipt holds the tutor's time (setting unpaid_hold_hours).
+  int unpaidHoldHours = 6;
 
   // ---------- tutor data ----------
   final List<Lesson> tutorLessons = DarsConfig.live ? <Lesson>[] : MockData.tutorLessons();
@@ -362,6 +364,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (role == UserRole.tutor) return;
     try {
       payTo = await _b.payToAccounts();
+      final h = await _b.setting('unpaid_hold_hours');
+      unpaidHoldHours = h is num && h > 0 ? h.toInt() : 6;
       final rows = await _b.myTopUps();
       topUps
         ..clear()
@@ -429,7 +433,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     final ext = const {'jpg', 'jpeg', 'png', 'webp', 'pdf'}.contains(e0) ? e0 : 'jpg';
     final type = mime ?? (ext == 'pdf' ? 'application/pdf' : (ext == 'png' ? 'image/png' : (ext == 'webp' ? 'image/webp' : 'image/jpeg')));
     try {
-      final stored = await _b.uploadReceipt(info.paymentId, bytes, ext, type);
+      final stored = await _b.uploadReceipt(bytes, ext, type);
       await _b.rpc('submit_bank_receipt', {'p_payment': info.paymentId, 'p_receipt_url': stored, 'p_method': info.method});
       await refresh();
       return true;
@@ -1628,6 +1632,12 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _push(Conversation c, Message m) => _inOrder(c, () => _pushNow(c, m));
 
   Future<void> _pushNow(Conversation c, Message m) async {
+    // One id per message, kept on every retry, so the server never stores it twice.
+    if (m.clientId == null) {
+      final i = c.messages.indexOf(m);
+      m = m.copyWith(clientId: Backend.newId());
+      if (i >= 0) c.messages[i] = m;
+    }
     try {
       final id = await _ensure(c);
       final kind = switch (m.type) {
@@ -1638,7 +1648,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         _ => 'text',
       };
       final text = m.type == MsgType.voice ? '🎤' : m.text;
-      final row = await _b.sendMessage(id, text, kind: kind, seconds: m.seconds > 0 ? m.seconds : null, fileUrl: m.url);
+      final row = await _b.sendMessage(id, text, kind: kind, seconds: m.seconds > 0 ? m.seconds : null, fileUrl: m.url, clientId: m.clientId);
       // Swap in the server's copy (id for read ticks, and whether the contact filter hid it).
       final server = Backend.messageFromRow(row, _b.uid);
       final i = c.messages.indexOf(m);

@@ -390,8 +390,8 @@ class _BookingScreenState extends State<BookingScreen> {
                 borderColor: AppColors.infoSoft,
                 child: Text(
                   ar
-                      ? 'الدفع بالتحويل قيد التجهيز. سيُحجز موعدك ٤٨ ساعة ويتواصل معك فريق درس لإتمام الدفع.'
-                      : 'Paying by transfer is being set up. Your time is held for 48 hours and the Dars team will contact you to complete payment.',
+                      ? 'الدفع بالتحويل قيد التجهيز. سيُحجز موعدك لمدة ${app.unpaidHoldHours} ساعات ويتواصل معك فريق درس لإتمام الدفع.'
+                      : 'Paying by transfer is being set up. Your time is held for ${app.unpaidHoldHours} hours and the Dars team will contact you to complete payment.',
                   style: const TextStyle(fontSize: 13.5, height: 1.5),
                 ),
               ),
@@ -399,8 +399,8 @@ class _BookingScreenState extends State<BookingScreen> {
               const SizedBox(height: 6),
               Text(
                 ar
-                    ? 'بعد الحجز ستظهر لك بيانات الحساب ورقم مرجع، ثم ترفع صورة الإيصال. يُحجز موعدك ٤٨ ساعة.'
-                    : 'After booking you will see the account and a reference, then upload the receipt. Your time is held for 48 hours.',
+                    ? 'بعد الحجز ستظهر لك بيانات الحساب ورقم مرجع، ثم ارفع صورة الإيصال خلال ${app.unpaidHoldHours} ساعات، وإلا يُلغى الحجز ويُفرَغ الموعد.'
+                    : 'After booking you will see the account and a reference. Upload the receipt within ${app.unpaidHoldHours} hours, or the booking is released.',
                 style: const TextStyle(color: AppColors.text2, fontSize: 13, height: 1.5),
               ),
             ],

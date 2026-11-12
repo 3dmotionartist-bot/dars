@@ -22,6 +22,7 @@ create table storage.buckets (id text primary key, name text, public boolean def
   file_size_limit bigint, allowed_mime_types text[]);
 create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text references storage.buckets(id),
   name text not null, owner uuid default auth.uid(), created_at timestamptz default now());
+create unique index on storage.objects (bucket_id, name);
 alter table storage.objects enable row level security;
 create function storage.foldername(name text) returns text[] language sql immutable as
   $$ select (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1] $$;
