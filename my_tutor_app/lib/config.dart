@@ -31,8 +31,20 @@ class DarsConfig {
   /// Build number set by the build server (--dart-define=DARS_BUILD=<run number>); 0 for local / older builds.
   static const build = int.fromEnvironment('DARS_BUILD');
 
-  /// Latest Android app (published with the website on every build).
-  static const apkUrl = 'https://3dmotionartist-bot.github.io/dars/Dars.apk';
+  /// Latest Android app files, attached to every GitHub release: Dars-arm64.apk (most phones),
+  /// Dars-arm32.apk (older 32-bit phones) and Dars.apk (works on all, larger).
+  /// (Builds up to 25 download https://3dmotionartist-bot.github.io/dars/Dars.apk, which stays on the site for now.)
+  static const apkBase = 'https://github.com/3dmotionartist-bot/dars/releases/latest/download/';
+  static const apkUrl = '${apkBase}Dars.apk';
+
+  /// The file that fits a phone with these processor types (Android Build.SUPPORTED_ABIS, best first).
+  static String apkUrlFor(List<String> abis) {
+    for (final a in abis) {
+      if (a == 'arm64-v8a') return '${apkBase}Dars-arm64.apk';
+      if (a == 'armeabi-v7a') return '${apkBase}Dars-arm32.apk';
+    }
+    return apkUrl;
+  }
 
   static bool get live => supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty;
 }

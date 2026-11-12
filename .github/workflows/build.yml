@@ -101,45 +101,62 @@ jobs:
 
       # Backend connection: set repository variables SUPABASE_URL and SUPABASE_ANON_KEY
       # (GitHub → Settings → Secrets and variables → Actions → Variables). Empty = demo mode.
-      - name: Build APK (test build, debug-signed)
-        run: flutter build apk --release --build-number=${{ github.run_number }} --dart-define=DARS_BUILD=${{ github.run_number }} --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}
+      # Android files (Stage 3 A5): Dars-arm64.apk (most phones), Dars-arm32.apk (older 32-bit phones)
+      # and Dars.apk (all phones, larger). Split files get version code 1000×(1 arm32 / 2 arm64) + build number;
+      # Dars.apk keeps the plain build number, so every older app can install over itself with any of them.
+      - name: Build APKs (arm64, arm32 and one for all phones)
+        run: |
+          DEFS="--build-number=${{ github.run_number }} --dart-define=DARS_BUILD=${{ github.run_number }} --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}"
+          mkdir -p ../apks
+          flutter build apk --release $DEFS
+          cp build/app/outputs/flutter-apk/app-release.apk ../apks/Dars.apk
+          flutter build apk --release --split-per-abi $DEFS
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk ../apks/Dars-arm64.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk ../apks/Dars-arm32.apk
 
-      # Sign the finished APK with the Dars key itself (Gradle may pick its own debug key).
-      - name: Sign the APK with the Dars key (must match assetlinks.json)
+      # Sign every APK with the Dars key itself (Gradle may pick its own debug key).
+      - name: Sign the APKs with the Dars key (must match assetlinks.json)
         if: env.DARS_SIGNED == '1'
         run: |
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          APK=build/app/outputs/flutter-apk/app-release.apk
-          "$BT/apksigner" sign --ks "$RUNNER_TEMP/dars.keystore" --ks-pass pass:android --key-pass pass:android --ks-key-alias androiddebugkey "$APK"
-          "$BT/apksigner" verify --print-certs "$APK" | grep -i "SHA-256" | tee "$RUNNER_TEMP/certs.txt"
-          if ! grep -qi "e2266f71a024f6e1ea89f594acb9ea5796ac0ead10b60e3e74405ea212560a52" "$RUNNER_TEMP/certs.txt"; then
-            echo "::error::The DARS_KEYSTORE_B64 secret is not the Dars key (see the fingerprint above). Paste the contents of DARS_KEYSTORE_B64.txt into the secret again."
-            exit 1
-          fi
+          for APK in ../apks/*.apk; do
+            "$BT/apksigner" sign --ks "$RUNNER_TEMP/dars.keystore" --ks-pass pass:android --key-pass pass:android --ks-key-alias androiddebugkey "$APK"
+            "$BT/apksigner" verify --print-certs "$APK" | grep -i "SHA-256" | tee "$RUNNER_TEMP/certs.txt"
+            if ! grep -qi "e2266f71a024f6e1ea89f594acb9ea5796ac0ead10b60e3e74405ea212560a52" "$RUNNER_TEMP/certs.txt"; then
+              echo "::error::$APK is not signed with the Dars key (see the fingerprint above). Paste the contents of DARS_KEYSTORE_B64.txt into the secret again."
+              exit 1
+            fi
+          done
+
+      - name: APK sizes
+        run: |
+          echo "### Android files" >> "$GITHUB_STEP_SUMMARY"
+          for f in ../apks/*.apk; do echo "- $(basename "$f"): $(du -k "$f" | cut -f1) KB" | tee -a "$GITHUB_STEP_SUMMARY"; done
 
       - name: Build web app
         run: flutter build web --release --base-href "/${{ github.event.repository.name }}/app/" --build-number=${{ github.run_number }} --dart-define=DARS_BUILD=${{ github.run_number }} --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}
 
-      - name: Collect APK
-        run: cp build/app/outputs/flutter-apk/app-release.apk ../Dars.apk
-
       - uses: actions/upload-artifact@v4
         with:
           name: Dars-apk
-          path: Dars.apk
+          path: apks/Dars.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: web-app
           path: my_tutor_app/build/web
 
-      - name: Publish APK as a release (easy download on the phone)
+      # Links: https://github.com/<user>/<repo>/releases/latest/download/Dars-arm64.apk (also -arm32 and Dars.apk)
+      - name: Publish the APKs as a release (easy download on the phone)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
           name: Dars test build ${{ github.run_number }}
-          body: Install Dars.apk on Android (allow "install unknown apps"). Website and web app are on GitHub Pages.
-          files: Dars.apk
+          body: Install Dars-arm64.apk on Android (most phones; allow "install unknown apps"). Older 32-bit phones use Dars-arm32.apk; Dars.apk works on all phones but is larger. Website and web app are on GitHub Pages.
+          files: |
+            apks/Dars-arm64.apk
+            apks/Dars-arm32.apk
+            apks/Dars.apk
           prerelease: false
           make_latest: true
 
@@ -187,7 +204,8 @@ jobs:
         with:
           name: web-app
           path: _site/app
-      # Android app download: https://<user>.github.io/<repo>/Dars.apk
+      # Old app download address https://<user>.github.io/<repo>/Dars.apk: app builds up to 25 still open it
+      # from the "please update" screen. Keep it until min_app_build is 26 or more, then remove these 4 lines.
       - uses: actions/download-artifact@v4
         with:
           name: Dars-apk
