@@ -19,6 +19,17 @@ class VoiceClip {
 class MediaBridge {
   static const _ch = MethodChannel('dars/ring');
 
+  /// The phone's processor types, best first (e.g. ['arm64-v8a', 'armeabi-v7a']); empty if unknown.
+  static Future<List<String>> supportedAbis() async {
+    if (kIsWeb) return const [];
+    try {
+      final r = await _ch.invokeListMethod<String>('abis');
+      return r ?? const [];
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// 'ok', 'permission' (microphone not allowed yet) or 'error'.
   static Future<String> startRecording() async {
     try {

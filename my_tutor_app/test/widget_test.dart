@@ -2,8 +2,10 @@
 // The app itself connects to the live backend on start, so it is not pumped here.
 import 'package:flutter/widgets.dart' show TextDirection;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:my_tutor_app/config.dart';
 import 'package:my_tutor_app/data/models.dart';
 import 'package:my_tutor_app/screens/shared/chat_logic.dart';
+import 'package:my_tutor_app/state/poll_policy.dart';
 
 Message msg(String text, DateTime t, {bool mine = false, int id = 0, bool sending = false, bool failed = false, DateTime? readAt, bool blocked = false}) =>
     Message(mine: mine, text: text, time: t, remoteId: id, sending: sending, failed: failed, readAt: readAt, blocked: blocked);
@@ -64,6 +66,33 @@ void main() {
       expect(m.copyWith(sending: false, failed: true).clientId, 'abc');
       expect(m.copyWith(sending: true, failed: false).clientId, 'abc');
     });
+  });
+
+  group('fallback reload timer (Stage 3 A2)', () {
+    test('live updates connected → every 90 s',
+        () => expect(fallbackReloadEvery(foreground: true, realtimeConnected: true), const Duration(seconds: 90)));
+    test('live updates down → every 20 s',
+        () => expect(fallbackReloadEvery(foreground: true, realtimeConnected: false), const Duration(seconds: 20)));
+    test('in the background → no reloads', () {
+      expect(fallbackReloadEvery(foreground: false, realtimeConnected: true), isNull);
+      expect(fallbackReloadEvery(foreground: false, realtimeConnected: false), isNull);
+    });
+    test('"loaded up to" keeps the later server time', () {
+      expect(laterServerTime(null, '2026-11-12T10:00:00.5+00:00'), '2026-11-12T10:00:00.5+00:00');
+      expect(laterServerTime('2026-11-12T10:00:00.5+00:00', '2026-11-12T09:59:59+00:00'), '2026-11-12T10:00:00.5+00:00');
+      expect(laterServerTime('2026-11-12T10:00:00+00:00', '2026-11-12T10:00:00.000001+00:00'), '2026-11-12T10:00:00.000001+00:00');
+      expect(laterServerTime('2026-11-12T10:00:00+00:00', null), '2026-11-12T10:00:00+00:00');
+    });
+  });
+
+  group('update download picks the file for the phone (Stage 3 A5)', () {
+    test('64-bit phone → arm64', () => expect(DarsConfig.apkUrlFor(['arm64-v8a', 'armeabi-v7a', 'armeabi']), endsWith('/Dars-arm64.apk')));
+    test('32-bit phone → arm32', () => expect(DarsConfig.apkUrlFor(['armeabi-v7a', 'armeabi']), endsWith('/Dars-arm32.apk')));
+    test('unknown / emulator → the file for all phones', () {
+      expect(DarsConfig.apkUrlFor(const []), endsWith('/Dars.apk'));
+      expect(DarsConfig.apkUrlFor(['x86_64']), endsWith('/Dars.apk'));
+    });
+    test('links point to the latest GitHub release', () => expect(DarsConfig.apkUrl, startsWith('https://github.com/3dmotionartist-bot/dars/releases/latest/download/')));
   });
 
   group('text direction per message', () {

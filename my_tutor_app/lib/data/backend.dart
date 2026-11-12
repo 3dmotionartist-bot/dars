@@ -164,7 +164,13 @@ class Backend {
   }
 
   Future<List<Map<String, dynamic>>> notifications() => db.from('notifications').select().eq('user_id', uid!).order('created_at', ascending: false).limit(60);
-  Future<List<Map<String, dynamic>>> conversations() => db.from('conversations').select().order('last_message_at', ascending: false).limit(100);
+  /// My chats, newest first. "Where I am student or tutor" lets the server use its two chat indexes.
+  /// [since]: only chats with a message after that server time (the fallback reload).
+  Future<List<Map<String, dynamic>>> conversations({String? since}) {
+    var q = db.from('conversations').select().or('student_id.eq.$uid,tutor_id.eq.$uid');
+    if (since != null) q = q.gt('last_message_at', since);
+    return q.order('last_message_at', ascending: false).limit(100);
+  }
   /// How many of the newest messages of each chat are loaded at first (older ones load on scroll).
   static const pageSize = 50;
 
@@ -447,6 +453,7 @@ class Backend {
     void Function(Map<String, dynamic>)? onMessageUpdate,
     void Function(Map<String, dynamic>)? onLiveRequest,
     void Function()? onConnected,
+    void Function()? onDisconnected,
   }) {
     var ch = db
         .channel('dars-${uid ?? 'anon'}')
@@ -460,7 +467,12 @@ class Backend {
       ch = ch.onPostgresChanges(event: PostgresChangeEvent.insert, schema: 'public', table: 'live_requests', callback: (p) => onLiveRequest(p.newRecord));
     }
     return ch.subscribe((status, error) {
-      if (status == RealtimeSubscribeStatus.subscribed) onConnected?.call();
+      if (status == RealtimeSubscribeStatus.subscribed) {
+        onConnected?.call();
+      } else {
+        // channelError / timedOut / closed: live updates stopped until the client reconnects.
+        onDisconnected?.call();
+      }
     });
   }
 

@@ -68,7 +68,7 @@ const ar = {
     ],
   },
   tutorsCta: { title: 'هل أنت مدرس؟', body: 'انضم إلى درس، حدد أسعارك وأوقاتك، ودرّس طلاباً من كل الوطن العربي أونلاين أو في مدينتك.', cta: 'سجّل كمدرس' },
-  app: { title: 'كل هذا في جيبك', body: 'حمّل تطبيق درس للحجز السريع والمساعدة الفورية والمكالمات والإشعارات.', ios: 'App Store', android: 'Google Play', web: 'افتح تطبيق الويب' },
+  app: { title: 'كل هذا في جيبك', body: 'حمّل تطبيق درس للحجز السريع والمساعدة الفورية والمكالمات والإشعارات.', ios: 'App Store', android: 'أندرويد', androidSmall: 'حمّل لأجهزة', older: 'هاتف قديم؟ استخدم هذه النسخة', web: 'افتح تطبيق الويب' },
   become: {
     title: 'درّس على درس واكسب دخلاً مرناً',
     subtitle: 'أونلاين أو حضورياً قرب منطقتك. أنت تحدد السعر والأوقات، ونحن نجلب لك الطلاب ونضمن الدفع.',
@@ -198,7 +198,7 @@ const en: Dict = {
     ],
   },
   tutorsCta: { title: 'Are you a tutor?', body: 'Join Dars, set your own prices and hours, and teach students across the Arab world online or in your city.', cta: 'Apply as a tutor' },
-  app: { title: 'All of it in your pocket', body: 'Get the Dars app for fast booking, live help, in-app calls and notifications.', ios: 'App Store', android: 'Google Play', web: 'Open the web app' },
+  app: { title: 'All of it in your pocket', body: 'Get the Dars app for fast booking, live help, in-app calls and notifications.', ios: 'App Store', android: 'Android', androidSmall: 'Download for', older: 'Older phone? Use this version', web: 'Open the web app' },
   become: {
     title: 'Teach on Dars and earn on your terms',
     subtitle: 'Online or in person near you. You set the price and hours — we bring the students and guarantee payment.',

@@ -105,14 +105,17 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     await Backend.I.init();
     await _local.initialize();
     await _remote.initialize();
+    if (widget.video) await _loadVideoCap();
     try {
       _stream = await navigator.mediaDevices.getUserMedia({
         'audio': {'echoCancellation': true, 'noiseSuppression': true, 'autoGainControl': true},
+        // Camera at most 640×480 at 24 frames a second by default ("ideal": phones pick the nearest they have).
         'video': widget.video
             ? {
                 'facingMode': 'user',
-                'width': {'ideal': 1280},
-                'height': {'ideal': 720},
+                'width': {'ideal': (_capHeight * 4 / 3).round()},
+                'height': {'ideal': _capHeight},
+                'frameRate': {'ideal': 24, 'max': 24},
               }
             : false,
       });
@@ -399,6 +402,7 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
       if (mounted) setState(() {});
     });
     _set(_Phase.connected);
+    if (widget.video) _startCameraCap();
   }
 
   void _set(_Phase p) {
@@ -492,7 +496,7 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     _sharing = false;
     _qualityTimer?.cancel();
     _qualityTimer = null;
-    await _applyQuality(null); // back to normal camera settings
+    await _applyQuality(null); // back to the camera limit
     final screen = _screen;
     _screen = null;
     try {
@@ -634,8 +638,9 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
         if (encs == null || encs.isEmpty) continue;
         for (final e in encs) {
           if (level == null) {
-            e.maxBitrate = null;
-            e.maxFramerate = null;
+            // Camera: capped at call_video_kbps (600 kbit/s), stepped down on a bad link.
+            e.maxBitrate = _camSteps[_camStep] * 1000;
+            e.maxFramerate = 24;
             e.scaleResolutionDownBy = 1.0;
           } else {
             final l = _levels[level];
@@ -648,6 +653,97 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
       }
     } catch (e) {
       _lastError = 'quality: $e';
+    }
+  }
+
+  // ---- camera video limit (Stage 3 A3) ----
+  // Default 640×480, 24 fps, 600 kbit/s (settings call_video_height / call_video_kbps, no new build needed).
+  // On a bad link (loss > 8 % or round trip > 0.7 s) it steps down to half, then a quarter (300 → 150 kbit/s),
+  // and back up after three good checks in a row.
+  static int? _cachedKbps;
+  static int? _cachedHeight;
+  int _capHeight = 480;
+  List<int> _camSteps = const [600, 300, 150];
+  int _camStep = 0;
+  int _camGood = 0;
+  Timer? _camTimer;
+  num? _camBytes;
+  DateTime? _camBytesAt;
+  int _sendKbps = 0; // measured, shown in the debug line
+
+  Future<void> _loadVideoCap() async {
+    if (_cachedKbps == null || _cachedHeight == null) {
+      try {
+        final v = await Future.wait([Backend.I.setting('call_video_kbps'), Backend.I.setting('call_video_height')])
+            .timeout(const Duration(seconds: 3));
+        final k = _num(v[0]);
+        final h = _num(v[1]);
+        _cachedKbps = k != null && k >= 100 && k <= 4000 ? k.toInt() : 600;
+        _cachedHeight = h != null && h >= 144 && h <= 1080 ? h.toInt() : 480;
+      } catch (_) {/* defaults below */}
+    }
+    final k = _cachedKbps ?? 600;
+    _capHeight = _cachedHeight ?? 480;
+    _camSteps = [k, (k / 2).round(), (k / 4).round()];
+  }
+
+  void _startCameraCap() {
+    if (_camTimer != null) return;
+    _camStep = 0;
+    _camGood = 0;
+    if (!_sharing) _applyQuality(null);
+    _camTimer = Timer.periodic(const Duration(seconds: 4), (_) => _checkCamera());
+  }
+
+  Future<void> _checkCamera() async {
+    final pc = _pc;
+    if (pc == null) return;
+    try {
+      num? loss;
+      num? rtt;
+      num? sentBytes;
+      for (final r in await pc.getStats()) {
+        final v = r.values;
+        if (r.type == 'candidate-pair') {
+          final ok = v['nominated'] == true || '${v['nominated']}' == 'true' || v['state'] == 'succeeded';
+          final t = _num(v['currentRoundTripTime']);
+          if (ok && t != null) rtt = t;
+        } else if (r.type == 'remote-inbound-rtp' && '${v['kind'] ?? v['mediaType']}' == 'video') {
+          loss = _num(v['fractionLost']) ?? loss;
+          rtt = _num(v['roundTripTime']) ?? rtt;
+        } else if (r.type == 'outbound-rtp' && '${v['kind'] ?? v['mediaType']}' == 'video') {
+          sentBytes = (sentBytes ?? 0) + (_num(v['bytesSent']) ?? 0);
+        }
+      }
+      final now = DateTime.now();
+      if (sentBytes != null && _camBytes != null && _camBytesAt != null) {
+        final secs = now.difference(_camBytesAt!).inMilliseconds / 1000;
+        if (secs > 0) _sendKbps = ((sentBytes - _camBytes!) * 8 / secs / 1000).round();
+      }
+      _camBytes = sentBytes;
+      _camBytesAt = now;
+      if (_sharing) return; // screen share has its own levels
+      final bad = (loss != null && loss > 0.08) || (rtt != null && rtt > 0.7);
+      var next = _camStep;
+      if (bad) {
+        _camGood = 0;
+        if (next < _camSteps.length - 1) next++;
+      } else if ((loss ?? 0) < 0.02 && (rtt ?? 0) < 0.4) {
+        _camGood++;
+        if (_camGood >= 3 && next > 0) {
+          next--;
+          _camGood = 0;
+        }
+      } else {
+        _camGood = 0;
+      }
+      if (next != _camStep) {
+        _camStep = next;
+        await _applyQuality(null);
+      }
+      if (mounted && (kDebugMode || widget.testMode)) setState(() {});
+    } catch (e) {
+      _lastError = 'camera: $e';
     }
   }
 
@@ -676,7 +772,8 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     _drawing = st;
     _sentPoints = 0;
     setState(() => _strokes.add(st));
-    _flush ??= Timer.periodic(const Duration(milliseconds: 90), (_) => _sendPoints());
+    // Points are sent in batches every 250 ms (fewer messages; same message shape as before).
+    _flush ??= Timer.periodic(const Duration(milliseconds: 250), (_) => _sendPoints());
   }
 
   void _penMove(Offset o) {
@@ -713,9 +810,12 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
       st = _Stroke(id, false);
       _strokes.add(st);
     }
+    // A batch holds up to 250 ms of drawing: play it out over ~200 ms so the line grows smoothly.
+    final queue = _incoming.putIfAbsent(st, () => []);
     for (final q in raw) {
-      if (q is List && q.length == 2) st.pts.add(Offset((q[0] as num).toDouble(), (q[1] as num).toDouble()));
+      if (q is List && q.length == 2) queue.add(Offset((q[0] as num).toDouble(), (q[1] as num).toDouble()));
     }
+    _drip ??= Timer.periodic(const Duration(milliseconds: 33), (_) => _dripPoints());
     setState(() {
       if (!_board) {
         _board = true;
@@ -724,13 +824,35 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     });
   }
 
+  final Map<_Stroke, List<Offset>> _incoming = {};
+  Timer? _drip;
+
+  void _dripPoints() {
+    if (!mounted) return;
+    if (_incoming.isEmpty) {
+      _drip?.cancel();
+      _drip = null;
+      return;
+    }
+    setState(() {
+      for (final e in _incoming.entries) {
+        final n = max(1, (e.value.length / 6).ceil());
+        e.key.pts.addAll(e.value.take(n));
+        e.value.removeRange(0, min(n, e.value.length));
+      }
+      _incoming.removeWhere((_, q) => q.isEmpty);
+    });
+  }
+
   void _clearBoard() {
+    _incoming.clear();
     setState(_strokes.clear);
     _send('clear', {});
   }
 
   void _onClear(Map<String, dynamic> p) {
     if (p['from'] == _me || !mounted) return;
+    _incoming.clear();
     setState(_strokes.clear);
   }
 
@@ -786,7 +908,9 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
 
   Future<void> _cleanup() async {
     _flush?.cancel();
+    _drip?.cancel();
     _qualityTimer?.cancel();
+    _camTimer?.cancel();
     if (_sharing) {
       for (final t in _screen?.getTracks() ?? const <MediaStreamTrack>[]) {
         try {
@@ -998,7 +1122,7 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
               right: 12,
               bottom: MediaQuery.of(context).padding.bottom + 110,
               child: Text(
-                'ch $_chStatus · sent $_sent · heard $_heard · peer ${_peer == null ? '-' : 'ok'}${_hasRelay ? ' · relay' : ''}${_lastError.isEmpty ? '' : ' · $_lastError'}',
+                'ch $_chStatus · sent $_sent · heard $_heard · peer ${_peer == null ? '-' : 'ok'}${_hasRelay ? ' · relay' : ''} · video $_sendKbps/${_camSteps[_camStep]} kbps${_lastError.isEmpty ? '' : ' · $_lastError'}',
                 key: const Key('call-diag'),
                 textAlign: TextAlign.center,
                 maxLines: 3,

@@ -20,6 +20,7 @@ import '../screens/shared/transfer_screens.dart';
 import '../services/calls.dart';
 import '../services/media_bridge.dart';
 import '../services/ringer.dart';
+import 'poll_policy.dart';
 
 /// Lets the state show short messages (errors, confirmations) from anywhere.
 final messengerKey = GlobalKey<ScaffoldMessengerState>();
@@ -39,6 +40,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
     _foreground = s == AppLifecycleState.resumed;
+    if (!_foreground) {
+      // No reloading while in the background (saves the server and the battery); one reload on return.
+      _poll?.cancel();
+      _poll = null;
+    }
     if (_foreground && live && loggedIn) _resume();
   }
 
@@ -187,6 +193,14 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   // =====================================================================
   RealtimeChannel? _channel;
   Timer? _poll;
+
+  /// Live updates (realtime channel) are connected right now.
+  bool _realtimeUp = false;
+  bool _realtimeDropped = false;
+
+  /// Newest chat time (server clock) loaded so far; the fallback reload asks only for chats after it.
+  String? _chatsSyncedAt;
+  final Map<String, String> _chatStamps = {}; // chat id → its last_message_at as loaded
   Conversation? activeConversation;
 
   Future<void> _boot() async {
@@ -512,10 +526,25 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   /// Profile photo of someone I have a chat or lesson with ('' = show initials).
   String photoOf(String userId) => userId.isEmpty ? '' : (_b.photos[userId] ?? '');
 
-  Future<void> _loadConversations() async {
+  /// [changedOnly]: fetch only chats with a message after the last load (and their newest messages);
+  /// the other chats stay as they are. Returns false when nothing changed.
+  Future<bool> _loadConversations({bool changedOnly = false}) async {
     final uid = _b.uid!;
+    if (changedOnly && _chatsSyncedAt == null) changedOnly = false;
+    // Ask from a little before the last load (a message saved at that same moment is not missed),
+    // then keep only chats whose time differs from what is already shown.
+    final since = changedOnly ? DateTime.parse(_chatsSyncedAt!).subtract(const Duration(seconds: 10)).toUtc().toIso8601String() : null;
     // Hide any old chat someone opened with themselves.
-    final rows = (await _b.conversations()).where((r) => r['student_id'] != r['tutor_id']).toList();
+    var rows = (await _b.conversations(since: since)).where((r) => r['student_id'] != r['tutor_id']).toList();
+    if (changedOnly) rows = rows.where((r) => _chatStamps['${r['id']}'] != '${r['last_message_at']}').toList();
+    if (!changedOnly) _chatStamps.clear();
+    String? newest = changedOnly ? _chatsSyncedAt : null;
+    for (final r in rows) {
+      newest = laterServerTime(newest, r['last_message_at'] as String?);
+      _chatStamps['${r['id']}'] = '${r['last_message_at']}';
+    }
+    _chatsSyncedAt = changedOnly ? (newest ?? _chatsSyncedAt) : newest;
+    if (changedOnly && rows.isEmpty) return false;
     final others = {for (final r in rows) '${r['id']}': '${r['student_id'] == uid ? r['tutor_id'] : r['student_id']}'};
     final names = await _b.names(others.values);
     final msgs = await _b.messagesFor(rows.map((r) => '${r['id']}').toList());
@@ -595,10 +624,14 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     }
     // Keep chats that are still being created on the server.
     final pending = conversations.where((c) => c.id.isEmpty).toList();
+    // Changed-only reload: the chats that did not change keep their place after the changed ones.
+    final nextIds = {for (final c in next) c.id};
+    final unchanged = changedOnly ? conversations.where((c) => c.id.isNotEmpty && !nextIds.contains(c.id)).toList() : const <Conversation>[];
     conversations
       ..clear()
       ..addAll(pending)
-      ..addAll(next);
+      ..addAll(next)
+      ..addAll(unchanged);
     // Messages that arrived while realtime was asleep (app in background, poll fallback).
     for (final (id, m) in pendingAnnounce) {
       for (final c in next) {
@@ -606,6 +639,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
     _seenReady = true;
+    return true;
   }
 
   Future<void> _loadLiveRequests() async {
@@ -653,23 +687,60 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         },
         onLiveRequest: role == UserRole.tutor ? (_) => _loadLiveRequests().then((_) => notifyListeners()).catchError((_) {}) : null,
         onMessageUpdate: _onRemoteMessageUpdate,
-        // (Re)connected: send anything that could not go out while offline.
-        onConnected: retryFailedMessages,
+        // (Re)connected: send anything that could not go out while offline, pick up what was missed.
+        onConnected: () {
+          _realtimeUp = true;
+          retryFailedMessages();
+          if (_realtimeDropped) {
+            _realtimeDropped = false;
+            _fallbackReload();
+          }
+          _schedulePoll();
+        },
+        onDisconnected: () {
+          if (_realtimeUp) _realtimeDropped = true;
+          _realtimeUp = false;
+          _schedulePoll();
+        },
       );
     } catch (_) {}
-    // Fallback in case realtime is not enabled on the project.
-    _poll = Timer.periodic(const Duration(seconds: 20), (_) async {
-      try {
-        if (role == UserRole.tutor) await _loadLiveRequests();
-        await _loadConversations();
-        notifyListeners();
-      } catch (_) {}
+    _schedulePoll();
+  }
+
+  /// Safety-net reload: every 90 s while live updates are connected, every 20 s while they are down,
+  /// never in the background (see [fallbackReloadEvery]).
+  void _schedulePoll() {
+    _poll?.cancel();
+    _poll = null;
+    final every = fallbackReloadEvery(foreground: _foreground, realtimeConnected: _realtimeUp);
+    if (every == null || _b.uid == null) return;
+    _poll = Timer(every, () async {
+      await _fallbackReload();
+      if (_b.uid != null) _schedulePoll();
     });
+  }
+
+  bool _reloading = false;
+
+  /// Only the chats that changed since the last load, plus open live-help requests for tutors.
+  Future<void> _fallbackReload() async {
+    if (_reloading || _b.uid == null) return;
+    _reloading = true;
+    try {
+      if (role == UserRole.tutor) await _loadLiveRequests();
+      await _loadConversations(changedOnly: true);
+      notifyListeners();
+    } catch (_) {
+    } finally {
+      _reloading = false;
+    }
   }
 
   void _stopRealtime() {
     _poll?.cancel();
     _poll = null;
+    _realtimeUp = false;
+    _realtimeDropped = false;
     final ch = _channel;
     _channel = null;
     if (ch != null) _b.unlisten(ch).catchError((_) => '');

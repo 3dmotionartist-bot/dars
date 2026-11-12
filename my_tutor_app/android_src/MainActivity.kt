@@ -81,6 +81,10 @@ class MainActivity : FlutterActivity() {
                         manager().cancel(callId)
                         result.success(true)
                     }
+                    "abis" -> {
+                        // Which app file fits this phone (arm64 / arm32 / other), for the update download.
+                        result.success(Build.SUPPORTED_ABIS.toList())
+                    }
                     "callEnded" -> {
                         // The call is over (declined, dismissed or hung up): the app needs the phone unlocked again.
                         if (Build.VERSION.SDK_INT >= 27) {
