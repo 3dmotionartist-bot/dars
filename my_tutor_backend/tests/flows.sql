@@ -167,8 +167,8 @@ select t_ok(expire_live_requests() = 1, 'cron job expires old requests');
 
 \echo '--- payouts'
 select t_as(:'tut'); set role authenticated;
-select t_err($$select request_payout(500, 'bank_transfer', '{}')$$, 'more than your available balance', 'cannot withdraw more than balance');
-select request_payout(10, 'bank_transfer', '{"iban":"SY00..."}') as po \gset
+select t_err($$select request_payout(500, 'bank_transfer', '{"holder_name":"Samer","account":"SY00"}')$$, 'more than your available balance', 'cannot withdraw more than balance');
+select request_payout(10, 'bank_transfer', '{"holder_name":"Samer Al-Halabi","account":"SY00 1234"}') as po \gset
 select t_ok((select balance from wallet_balances where user_id = auth.uid()) = 0.62, 'payout reserves money');
 reset role;
 select t_as(:'admin'); set role authenticated;

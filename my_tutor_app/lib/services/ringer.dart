@@ -39,6 +39,14 @@ class Ringer {
     } catch (_) {}
   }
 
+  /// The call is over: on Android the app no longer shows over the lock screen.
+  static Future<void> callEnded() async {
+    if (kIsWeb) return;
+    try {
+      await _ch.invokeMethod('callEnded');
+    } catch (_) {}
+  }
+
   static Future<void> notify({required String title, required String body}) async {
     try {
       if (kIsWeb) {

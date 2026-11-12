@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/models.dart';
 import '../../l10n.dart';
@@ -218,7 +221,88 @@ class EarningsScreen extends StatefulWidget {
 }
 
 class _EarningsScreenState extends State<EarningsScreen> {
-  String _method = 'bank';
+  static const _prefsKey = 'dars.payout_details';
+  String _method = 'sham_cash';
+  final _holder = TextEditingController();
+  final _account = TextEditingController();
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSaved();
+  }
+
+  @override
+  void dispose() {
+    _holder.dispose();
+    _account.dispose();
+    super.dispose();
+  }
+
+  /// The details used last time, remembered on this device.
+  Future<void> _loadSaved() async {
+    try {
+      final raw = (await SharedPreferences.getInstance()).getString(_prefsKey);
+      if (raw == null || !mounted) return;
+      final m = jsonDecode(raw) as Map<String, dynamic>;
+      setState(() {
+        _method = '${m['method'] ?? _method}';
+        _holder.text = '${m['holder'] ?? ''}';
+        _account.text = '${m['account'] ?? ''}';
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _save() async {
+    try {
+      await (await SharedPreferences.getInstance())
+          .setString(_prefsKey, jsonEncode({'method': _method, 'holder': _holder.text.trim(), 'account': _account.text.trim()}));
+    } catch (_) {}
+  }
+
+  String _methodName(String k, bool ar) => switch (k) {
+        'sham_cash' => ar ? 'شام كاش' : 'Sham Cash',
+        'syriatel_cash' => ar ? 'سيريتل كاش' : 'Syriatel Cash',
+        'mtn_cash' => ar ? 'MTN كاش' : 'MTN Cash',
+        'bank' => ar ? 'تحويل بنكي' : 'Bank transfer',
+        'paypal' => 'PayPal',
+        _ => 'Western Union',
+      };
+
+  Future<void> _request(AppState app) async {
+    final ar = context.isAr;
+    final holder = _holder.text.trim();
+    final account = _account.text.trim();
+    if (holder.isEmpty || account.isEmpty) {
+      toast(context, ar ? 'اكتب اسم صاحب الحساب ورقم الحساب أو المحفظة' : 'Enter the account holder name and the account or wallet number', icon: Icons.info_outline);
+      return;
+    }
+    final amount = double.parse(app.tutorConfirmed.toStringAsFixed(2));
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text(ar ? 'تأكيد طلب التحويل' : 'Confirm payout'),
+        content: Text(
+          ar
+              ? 'سنحوّل ${money(amount)} إلى:\n${_methodName(_method, ar)}\n$holder\n$account'
+              : 'We will send ${money(amount)} to:\n${_methodName(_method, ar)}\n$holder\n$account',
+          style: const TextStyle(height: 1.6),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: Text(ar ? 'تعديل' : 'Edit')),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: Text(ar ? 'تأكيد' : 'Confirm')),
+        ],
+      ),
+    );
+    if (go != true || !mounted) return;
+    setState(() => _busy = true);
+    await _save();
+    final ok = await app.requestPayout(method: _method, amount: amount, holderName: holder, account: account);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (ok) toast(context, context.tr('payout_sent'));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -243,25 +327,40 @@ class _EarningsScreenState extends State<EarningsScreen> {
             ]),
           ),
           SectionTitle(context.tr('payout_method')),
-          for (final m in [['bank', 'pm_bank', Icons.account_balance_rounded], ['paypal', 'PayPal', Icons.account_balance_wallet_rounded], ['wu', 'Western Union', Icons.public_rounded]])
+          for (final k in const ['sham_cash', 'syriatel_cash', 'mtn_cash', 'bank', 'paypal', 'wu'])
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: ChoiceTile(
-                title: (m[1] as String).startsWith('pm_') ? context.tr(m[1] as String) : m[1] as String,
-                icon: m[2] as IconData,
-                selected: _method == m[0],
-                onTap: () => setState(() => _method = m[0] as String),
+                title: _methodName(k, context.isAr),
+                icon: k == 'bank' ? Icons.account_balance_rounded : (k == 'paypal' || k == 'wu' ? Icons.public_rounded : Icons.phone_android_rounded),
+                selected: _method == k,
+                onTap: () => setState(() => _method = k),
               ),
             ),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _holder,
+            maxLength: 120,
+            textCapitalization: TextCapitalization.words,
+            decoration: InputDecoration(labelText: context.isAr ? 'اسم صاحب الحساب' : 'Account holder name', counterText: ''),
+          ),
           const SizedBox(height: 10),
+          TextField(
+            controller: _account,
+            maxLength: 120,
+            decoration: InputDecoration(
+              labelText: _method == 'paypal'
+                  ? (context.isAr ? 'بريد PayPal' : 'PayPal email')
+                  : (_method == 'bank' ? (context.isAr ? 'رقم الحساب / IBAN' : 'Account number / IBAN') : (context.isAr ? 'رقم الحساب أو المحفظة' : 'Account or wallet number')),
+              counterText: '',
+            ),
+          ),
+          const SizedBox(height: 14),
           ElevatedButton.icon(
-            onPressed: app.tutorConfirmed <= 0
-                ? null
-                : () {
-                    app.requestPayout(method: _method);
-                    toast(context, context.tr('payout_sent'));
-                  },
-            icon: const Icon(Icons.send_rounded),
+            onPressed: app.tutorConfirmed <= 0 || _busy ? null : () => _request(app),
+            icon: _busy
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white))
+                : const Icon(Icons.send_rounded),
             label: Text('${context.tr('pay_me')} · ${money(app.tutorConfirmed)}'),
           ),
         ]),

@@ -169,6 +169,9 @@ class Message {
   final String url; // stored file: "<bucket>/<path>" ('' = none)
   final Uint8List? bytes; // local preview while uploading
   final bool sending;
+  final bool failed; // could not reach the server (tap to retry)
+  final DateTime? readAt; // when the other person read it (my messages)
+  final bool blocked; // hidden by the contact filter (only the sender sees it)
   const Message({
     required this.mine,
     required this.text,
@@ -179,9 +182,12 @@ class Message {
     this.url = '',
     this.bytes,
     this.sending = false,
+    this.failed = false,
+    this.readAt,
+    this.blocked = false,
   });
 
-  Message copyWith({bool? sending, String? text, String? url}) => Message(
+  Message copyWith({bool? sending, bool? failed, String? text, String? url, DateTime? readAt}) => Message(
         mine: mine,
         text: text ?? this.text,
         time: time,
@@ -191,7 +197,17 @@ class Message {
         url: url ?? this.url,
         bytes: bytes,
         sending: sending ?? this.sending,
+        failed: failed ?? this.failed,
+        readAt: readAt ?? this.readAt,
+        blocked: blocked,
       );
+
+  /// The server's copy of this message, keeping the local photo preview.
+  Message withPreviewOf(Message local) => local.bytes == null || bytes != null
+      ? this
+      : Message(
+          mine: mine, text: text, time: time, type: type, seconds: seconds, remoteId: remoteId, url: url,
+          bytes: local.bytes, readAt: readAt, blocked: blocked);
 }
 
 class Conversation {
@@ -302,4 +318,34 @@ class TutorSchedule {
   final List<WorkPeriod> periods; // empty = the tutor has not set working hours
   final List<({DateTime start, DateTime end})> busy; // times already booked
   const TutorSchedule({required this.tzOffset, required this.periods, required this.busy});
+}
+
+/// A payment of mine made by transfer (a wallet top-up, or a booking paid by transfer).
+class PaymentInfo {
+  final String id;
+  final double amount;
+  final String method; // sham_cash | syriatel_cash | mtn_cash | bank_transfer | …
+  final String status; // pending | under_review | paid | failed | refunded
+  final String reference;
+  final String failReason;
+  final DateTime created;
+  const PaymentInfo({
+    required this.id,
+    required this.amount,
+    required this.method,
+    required this.status,
+    required this.reference,
+    required this.failReason,
+    required this.created,
+  });
+}
+
+/// Where to send the money for one payment, and what to write in the transfer note.
+class TransferInfo {
+  final String paymentId;
+  final double amount;
+  final String method; // payment method value (sham_cash … bank_transfer)
+  final String payTo; // account / wallet number
+  final String reference; // e.g. D-7KQ2MX
+  const TransferInfo({required this.paymentId, required this.amount, required this.method, required this.payTo, required this.reference});
 }

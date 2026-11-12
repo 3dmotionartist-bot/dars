@@ -28,5 +28,11 @@ class DarsConfig {
   /// Voice / video call page (published with the website). Calls open there in the phone's browser.
   static const callPageUrl = 'https://3dmotionartist-bot.github.io/dars/call/';
 
+  /// Build number set by the build server (--dart-define=DARS_BUILD=<run number>); 0 for local / older builds.
+  static const build = int.fromEnvironment('DARS_BUILD');
+
+  /// Latest Android app (published with the website on every build).
+  static const apkUrl = 'https://3dmotionartist-bot.github.io/dars/Dars.apk';
+
   static bool get live => supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty;
 }

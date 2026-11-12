@@ -81,6 +81,14 @@ class MainActivity : FlutterActivity() {
                         manager().cancel(callId)
                         result.success(true)
                     }
+                    "callEnded" -> {
+                        // The call is over (declined, dismissed or hung up): the app needs the phone unlocked again.
+                        if (Build.VERSION.SDK_INT >= 27) {
+                            setShowWhenLocked(false)
+                            setTurnScreenOn(false)
+                        }
+                        result.success(true)
+                    }
                     "notify" -> {
                         notifyMessage(call.argument<String>("title") ?: "Dars", call.argument<String>("body") ?: "")
                         result.success(true)

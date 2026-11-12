@@ -76,6 +76,12 @@ jobs:
 
       - run: flutter pub get
 
+      # Stop here if the code has errors or warnings, or a test fails (nothing is published then).
+      - name: Analyze and test
+        run: |
+          flutter analyze --no-fatal-infos
+          flutter test
+
       # Same signing key on every build, so updates install over the old app and Android can verify meeting links.
       # The key is a private repository secret: Settings → Secrets and variables → Actions → DARS_KEYSTORE_B64
       # (base64 of the keystore; store password "android", alias "androiddebugkey").
@@ -96,7 +102,7 @@ jobs:
       # Backend connection: set repository variables SUPABASE_URL and SUPABASE_ANON_KEY
       # (GitHub → Settings → Secrets and variables → Actions → Variables). Empty = demo mode.
       - name: Build APK (test build, debug-signed)
-        run: flutter build apk --release --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}
+        run: flutter build apk --release --build-number=${{ github.run_number }} --dart-define=DARS_BUILD=${{ github.run_number }} --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}
 
       # Sign the finished APK with the Dars key itself (Gradle may pick its own debug key).
       - name: Sign the APK with the Dars key (must match assetlinks.json)
@@ -112,7 +118,7 @@ jobs:
           fi
 
       - name: Build web app
-        run: flutter build web --release --base-href "/${{ github.event.repository.name }}/app/" --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}
+        run: flutter build web --release --base-href "/${{ github.event.repository.name }}/app/" --build-number=${{ github.run_number }} --dart-define=DARS_BUILD=${{ github.run_number }} --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}
 
       - name: Collect APK
         run: cp build/app/outputs/flutter-apk/app-release.apk ../Dars.apk
