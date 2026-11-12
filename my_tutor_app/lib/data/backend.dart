@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show Random;
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -291,18 +292,40 @@ class Backend {
   }
 
   /// Posts a message and returns the server's copy (id, time, and whether the contact filter hid it).
-  Future<Map<String, dynamic>> sendMessage(String conversationId, String text, {String kind = 'text', int? seconds, String? fileUrl}) => db
-      .from('messages')
-      .insert({
-        'conversation_id': conversationId,
-        'sender_id': uid,
-        'kind': kind,
-        'body': text,
-        if (seconds != null) 'duration_sec': seconds,
-        if (fileUrl != null && fileUrl.isNotEmpty) 'file_url': fileUrl,
-      })
-      .select()
-      .single();
+  /// [clientId] is made once per message: if an earlier attempt already reached the server
+  /// (only the answer was lost), the server refuses the copy and the stored message is returned.
+  Future<Map<String, dynamic>> sendMessage(String conversationId, String text,
+      {String kind = 'text', int? seconds, String? fileUrl, String? clientId}) async {
+    try {
+      return await db
+          .from('messages')
+          .insert({
+            'conversation_id': conversationId,
+            'sender_id': uid,
+            'kind': kind,
+            'body': text,
+            if (seconds != null) 'duration_sec': seconds,
+            if (fileUrl != null && fileUrl.isNotEmpty) 'file_url': fileUrl,
+            if (clientId != null) 'client_id': clientId,
+          })
+          .select()
+          .single();
+    } on PostgrestException catch (e) {
+      if (e.code != '23505' || clientId == null) rethrow;
+      return await db.from('messages').select().eq('sender_id', uid!).eq('client_id', clientId).single();
+    }
+  }
+
+  static final _rnd = Random.secure();
+
+  /// A random id (UUID v4), e.g. for a message or a receipt file name.
+  static String newId() {
+    final b = List<int>.generate(16, (_) => _rnd.nextInt(256));
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    final h = b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+    return '${h.substring(0, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20)}';
+  }
 
   // ------------------------------------------------------------------ payments (transfer + receipt)
   /// Pay-to accounts the owner has set up, by method ('' = not offered).
@@ -347,9 +370,13 @@ class Backend {
         reference: '${r['reference'] ?? ''}',
       );
 
-  /// Uploads a receipt as receipts/<me>/<payment id>.<ext> and returns the stored path.
-  Future<String> uploadReceipt(String paymentId, Uint8List bytes, String ext, String mime) =>
-      upload('receipts', '$paymentId.$ext', bytes, mime);
+  /// Uploads a receipt under a new random name (receipts/<me>/<random id>.<ext>) and returns the stored path.
+  /// Never overwrites: a receipt cannot be replaced once uploaded.
+  Future<String> uploadReceipt(Uint8List bytes, String ext, String mime) async {
+    final path = '$uid/${newId()}.$ext';
+    await db.storage.from('receipts').uploadBinary(path, bytes, fileOptions: FileOptions(contentType: mime, upsert: false));
+    return 'receipts/$path';
+  }
 
   // ------------------------------------------------------------------ files
   /// Uploads into "<my id>/<name>" of a storage bucket; returns "<bucket>/<path>".
@@ -557,6 +584,7 @@ class Backend {
       url: url,
       readAt: r['read_at'] == null ? null : time(r['read_at']),
       blocked: r['blocked'] == true,
+      clientId: r['client_id'] as String?,
     );
   }
 

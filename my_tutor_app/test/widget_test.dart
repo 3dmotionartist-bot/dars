@@ -58,6 +58,14 @@ void main() {
     });
   });
 
+  group('message id survives retries', () {
+    test('a failed copy keeps the id it was sent with', () {
+      final m = msg('hi', day1, mine: true, sending: true).copyWith(clientId: 'abc');
+      expect(m.copyWith(sending: false, failed: true).clientId, 'abc');
+      expect(m.copyWith(sending: true, failed: false).clientId, 'abc');
+    });
+  });
+
   group('text direction per message', () {
     test('Arabic → right to left', () => expect(directionOf('مرحبا، كيف الحال؟'), TextDirection.rtl));
     test('English → left to right', () => expect(directionOf('Hello, see you at 5?'), TextDirection.ltr));
