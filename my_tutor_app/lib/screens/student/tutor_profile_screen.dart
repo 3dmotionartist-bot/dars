@@ -23,9 +23,45 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
   bool _more = false;
   late String _level = context.read<AppState>().levelId;
 
+  // Live app: the full "about" text and the reviews load when the profile opens (Stage 3 B3).
+  Tutor? _full;
+  List<Review>? _reviews;
+  bool _moreReviews = false;
+  bool _loadingReviews = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final app = context.read<AppState>();
+    if (app.live && widget.tutor.id != app.me.id) {
+      app.tutorDetails(widget.tutor.id).then((t) {
+        if (mounted && t != null) setState(() => _full = t);
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) => _loadReviews());
+    }
+  }
+
+  Future<void> _loadReviews() async {
+    if (_loadingReviews) return;
+    setState(() => _loadingReviews = true);
+    try {
+      final page = await context.read<AppState>().tutorReviews(widget.tutor.id, offset: _reviews?.length ?? 0);
+      if (!mounted) return;
+      setState(() {
+        _reviews = [...?_reviews, ...page];
+        _moreReviews = page.length == 20;
+      });
+    } catch (_) {
+      _reviews ??= const [];
+    } finally {
+      if (mounted) setState(() => _loadingReviews = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final t = widget.tutor;
+    final t = _full ?? widget.tutor;
+    final reviewList = _reviews ?? t.reviews;
     final app = context.watch<AppState>();
     final level = MockData.levels.firstWhere((l) => l.id == _level, orElse: () => MockData.levels[3]);
     final levelPrice = t.pricePerHour * level.priceFactor;
@@ -180,8 +216,9 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
     final reviews = _section('${context.tr('reviews_title')} (${t.reviewCount})', Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(context.tr('reviews_note'), style: const TextStyle(color: AppColors.text3, fontSize: 12.5)),
       const SizedBox(height: 8),
-      if (t.reviews.isEmpty) Text(context.tr('no_reviews')),
-      for (final r in t.reviews)
+      if (reviewList.isEmpty && !_loadingReviews) Text(context.tr('no_reviews')),
+      if (reviewList.isEmpty && _loadingReviews) const Padding(padding: EdgeInsets.all(8), child: LinearProgressIndicator()),
+      for (final r in reviewList)
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -199,6 +236,12 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
               ]),
             ),
           ]),
+        ),
+      if (_moreReviews)
+        Center(
+          child: _loadingReviews
+              ? const Padding(padding: EdgeInsets.all(8), child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5)))
+              : TextButton(onPressed: _loadReviews, child: Text(context.isAr ? 'المزيد من التقييمات' : 'More reviews')),
         ),
     ]));
 

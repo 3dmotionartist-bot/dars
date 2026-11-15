@@ -21,6 +21,7 @@ import '../services/calls.dart';
 import '../services/media_bridge.dart';
 import '../services/ringer.dart';
 import 'poll_policy.dart';
+import 'tutor_lookup.dart';
 
 /// Lets the state show short messages (errors, confirmations) from anywhere.
 final messengerKey = GlobalKey<ScaffoldMessengerState>();
@@ -347,24 +348,110 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     return name.trim().isNotEmpty && '${tp['headline'] ?? ''}'.trim().isNotEmpty;
   }
 
+  /// Tutors who switched "available" on right now (all of them, not only the first page).
+  int onlineTutors = 0;
+
+  /// App start: only the first 30 tutors (best match for this student) — no reviews (Stage 3 B3).
+  /// Before, all tutors (up to 500, ~400 KB) and 500 reviews were downloaded at every start.
   Future<void> _loadTutors() async {
-    final rows = await _b.publicTutors();
-    var reviewRows = <Map<String, dynamic>>[];
-    try {
-      reviewRows = await _b.visibleReviews();
-    } catch (_) {}
-    final byTutor = <String, List<Review>>{};
-    for (final r in reviewRows) {
-      final c = (r['comment'] as String?) ?? '';
-      final d = Backend.time(r['created_at']);
-      byTutor.putIfAbsent('${r['tutor_id']}', () => []).add(
-            Review(const L('طالب في درس', 'Dars student'), (r['stars'] as num?)?.toInt() ?? 5, L(c, c), '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}'),
-          );
-    }
-    final list = [for (final r in rows) Backend.tutorFromRow(r, reviews: byTutor['${r['id']}'] ?? const [], interests: interests)];
+    final res = await Future.wait([
+      _b.searchTutors(interests: interests.toList()),
+      _b.searchTutors(available: true, limit: 1).catchError((_) => <Map<String, dynamic>>[]),
+    ]);
+    final list = [for (final r in res[0]) Backend.tutorFromRow(r, interests: interests)];
+    onlineTutors = res[1].isEmpty ? 0 : ((res[1].first['total_count'] as num?)?.toInt() ?? 0);
+    // Keep tutors seen elsewhere (search pages, chats) so they can still be opened by id.
+    final ids = {for (final t in list) t.id};
+    final kept = tutors.where((t) => !ids.contains(t.id)).toList();
     tutors
       ..clear()
-      ..addAll(list);
+      ..addAll(list)
+      ..addAll(kept);
+  }
+
+  /// Loads the tutors of my own lessons, packages and chats that are not known yet (the app start
+  /// only loads the first 30 of the list), so they show their real name, photo, price and subjects.
+  /// Tutors no longer in the public list stay placeholders ([Tutor.stub]) — never priced or booked from.
+  Future<void> _ensureTutors(Iterable<String> ids) async {
+    final missing = missingTutorIds(ids, tutorById);
+    for (var i = 0; i < missing.length; i += 100) {
+      try {
+        final part = missing.sublist(i, i + 100 < missing.length ? i + 100 : missing.length);
+        rememberTutors([for (final r in await _b.tutorsByIds(part)) Backend.tutorFromRow(r, interests: interests)]);
+      } catch (_) {/* offline: placeholders for now, filled in on the next load */}
+    }
+  }
+
+  /// Adds tutors from a search page to the known list (so tutorById finds them).
+  void rememberTutors(Iterable<Tutor> list) {
+    for (final t in list) {
+      final i = tutors.indexWhere((x) => x.id == t.id);
+      if (i >= 0) {
+        tutors[i] = t;
+      } else {
+        tutors.add(t);
+      }
+    }
+  }
+
+  /// One page of the tutor list from the server. Returns the tutors and how many match in all.
+  Future<({List<Tutor> items, int total})> searchTutors({
+    String query = '',
+    String? subject,
+    String gender = 'all',
+    num? priceMin,
+    num? priceMax,
+    String sort = 'best',
+    int offset = 0,
+    bool available = false,
+    bool instant = false,
+    bool packages = false,
+    bool inPerson = false,
+  }) async {
+    final rows = await _b.searchTutors(
+      query: query,
+      subject: subject,
+      gender: gender,
+      priceMin: priceMin,
+      priceMax: priceMax,
+      sort: sort,
+      offset: offset,
+      available: available,
+      instant: instant,
+      packages: packages,
+      inPerson: inPerson,
+      interests: interests.toList(),
+    );
+    final items = [for (final r in rows) Backend.tutorFromRow(r, interests: interests)];
+    rememberTutors(items);
+    final total = rows.isEmpty ? offset : ((rows.first['total_count'] as num?)?.toInt() ?? offset + rows.length);
+    return (items: items, total: total);
+  }
+
+  /// The tutor with the full "about" text, for the profile screen (null if not found / offline).
+  Future<Tutor?> tutorDetails(String id) async {
+    if (!live) return null;
+    try {
+      final r = await _b.tutorRow(id);
+      if (r == null) return null;
+      final t = Backend.tutorFromRow(r, interests: interests);
+      rememberTutors([t]);
+      return t;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// A tutor's reviews, 20 at a time, loaded when the profile opens.
+  Future<List<Review>> tutorReviews(String tutorId, {int offset = 0}) async {
+    if (!live) return const [];
+    final rows = await _b.tutorReviews(tutorId, offset: offset);
+    return rows.map((r) {
+      final c = (r['comment'] as String?) ?? '';
+      final d = Backend.time(r['created_at']);
+      return Review(const L('طالب في درس', 'Dars student'), (r['stars'] as num?)?.toInt() ?? 5, L(c, c),
+          '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}');
+    }).toList();
   }
 
   Future<void> _loadWallet() async {
@@ -474,6 +561,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
     final names = await _b.names(rows.map((r) => '${asTutor ? r['student_id'] : r['tutor_id']}'));
+    if (!asTutor) await _ensureTutors(rows.map((r) => '${r['tutor_id']}'));
     final list = <Lesson>[];
     for (final r in rows) {
       if (asTutor) {
@@ -500,6 +588,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _loadPackages() async {
     final rows = await _b.myPackages();
     final names = await _b.names(rows.map((r) => '${r['tutor_id']}'));
+    await _ensureTutors(rows.map((r) => '${r['tutor_id']}'));
     packages
       ..clear()
       ..addAll(rows.map((r) {
@@ -547,6 +636,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (changedOnly && rows.isEmpty) return false;
     final others = {for (final r in rows) '${r['id']}': '${r['student_id'] == uid ? r['tutor_id'] : r['student_id']}'};
     final names = await _b.names(others.values);
+    await _ensureTutors([for (final r in rows) if (r['student_id'] == uid) '${r['tutor_id']}']);
     final msgs = await _b.messagesFor(rows.map((r) => '${r['id']}').toList());
     final byConv = <String, List<Map<String, dynamic>>>{};
     for (final m in msgs) {
@@ -1555,7 +1645,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
           'p_package': p.remoteId,
           'p_starts_at': when.toUtc().toIso8601String(),
           'p_duration': (hours * 60).round(),
-          'p_subject': p.tutor.subjectIds.first,
+          // A placeholder tutor's subjects are unknown: the server then keeps the lesson without one.
+          if (!p.tutor.stub) 'p_subject': p.tutor.subjectIds.first,
         }),
         ok: _t('تم حجز الدرس من الباقة', 'Lesson booked from your package'),
       );
@@ -1638,7 +1729,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<List<Tutor>> liveAccepted(String requestId) async {
     final ids = await _b.liveAcceptedTutors(requestId);
-    if (ids.any((id) => tutorById(id) == null)) await _loadTutors();
+    await _ensureTutors(ids);
     return [for (final id in ids) tutorById(id) ?? Backend.stubTutor(id, '')];
   }
 

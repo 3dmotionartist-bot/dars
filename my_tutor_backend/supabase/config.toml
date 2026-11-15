@@ -23,3 +23,7 @@ enable_confirmations = true
 
 [functions.payment-webhook]
 verify_jwt = false
+
+# Guests on the browser call page have no account, so turn-credentials checks tokens itself (Stage 3 B2).
+[functions.turn-credentials]
+verify_jwt = false

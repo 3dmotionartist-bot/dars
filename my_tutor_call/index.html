@@ -91,11 +91,33 @@
   // ---- configuration ---------------------------------------------------------------
   const SUPABASE_URL = "https://upfaylwpfnqplmqqngoj.supabase.co";
   const SUPABASE_KEY = "sb_publishable_e4P1x5mV9AWkdWJGJKfvXg_W5_6ex2h";
-  // Public STUN servers find a direct route between the two phones. On strict mobile networks a TURN relay
-  // is also needed — add yours here, e.g. { urls: "turn:...", username: "...", credential: "..." }.
+  // Public STUN servers find a direct route between the two phones. On strict mobile networks a relay is also
+  // needed: the turn-credentials function gives one with a password that expires in 1 hour, only for a real
+  // Dars call room (Stage 3 B2). Without it (not set up yet / refused) the call tries a direct route only.
   const ICE_SERVERS = [
     { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302", "stun:stun.cloudflare.com:3478"] },
   ];
+  let iceServers = ICE_SERVERS, relayTimer = null;
+  async function loadRelay() {
+    try {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 6000);
+      const r = await fetch(SUPABASE_URL + "/functions/v1/turn-credentials", {
+        method: "POST", signal: ctl.signal,
+        headers: { apikey: SUPABASE_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ room }),
+      });
+      clearTimeout(timer);
+      const j = r.ok ? await r.json() : null;
+      if (j && j.source === "cloudflare" && Array.isArray(j.iceServers) && j.iceServers.length) {
+        iceServers = j.iceServers;
+        if (pc) try { pc.setConfiguration({ iceServers }); } catch (e) {}
+        // The password lasts 1 hour: take a fresh one every 45 minutes, so a reconnect late in a long
+        // call still has a working relay.
+        relayTimer = relayTimer || setInterval(() => loadRelay(), 45 * 60 * 1000);
+      }
+    } catch (e) { /* direct route only */ }
+  }
   const RING_SECONDS = 60;
 
   // ---- parameters ------------------------------------------------------------------
@@ -160,7 +182,7 @@
 
   function newPeer() {
     if (pc) { try { pc.close(); } catch (e) {} }
-    pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    pc = new RTCPeerConnection({ iceServers });
     localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
     pc.onicecandidate = (e) => { if (e.candidate && peerId) send("ice", { to: peerId, candidate: e.candidate.toJSON() }); };
     pc.ontrack = (e) => {
@@ -251,7 +273,7 @@
     $("join").remove();
     status(T.connecting);
     sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
-    if (wantVideo) await loadVideoCap();
+    await Promise.all([wantVideo ? loadVideoCap() : null, loadRelay()]);
     try {
       localStream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -326,7 +348,7 @@
 
   function finish(msg) {
     if (ended) return; ended = true;
-    clearInterval(clock); clearInterval(camTimer); clearTimeout(ringTimer);
+    clearInterval(clock); clearInterval(camTimer); clearInterval(relayTimer); clearTimeout(ringTimer);
     try { send("bye", {}); } catch (e) {}
     setTimeout(() => { try { ch && sb.removeChannel(ch); } catch (e) {} }, 300);
     try { pc && pc.close(); } catch (e) {}

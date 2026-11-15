@@ -81,7 +81,8 @@ function toTutor(r: Row): Tutor {
 /** Approved tutors from the database, or null when the site isn't connected. */
 export async function fetchLiveTutors(): Promise<Tutor[] | null> {
   if (!LIVE) return null;
-  const rows = await get<Row[]>('public_tutors?select=*&order=rating_avg.desc&limit=500');
+  // First page only: 30 tutors, best first, sorted on the server (Stage 3 B3 — was up to 500).
+  const rows = await get<Row[]>('rpc/search_tutors?p_limit=30');
   return rows.map(toTutor);
 }
 

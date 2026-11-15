@@ -6,6 +6,7 @@ import '../../data/mock_data.dart';
 import '../../data/models.dart';
 import '../../l10n.dart';
 import '../../state/app_state.dart';
+import '../../state/tutor_lookup.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../shared/chat_screen.dart';
@@ -15,7 +16,9 @@ import '../shared/transfer_screens.dart';
 class BookingScreen extends StatefulWidget {
   final Tutor tutor;
   final double hourPrice;
-  const BookingScreen({super.key, required this.tutor, required this.hourPrice});
+  /// The subject to book ("Book again" passes the lesson's subject); default: the tutor's first subject.
+  final String? subjectId;
+  const BookingScreen({super.key, required this.tutor, required this.hourPrice, this.subjectId});
   @override
   State<BookingScreen> createState() => _BookingScreenState();
 }
@@ -40,8 +43,18 @@ class _BookingScreenState extends State<BookingScreen> {
 
   // The price the server will charge (per 60 minutes at my level + real package discounts).
   ({double hourly, Map<int, int> discounts})? _quote;
-  double get _hourly => _quote?.hourly ?? widget.hourPrice;
-  int _discount(AppState app, int hours) => _quote?.discounts[hours] ?? app.discountFor(widget.tutor, hours);
+  // Server quote first; otherwise the price passed in, re-based on the freshly loaded tutor.
+  double get _hourly =>
+      _quote?.hourly ?? (widget.tutor.pricePerHour > 0 ? widget.hourPrice / widget.tutor.pricePerHour * _t.pricePerHour : widget.hourPrice);
+  int _discount(AppState app, int hours) => _quote?.discounts[hours] ?? app.discountFor(_t, hours);
+
+  // The live app loads the tutor again here (Stage 3 B3): the screen may have been opened from a
+  // lesson, package or chat whose tutor is only a placeholder. Nothing is priced or booked from that.
+  late Tutor _t = widget.tutor;
+  late bool _loadingTutor = context.read<AppState>().live;
+  bool _unavailable = false;
+
+  String get _subjectId => bookingSubject(widget.subjectId, _t.subjectIds);
   static double _r2(num v) => (v * 100).round() / 100;
   /// Same rule as the server: hourly price × minutes / 60, rounded to cents.
   double _lessonPrice(int minutes) => _r2(_hourly * minutes / 60);
@@ -49,10 +62,24 @@ class _BookingScreenState extends State<BookingScreen> {
   @override
   void initState() {
     super.initState();
-    context.read<AppState>().priceQuote(widget.tutor).then((q) {
+    final app = context.read<AppState>();
+    if (_loadingTutor) {
+      app.tutorDetails(widget.tutor.id).then((t) {
+        if (!mounted) return;
+        setState(() {
+          _loadingTutor = false;
+          if (t != null) {
+            _t = t;
+          } else if (widget.tutor.stub) {
+            _unavailable = true; // no longer in the tutor list: cannot be booked
+          }
+        });
+      });
+    }
+    app.priceQuote(widget.tutor).then((q) {
       if (mounted && q != null) setState(() => _quote = q);
     });
-    context.read<AppState>().scheduleFor(widget.tutor).then((s) {
+    app.scheduleFor(widget.tutor).then((s) {
       if (!mounted) return;
       setState(() {
         _schedule = s;
@@ -124,7 +151,18 @@ class _BookingScreenState extends State<BookingScreen> {
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
-    final t = widget.tutor;
+    final t = _t;
+    if (_loadingTutor && t.stub) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (_unavailable) {
+      return Scaffold(
+        appBar: AppBar(),
+        body: EmptyState(
+          icon: Icons.person_off_outlined,
+          title: context.isAr ? 'هذا المدرس غير متاح للحجز الآن' : 'This tutor is not taking bookings now',
+          body: context.isAr ? 'ابحث عن مدرس آخر في قائمة المدرسين.' : 'Find another tutor in the tutor list.',
+        ),
+      );
+    }
     final discount = _package ? _discount(app, _hours) : 0;
     final original = _package ? _r2(_hourly * _hours) : _lessonPrice(_minutes);
     final subtotal = _package ? _r2(_hourly * _hours * (100 - discount) / 100) : original;
@@ -136,6 +174,7 @@ class _BookingScreenState extends State<BookingScreen> {
     final dueNow = double.parse(total.toStringAsFixed(2));
     bool canNext = true;
     if (_current == 'step_time') canNext = _slot != null;
+    if (_t.stub) canNext = false; // never booked from a placeholder
     if (_current == 'step_pay') canNext = _terms && !_processing && (dueNow <= 0 || methods.isEmpty || !app.live || _method != null);
 
     Widget body;
@@ -299,7 +338,7 @@ class _BookingScreenState extends State<BookingScreen> {
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   VerifiedName(t.name.of(context)),
-                  Text(MockData.subject(t.subjectIds.first).name.of(context), style: const TextStyle(color: AppColors.text2)),
+                  Text(MockData.subject(_subjectId).name.of(context), style: const TextStyle(color: AppColors.text2)),
                 ]),
               ),
             ]),
@@ -487,8 +526,8 @@ class _BookingScreenState extends State<BookingScreen> {
                               online: _online,
                               total: total,
                               balanceUsed: balanceUsed,
-                              subject: MockData.subject(t.subjectIds.first).name,
-                              subjectId: t.subjectIds.first,
+                              subject: MockData.subject(_subjectId).name,
+                              subjectId: _subjectId,
                               method: _method ?? 'bank',
                               notes: _notes.text,
                             );
