@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../config.dart';
 import '../../l10n.dart';
+import '../../services/media_bridge.dart';
 import '../../services/page_reload.dart';
 import '../../theme.dart';
 
@@ -47,7 +48,10 @@ class UpdateRequiredScreen extends StatelessWidget {
                       if (kIsWeb) {
                         reloadPage();
                       } else {
-                        launchUrl(Uri.parse(DarsConfig.apkUrl), mode: LaunchMode.externalApplication);
+                        // The smaller file made for this phone's processor (falls back to the one for all phones).
+                        Future.wait([MediaBridge.supportedAbis(), MediaBridge.installedVersionCode()]).then((r) => launchUrl(
+                            Uri.parse(DarsConfig.apkUrlFor(r[0] as List<String>, installedCode: r[1] as int)),
+                            mode: LaunchMode.externalApplication));
                       }
                     },
                     icon: Icon(kIsWeb ? Icons.refresh_rounded : Icons.download_rounded),

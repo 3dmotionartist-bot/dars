@@ -146,7 +146,7 @@
       a.href = "intent://join?room=" + encodeURIComponent(room) + "&video=" + (wantVideo ? "1" : "0") +
                "#Intent;scheme=dars;package=com.dars.my_tutor_app;S.browser_fallback_url=" + encodeURIComponent(webJoin) + ";end";
       const g = $("getApp"); g.hidden = false;
-      g.innerHTML = T.getApp + ' <a href="' + base + 'Dars.apk">' + T.download + "</a>";
+      g.innerHTML = T.getApp + ' <a href="https://github.com/3dmotionartist-bot/dars/releases/latest/download/Dars-arm64.apk">' + T.download + "</a>";
     }
     const w = $("openWeb");
     w.hidden = false; w.textContent = T.openWeb; w.href = webJoin;
@@ -177,7 +177,52 @@
     pendingIce = [];
   }
 
+  // ---- camera video limit (same as the app): 640×480, 24 fps, 600 kbit/s; 300 → 150 on a bad link ----
+  let capKbps = 600, capHeight = 480, camStep = 0, camGood = 0, camTimer = null, lastBytes = null, lastAt = 0, sendKbps = 0;
+  const DEBUG = new URLSearchParams(location.search).has("debug");
+  const camSteps = () => [capKbps, Math.round(capKbps / 2), Math.round(capKbps / 4)];
+  const camConstraints = (facingMode) => ({ facingMode, width: { ideal: Math.round(capHeight * 4 / 3) }, height: { ideal: capHeight }, frameRate: { ideal: 24, max: 24 } });
+  async function loadVideoCap() {
+    try {
+      const q = sb.from("app_settings").select("key,value").in("key", ["call_video_kbps", "call_video_height"]);
+      const { data } = await Promise.race([q, new Promise((r) => setTimeout(() => r({ data: null }), 3000))]);
+      for (const r of data || []) {
+        const n = Number(r.value);
+        if (r.key === "call_video_kbps" && n >= 100 && n <= 4000) capKbps = n;
+        if (r.key === "call_video_height" && n >= 144 && n <= 1080) capHeight = n;
+      }
+    } catch (e) {}
+  }
+  async function applyCap() {
+    const sender = pc && pc.getSenders().find((x) => x.track && x.track.kind === "video");
+    if (!sender) return;
+    const p = sender.getParameters();
+    if (!p.encodings || !p.encodings.length) p.encodings = [{}];
+    for (const e of p.encodings) { e.maxBitrate = camSteps()[camStep] * 1000; e.maxFramerate = 24; }
+    try { await sender.setParameters(p); } catch (e) {}
+  }
+  async function checkCam() {
+    if (!pc) return;
+    let loss = null, rtt = null, bytes = 0;
+    (await pc.getStats()).forEach((r) => {
+      if (r.type === "candidate-pair" && (r.nominated || r.state === "succeeded") && r.currentRoundTripTime != null) rtt = r.currentRoundTripTime;
+      if (r.type === "remote-inbound-rtp" && r.kind === "video") { if (r.fractionLost != null) loss = r.fractionLost; if (r.roundTripTime != null) rtt = r.roundTripTime; }
+      if (r.type === "outbound-rtp" && r.kind === "video") bytes += r.bytesSent || 0;
+    });
+    const now = Date.now();
+    if (lastBytes != null && now > lastAt) sendKbps = Math.round((bytes - lastBytes) * 8 / (now - lastAt));
+    lastBytes = bytes; lastAt = now;
+    const bad = (loss != null && loss > 0.08) || (rtt != null && rtt > 0.7);
+    let next = camStep;
+    if (bad) { camGood = 0; if (next < 2) next++; }
+    else if ((loss || 0) < 0.02 && (rtt || 0) < 0.4) { if (++camGood >= 3 && next > 0) { next--; camGood = 0; } }
+    else camGood = 0;
+    if (next !== camStep) { camStep = next; await applyCap(); }
+    if (DEBUG) note("video " + sendKbps + " / " + camSteps()[camStep] + " kbps" + (rtt != null ? " · rtt " + Math.round(rtt * 1000) + " ms" : "") + (loss != null ? " · loss " + Math.round(loss * 100) + "%" : ""));
+  }
+
   function onConnected() {
+    if (wantVideo) { applyCap(); camTimer = camTimer || setInterval(() => checkCam().catch(() => {}), 4000); }
     if (connected) { status(T.connected); return; }
     connected = true; clearTimeout(ringTimer); note(""); $("stage").classList.remove("ringing");
     $("stage").classList.remove("ringing");
@@ -205,16 +250,17 @@
   async function start() {
     $("join").remove();
     status(T.connecting);
+    sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
+    if (wantVideo) await loadVideoCap();
     try {
       localStream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        video: wantVideo ? { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+        video: wantVideo ? camConstraints("user") : false,
       });
     } catch (e) { status(T.denied); note(T.denied); return; }
     if (wantVideo) { const l = $("local"); l.srcObject = localStream; l.style.display = "block"; $("cam").hidden = false; $("flip").hidden = false; }
     newPeer();
 
-    sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
     ch = sb.channel("dars-call-" + room, { config: { broadcast: { self: false, ack: false } } });
     const joinedAt = Date.now();
     let peerSeen = 0, helloTimer, connectTimer;
@@ -280,7 +326,7 @@
 
   function finish(msg) {
     if (ended) return; ended = true;
-    clearInterval(clock); clearTimeout(ringTimer);
+    clearInterval(clock); clearInterval(camTimer); clearTimeout(ringTimer);
     try { send("bye", {}); } catch (e) {}
     setTimeout(() => { try { ch && sb.removeChannel(ch); } catch (e) {} }, 300);
     try { pc && pc.close(); } catch (e) {}
@@ -314,7 +360,7 @@
     if (!localStream) return;
     facing = facing === "user" ? "environment" : "user";
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing } });
+      const s = await navigator.mediaDevices.getUserMedia({ video: camConstraints(facing) });
       const nt = s.getVideoTracks()[0], old = localStream.getVideoTracks()[0];
       const sender = pc.getSenders().find((x) => x.track && x.track.kind === "video");
       if (sender) await sender.replaceTrack(nt);

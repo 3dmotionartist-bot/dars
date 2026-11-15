@@ -97,9 +97,14 @@ export function SectionHead({ eyebrow, title, subtitle, center = false }: { eyeb
   );
 }
 
+// Android app files are attached to each GitHub release (Stage 3 A5): most phones use arm64,
+// older 32-bit phones the arm32 file.
+const APK = 'https://github.com/3dmotionartist-bot/dars/releases/latest/download/';
+
 export function StoreButtons({ lang }: { lang: Lang }) {
   const d = getDict(lang).app;
   return (
+    <div>
     <div className="row gap10 wrap">
       <a className="store" href="#" aria-label={d.ios}>
         <Icon name="apple" size={24} fill />
@@ -108,12 +113,16 @@ export function StoreButtons({ lang }: { lang: Lang }) {
           {d.ios}
         </span>
       </a>
-      <a className="store" href="#" aria-label={d.android}>
+      <a className="store" href={APK + 'Dars-arm64.apk'} aria-label={d.android}>
         <Icon name="android" size={24} />
         <span>
-          <small>Get it on</small>
+          <small>{d.androidSmall}</small>
           {d.android}
         </span>
+      </a>
+    </div>
+      <a href={APK + 'Dars-arm32.apk'} style={{ display: 'inline-block', marginTop: 8, fontSize: 13, opacity: 0.8, textDecoration: 'underline' }}>
+        {d.older}
       </a>
     </div>
   );

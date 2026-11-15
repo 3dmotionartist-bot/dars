@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Recreates a scratch database, loads the Supabase stub + migrations + seed, runs the scenario test.
 set -euo pipefail
+PERF=0; [ "${1:-}" = "--perf" ] && PERF=1
 DB=${DB:-dars_test}
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 dropdb --if-exists "$DB" && createdb "$DB"
@@ -13,3 +14,14 @@ psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/week_fixes.sql"
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/retest_fixes.sql"
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/week2.sql"
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/week2_retest.sql"
+psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/capacity.sql"
+
+# --perf: big copy (50,000 users, ~78,000 chats, ~1.9 M messages) and timings. Not part of the default run.
+if [ "$PERF" = 1 ]; then
+  P=${PERF_DB:-dars_perf}
+  dropdb --if-exists "$P" && createdb "$P"
+  sed '/^create role/d;/^grant anon, authenticated, service_role to authenticator/d' "$HERE/tests/supabase_stub.sql" | psql -q -v ON_ERROR_STOP=1 -d "$P"
+  for f in "$HERE"/supabase/migrations/*.sql "$HERE/supabase/seed.sql"; do psql -q -v ON_ERROR_STOP=1 -d "$P" -f "$f"; done
+  psql -v ON_ERROR_STOP=1 -d "$P" -f "$HERE/tests/perf_seed.sql"
+  psql -v ON_ERROR_STOP=1 -d "$P" -f "$HERE/tests/perf_check.sql"
+fi
