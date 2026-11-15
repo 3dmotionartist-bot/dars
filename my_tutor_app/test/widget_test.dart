@@ -77,6 +77,12 @@ void main() {
       expect(fallbackReloadEvery(foreground: false, realtimeConnected: true), isNull);
       expect(fallbackReloadEvery(foreground: false, realtimeConnected: false), isNull);
     });
+    test('live updates down → every 5th reload is a full one (read ticks)', () {
+      expect([for (var t = 1; t <= 10; t++) fullReloadDue(realtimeConnected: false, tick: t)].where((x) => x).length, 2);
+      expect(fullReloadDue(realtimeConnected: false, tick: 5), isTrue);
+      expect(fullReloadDue(realtimeConnected: false, tick: 4), isFalse);
+      expect(fullReloadDue(realtimeConnected: true, tick: 5), isFalse);
+    });
     test('"loaded up to" keeps the later server time', () {
       expect(laterServerTime(null, '2026-11-12T10:00:00.5+00:00'), '2026-11-12T10:00:00.5+00:00');
       expect(laterServerTime('2026-11-12T10:00:00.5+00:00', '2026-11-12T09:59:59+00:00'), '2026-11-12T10:00:00.5+00:00');
@@ -91,6 +97,11 @@ void main() {
     test('unknown / emulator → the file for all phones', () {
       expect(DarsConfig.apkUrlFor(const []), endsWith('/Dars.apk'));
       expect(DarsConfig.apkUrlFor(['x86_64']), endsWith('/Dars.apk'));
+    });
+    test('a phone with the all-phones file keeps it (Android refuses a lower version number)', () {
+      expect(DarsConfig.apkUrlFor(['arm64-v8a'], installedCode: 3027), endsWith('/Dars.apk'));
+      expect(DarsConfig.apkUrlFor(['arm64-v8a'], installedCode: 2027), endsWith('/Dars-arm64.apk'));
+      expect(DarsConfig.apkUrlFor(['armeabi-v7a'], installedCode: 25), endsWith('/Dars-arm32.apk'));
     });
     test('links point to the latest GitHub release', () => expect(DarsConfig.apkUrl, startsWith('https://github.com/3dmotionartist-bot/dars/releases/latest/download/')));
   });

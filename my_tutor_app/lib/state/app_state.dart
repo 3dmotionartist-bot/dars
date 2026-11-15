@@ -721,14 +721,18 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   bool _reloading = false;
+  int _downTicks = 0;
 
   /// Only the chats that changed since the last load, plus open live-help requests for tutors.
+  /// While live updates are down, every 5th reload is a full one, so "read" ticks (which do not
+  /// change a chat's last-message time) still arrive.
   Future<void> _fallbackReload() async {
     if (_reloading || _b.uid == null) return;
     _reloading = true;
     try {
       if (role == UserRole.tutor) await _loadLiveRequests();
-      await _loadConversations(changedOnly: true);
+      final full = fullReloadDue(realtimeConnected: _realtimeUp, tick: _realtimeUp ? 0 : ++_downTicks);
+      await _loadConversations(changedOnly: !full);
       notifyListeners();
     } catch (_) {
     } finally {

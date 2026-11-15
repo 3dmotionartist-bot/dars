@@ -49,8 +49,9 @@ class UpdateRequiredScreen extends StatelessWidget {
                         reloadPage();
                       } else {
                         // The smaller file made for this phone's processor (falls back to the one for all phones).
-                        MediaBridge.supportedAbis().then((abis) =>
-                            launchUrl(Uri.parse(DarsConfig.apkUrlFor(abis)), mode: LaunchMode.externalApplication));
+                        Future.wait([MediaBridge.supportedAbis(), MediaBridge.installedVersionCode()]).then((r) => launchUrl(
+                            Uri.parse(DarsConfig.apkUrlFor(r[0] as List<String>, installedCode: r[1] as int)),
+                            mode: LaunchMode.externalApplication));
                       }
                     },
                     icon: Icon(kIsWeb ? Icons.refresh_rounded : Icons.download_rounded),

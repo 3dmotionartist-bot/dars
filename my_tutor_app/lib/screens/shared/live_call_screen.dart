@@ -687,12 +687,11 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     _camSteps = [k, (k / 2).round(), (k / 4).round()];
   }
 
+  /// Called every time the call becomes connected — also after a reconnect with a rebuilt connection,
+  /// whose new camera sender starts without a limit. One watcher timer for the whole call.
   void _startCameraCap() {
-    if (_camTimer != null) return;
-    _camStep = 0;
-    _camGood = 0;
     if (!_sharing) _applyQuality(null);
-    _camTimer = Timer.periodic(const Duration(seconds: 4), (_) => _checkCamera());
+    _camTimer ??= Timer.periodic(const Duration(seconds: 4), (_) => _checkCamera());
   }
 
   Future<void> _checkCamera() async {

@@ -38,7 +38,11 @@ class DarsConfig {
   static const apkUrl = '${apkBase}Dars.apk';
 
   /// The file that fits a phone with these processor types (Android Build.SUPPORTED_ABIS, best first).
-  static String apkUrlFor(List<String> abis) {
+  /// Version numbers: arm32 file 1000 + build, arm64 file 2000 + build, all-phones file 3000 + build.
+  /// Android refuses a lower number over a higher one, so a phone that has the all-phones file
+  /// ([installedCode] 3000 or more) keeps getting the all-phones file.
+  static String apkUrlFor(List<String> abis, {int installedCode = 0}) {
+    if (installedCode >= 3000) return apkUrl;
     for (final a in abis) {
       if (a == 'arm64-v8a') return '${apkBase}Dars-arm64.apk';
       if (a == 'armeabi-v7a') return '${apkBase}Dars-arm32.apk';

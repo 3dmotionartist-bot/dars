@@ -8,6 +8,10 @@ Duration? fallbackReloadEvery({required bool foreground, required bool realtimeC
   return realtimeConnected ? const Duration(seconds: 90) : const Duration(seconds: 20);
 }
 
+/// While live updates are down, every [every]th fallback reload is a full one (picks up "read" ticks).
+bool fullReloadDue({required bool realtimeConnected, required int tick, int every = 5}) =>
+    !realtimeConnected && tick > 0 && tick % every == 0;
+
 /// The later of two server times (ISO text), used as "loaded up to" for the next fallback reload.
 String? laterServerTime(String? a, String? b) {
   if (a == null) return b;

@@ -30,6 +30,17 @@ class MediaBridge {
     }
   }
 
+  /// The installed app's version number (1xxx arm32, 2xxx arm64, 3xxx all-phones file); 0 if unknown.
+  static Future<int> installedVersionCode() async {
+    if (kIsWeb) return 0;
+    try {
+      final r = await _ch.invokeMethod<int>('versionCode');
+      return r ?? 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
   /// 'ok', 'permission' (microphone not allowed yet) or 'error'.
   static Future<String> startRecording() async {
     try {
