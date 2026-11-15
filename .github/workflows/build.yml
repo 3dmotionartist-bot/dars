@@ -102,15 +102,18 @@ jobs:
       # Backend connection: set repository variables SUPABASE_URL and SUPABASE_ANON_KEY
       # (GitHub → Settings → Secrets and variables → Actions → Variables). Empty = demo mode.
       # Android files (Stage 3 A5): Dars-arm64.apk (most phones), Dars-arm32.apk (older 32-bit phones)
-      # and Dars.apk (all phones, larger). Split files get version code 1000×(1 arm32 / 2 arm64) + build number;
-      # Dars.apk keeps the plain build number, so every older app can install over itself with any of them.
+      # and Dars.apk (all phones, larger). Version numbers: arm32 file 1000 + build, arm64 file 2000 + build,
+      # Dars.apk 3000 + build (the highest), so a phone can always move to it; Android refuses a lower number,
+      # so the app's update screen keeps a phone that has Dars.apk on Dars.apk (DarsConfig.apkUrlFor).
+      # (Run numbers must stay under 1000 for this; past that, raise the three bases together.)
       - name: Build APKs (arm64, arm32 and one for all phones)
         run: |
-          DEFS="--build-number=${{ github.run_number }} --dart-define=DARS_BUILD=${{ github.run_number }} --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}"
+          N=${{ github.run_number }}
+          DEFS="--dart-define=DARS_BUILD=$N --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}"
           mkdir -p ../apks
-          flutter build apk --release $DEFS
+          flutter build apk --release --build-number=$((3000 + N)) $DEFS
           cp build/app/outputs/flutter-apk/app-release.apk ../apks/Dars.apk
-          flutter build apk --release --split-per-abi $DEFS
+          flutter build apk --release --split-per-abi --build-number=$N $DEFS
           cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk ../apks/Dars-arm64.apk
           cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk ../apks/Dars-arm32.apk
 
@@ -204,8 +207,8 @@ jobs:
         with:
           name: web-app
           path: _site/app
-      # Old app download address https://<user>.github.io/<repo>/Dars.apk: app builds up to 25 still open it
-      # from the "please update" screen. Keep it until min_app_build is 26 or more, then remove these 4 lines.
+      # Old app download address https://<user>.github.io/<repo>/Dars.apk: only for app builds up to 25, whose
+      # "please update" screen still opens it. Remove these 4 lines once min_app_build is 26 or more.
       - uses: actions/download-artifact@v4
         with:
           name: Dars-apk
