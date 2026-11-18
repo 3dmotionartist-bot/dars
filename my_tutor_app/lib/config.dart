@@ -25,6 +25,10 @@ class DarsConfig {
   /// Length of the sign-in code Supabase sends (6 by default).
   static const otpLength = 6;
 
+  /// The website (Terms, Privacy and other pages).
+  static const siteUrl = 'https://3dmotionartist-bot.github.io/dars/';
+  static String legalUrl(String doc, String lang) => '$siteUrl$lang/legal/$doc/';
+
   /// Voice / video call page (published with the website). Calls open there in the phone's browser.
   static const callPageUrl = 'https://3dmotionartist-bot.github.io/dars/call/';
 

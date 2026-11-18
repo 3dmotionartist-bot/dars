@@ -24,7 +24,7 @@
       pending: "قيد المراجعة", approved: "معتمد", rejected: "مرفوض", active: "نشط", blocked: "محظور", deleted: "محذوف",
       approve: "اعتماد", reject: "رفض", block: "حظر", unblock: "إلغاء الحظر", reject_reason: "سبب الرفض (يصل للمدرس)",
       headline: "العنوان", about: "نبذة", experience: "الخبرة", years: "سنوات", hours_taught: "ساعات التدريس", package_disc: "خصم الباقات حتى",
-      in_person: "حضوري", online: "أونلاين", cv: "السيرة الذاتية", video: "فيديو تعريفي", missing: "غير مرفق", languages: "اللغات",
+      in_person: "حضوري", online: "أونلاين", cv: "السيرة الذاتية", video: "فيديو تعريفي", missing: "غير مرفق", documents: "الوثائق", deletions: "طلبات حذف حسابات (تُحذف تلقائياً بعد 14 يوماً)", requested: "تاريخ الطلب", delete_after: "يُحذف في", upcoming: "دروس قادمة", delete_now: "حذف الآن", delete_now_q: "تحقق من الرصيد وطلبات التحويل أولاً. الحذف نهائي.", for_child: "للطفل:", att_tutor: "المدرس", att_student: "الطالب", att_join: "دخل", att_leave: "خرج", doc_id: "الهوية", doc_certificate: "الشهادة", doc_cv: "السيرة الذاتية", doc_other: "وثيقة", open_file_doc: "فتح", no_docs: "لم يرفع وثائق — لا تعتمد قبل التحقق", changes: "تعديلات بانتظار المراجعة", changes_now: "الحالي", changes_new: "الجديد", approve_changes: "اعتماد التعديلات", reject_changes: "رفض التعديلات", f_full_name: "الاسم", f_headline: "العنوان", f_about: "النبذة", f_video_url: "الفيديو", f_hourly_price: "سعر الساعة", f_level_prices: "أسعار المراحل", conduct: "قواعد السلوك", accepted: "موافق عليها", languages: "اللغات",
       role: "النوع", student: "طالب", parent: "ولي أمر", level: "المرحلة", city: "المدينة", balance: "الرصيد", adjust: "تعديل الرصيد",
       adjust_amount: "المبلغ (+ إضافة / − خصم)", adjust_note: "سبب التعديل (إلزامي)",
       number: "رقم", student_c: "الطالب", tutor: "المدرس", subject: "المادة", when: "الموعد", duration: "المدة", min: "د", amount: "المبلغ",
@@ -36,7 +36,7 @@
       purpose: "النوع", p_booking: "حجز", p_top_up: "شحن رصيد", reference: "المرجع", fail_reason: "سبب الرفض (يراه المستخدم)",
       s_top_up_min: "أقل مبلغ شحن", s_top_up_max: "أعلى مبلغ شحن", s_pay_sham: "حساب الاستلام — شام كاش", s_pay_syriatel: "حساب الاستلام — سيريتل كاش",
       s_pay_mtn: "حساب الاستلام — MTN كاش", s_pay_bank: "حساب الاستلام — البنك (IBAN)", s_pay_h: "اتركه فارغاً لإخفاء هذه الطريقة من التطبيق",
-      s_min_build: "أقل رقم إصدار مسموح للتطبيق", s_min_build_h: "الإصدارات الأقدم تُطلب منها التحديث (رقم البناء من GitHub). 0 = بلا إلزام", paypal: "PayPal", western_union: "ويسترن يونيون",
+      s_terms_version: "نسخة الشروط والخصوصية", s_terms_version_h: "ارفعها (2، 3…) بعد تعديل النصوص على الموقع ليُطلب من الجميع الموافقة من جديد", s_phone_signin: "الدخول برقم الهاتف", s_phone_signin_h: "off = البريد فقط · sms أو whatsapp بعد إعداد مزود الرموز في Supabase", s_min_build: "أقل رقم إصدار مسموح للتطبيق", s_min_build_h: "الإصدارات الأقدم تُطلب منها التحديث (رقم البناء من GitHub). 0 = بلا إلزام", paypal: "PayPal", western_union: "ويسترن يونيون",
       paid: "مدفوع", under_review: "إيصال للمراجعة", failed: "فشل", refunded: "مسترد", receipt: "إيصال", view_receipt: "عرض الإيصال",
       confirm_payment: "تأكيد الدفع", fail_payment: "رفض الإيصال", requested: "مطلوب", mark_paid: "تم التحويل", payout_note: "ملاحظة للمدرس",
       details: "بيانات الاستلام", tutor_balance: "رصيد المدرس",
@@ -62,7 +62,7 @@
       wallet_hint: "يظهر في محفظة المستخدم مع السبب", lessons_count: "دروس", open_tutor: "فتح الملف",
       set_password: "تغيير كلمة المرور", new_password: "كلمة المرور الجديدة (6 أحرف على الأقل)", pw_hint: "كلمات المرور محفوظة مشفّرة ولا يمكن لأحد عرضها — اكتب كلمة جديدة وأرسلها للمستخدم.", pw_saved: "تم تغيير كلمة المرور", email: "البريد الإلكتروني",
       g_safety: "الأمان والمراقبة", chats: "مراقبة المحادثات", alerts: "إنذارات الأمان", a_alerts: "إنذارات أمان جديدة",
-      k_phone: "رقم هاتف", k_email: "بريد إلكتروني", k_link: "رابط تواصل خارجي", k_contact_request: "طلب رقم / تواصل خارجي",
+      k_phone: "رقم هاتف", k_email: "بريد إلكتروني", k_link: "رابط تواصل خارجي", k_contact_request: "طلب رقم / تواصل خارجي", k_handle: "حساب تواصل (@)", k_possible: "رقم محتمل (لم يُخفَ)", src_tutor_profile: "ملف مدرس", src_review: "تقييم", src_lesson_link: "رابط درس", sender: "المرسل",
       reviewed: "تمت المراجعة", mark_reviewed: "تمت المراجعة", open_chat: "فتح المحادثة", messages_n: "رسالة", flags_n: "تنبيه",
       alarm_title: "إنذار أمني", alarm_did: "شارك أو طلب بيانات تواصل", alarm_where: "في المحادثة بين", and: "و", silence: "إيقاف الصوت",
       hidden_other: "مخفية عن الطرف الآخر", sender: "المرسل", where: "المكان", detected: "ما تم رصده", message: "الرسالة",
@@ -88,7 +88,7 @@
       pending: "Pending", approved: "Approved", rejected: "Rejected", active: "Active", blocked: "Blocked", deleted: "Deleted",
       approve: "Approve", reject: "Reject", block: "Block", unblock: "Unblock", reject_reason: "Reason (sent to the tutor)",
       headline: "Headline", about: "About", experience: "Experience", years: "years", hours_taught: "Hours taught", package_disc: "Package discount up to",
-      in_person: "In person", online: "Online", cv: "CV", video: "Intro video", missing: "Not uploaded", languages: "Languages",
+      in_person: "In person", online: "Online", cv: "CV", video: "Intro video", missing: "Not uploaded", documents: "Documents", deletions: "Account deletion requests (deleted automatically after 14 days)", requested: "Requested", delete_after: "Deleted on", upcoming: "Upcoming lessons", delete_now: "Delete now", delete_now_q: "Check the balance and payout requests first. Deletion cannot be undone.", for_child: "for child:", att_tutor: "Tutor", att_student: "Student", att_join: "joined", att_leave: "left", doc_id: "ID", doc_certificate: "Certificate", doc_cv: "CV", doc_other: "Document", open_file_doc: "Open", no_docs: "No documents uploaded — do not approve before checking", changes: "Changes waiting for review", changes_now: "Now", changes_new: "New", approve_changes: "Approve changes", reject_changes: "Reject changes", f_full_name: "Name", f_headline: "Headline", f_about: "About", f_video_url: "Video", f_hourly_price: "Hourly price", f_level_prices: "Level prices", conduct: "Code of conduct", accepted: "accepted", languages: "Languages",
       role: "Type", student: "Student", parent: "Parent", level: "Level", city: "City", balance: "Balance", adjust: "Adjust balance",
       adjust_amount: "Amount (+ add / − deduct)", adjust_note: "Reason (required)",
       number: "No.", student_c: "Student", tutor: "Tutor", subject: "Subject", when: "When", duration: "Length", min: "min", amount: "Amount",
@@ -100,7 +100,7 @@
       purpose: "Type", p_booking: "Booking", p_top_up: "Credit top-up", reference: "Reference", fail_reason: "Reason (the user sees it)",
       s_top_up_min: "Minimum top-up", s_top_up_max: "Maximum top-up", s_pay_sham: "Pay-to account — Sham Cash", s_pay_syriatel: "Pay-to account — Syriatel Cash",
       s_pay_mtn: "Pay-to account — MTN Cash", s_pay_bank: "Pay-to account — Bank (IBAN)", s_pay_h: "Leave empty to hide this method in the app",
-      s_min_build: "Minimum app build", s_min_build_h: "Older builds are asked to update (build number from GitHub). 0 = no requirement", paypal: "PayPal", western_union: "Western Union",
+      s_terms_version: "Terms & Privacy version", s_terms_version_h: "Raise it (2, 3…) after changing the texts on the website so everyone is asked to accept again", s_phone_signin: "Phone sign-in", s_phone_signin_h: "off = e-mail only · sms or whatsapp after setting up the code provider in Supabase", s_min_build: "Minimum app build", s_min_build_h: "Older builds are asked to update (build number from GitHub). 0 = no requirement", paypal: "PayPal", western_union: "Western Union",
       paid: "Paid", under_review: "Receipt to check", failed: "Failed", refunded: "Refunded", receipt: "Receipt", view_receipt: "View receipt",
       confirm_payment: "Confirm payment", fail_payment: "Reject receipt", requested: "Requested", mark_paid: "Mark paid", payout_note: "Note to the tutor",
       details: "Payout details", tutor_balance: "Tutor balance",
@@ -126,7 +126,7 @@
       wallet_hint: "Shows in the user's wallet with the reason", lessons_count: "lessons", open_tutor: "Open profile",
       set_password: "Change password", new_password: "New password (at least 6 characters)", pw_hint: "Passwords are stored encrypted and can't be viewed by anyone — type a new one and send it to the user.", pw_saved: "Password changed", email: "Email",
       g_safety: "Safety & monitoring", chats: "Chat monitor", alerts: "Security alerts", a_alerts: "New security alerts",
-      k_phone: "Phone number", k_email: "Email address", k_link: "Outside contact link", k_contact_request: "Asked for contact outside Dars",
+      k_phone: "Phone number", k_email: "Email address", k_link: "Outside contact link", k_contact_request: "Asked for contact outside Dars", k_handle: "Social handle (@)", k_possible: "Possible number (not hidden)", src_tutor_profile: "Tutor profile", src_review: "Review", src_lesson_link: "Lesson link", sender: "Sender",
       reviewed: "Reviewed", mark_reviewed: "Mark reviewed", open_chat: "Open chat", messages_n: "messages", flags_n: "alerts",
       alarm_title: "Security alert", alarm_did: "shared or asked for contact details", alarm_where: "in the chat between", and: "and", silence: "Silence",
       hidden_other: "Hidden from the other person", sender: "Sender", where: "Where", detected: "Detected", message: "Message",
@@ -157,6 +157,7 @@
   const locale = () => (S.lang === "ar" ? "ar-SY-u-nu-latn" : "en-GB");
   const fmtDate = (d) => d ? new Intl.DateTimeFormat(locale(), { day: "numeric", month: "short" }).format(new Date(d)) : "—";
   const fmtDateTime = (d) => d ? new Intl.DateTimeFormat(locale(), { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(d)) : "—";
+  const fmtTime = (d) => d ? new Intl.DateTimeFormat(locale(), { hour: "numeric", minute: "2-digit" }).format(new Date(d)) : "—";
   const ago = (d) => {
     const m = Math.round((Date.now() - new Date(d)) / 60000);
     if (m < 1) return t("ago_now");
@@ -240,6 +241,8 @@
         });
       },
       async verifyTutor(id, status, reason) { const x = find("tutors", id, "user_id"); x.verification = status; x.rejection_reason = status === "rejected" ? reason : null; return wait(); },
+      async deleteNow(id) { DB.deletions = (DB.deletions || []).filter((d) => d.user_id !== id); return wait(); },
+      async reviewChanges(id, ok) { const x = find("tutors", id, "user_id"); if (ok && x.pending_changes) Object.assign(x, x.pending_changes); x.pending_changes = null; return wait(); },
       async setUserStatus(id, status) { const x = find("students", id) || find("tutors", id, "user_id"); if (x.account_status !== undefined) x.account_status = status; else x.status = status; return wait(); },
       async setPassword() { return wait(); },
       async walletAdjust(id, amount, note) { const x = find("students", id); x.balance = Math.round((x.balance + amount) * 100) / 100; return wait(note); },
@@ -290,6 +293,7 @@
       levels: () => sb.from("study_levels").select("*").order("sort"),
       conversations: () => sb.from("admin_conversations").select("*").order("last_message_at", { ascending: false }).limit(500),
       flags: () => sb.from("admin_message_flags").select("*").order("created_at", { ascending: false }).limit(500),
+      deletions: () => sb.from("admin_account_deletions").select("*").eq("status", "waiting").order("delete_after"),
     };
     return {
       async load(name) {
@@ -311,7 +315,9 @@
         throw new Error("Unknown list " + name);
       },
       stats: () => rpc("admin_dashboard_stats", { p_days: 30 }),
+      deleteNow: (id) => rpc("admin_delete_account_now", { p_user: id }),
       verifyTutor: (id, status, reason) => rpc("admin_set_tutor_verification", { p_tutor: id, p_status: status, p_reason: reason || null }),
+      reviewChanges: (id, ok, reason) => rpc("admin_review_tutor_changes", { p_tutor: id, p_approve: ok, p_reason: reason || null }),
       setUserStatus: (id, status) => rpc("admin_set_user_status", { p_user: id, p_status: status }),
       walletAdjust: (id, amount, note) => rpc("admin_wallet_adjust", { p_user: id, p_amount: amount, p_note: note }),
       setPassword: (id, password) => rpc("admin_set_user_password", { p_user: id, p_password: password }),
@@ -345,7 +351,7 @@
 
   // ------------------------------------------------------------------ loading
   const NEEDS = {
-    overview: ["stats", "subjects"], tutors: ["tutors", "subjects"], students: ["students", "levels"], lessons: ["lessons", "subjects"],
+    overview: ["stats", "subjects"], tutors: ["tutors", "subjects"], students: ["students", "levels", "deletions"], lessons: ["lessons", "subjects"],
     live: ["live_requests", "subjects"], payments: ["payments"], payouts: ["payouts"], reviews: ["reviews"], reports: ["reports"],
     leads: ["leads", "subjects", "levels"], catalog: ["subjects", "levels"], config: ["settings"],
     chats: ["conversations", "flags"], alerts: ["flags"],
@@ -428,8 +434,9 @@
   function pageTutors() {
     const rows = S.data.tutors || [];
     const tab = S.tab.tutors ?? "pending", q = S.q.tutors || "";
-    const list = rows.filter((r) => (tab === "all" || r.verification === tab) && match(r, q, ["full_name", "phone", "country", "headline"]));
-    return `<section class="panel"><div class="panel-head">${tabsBar("tutors", ["pending", "approved", "rejected", "all"], countBy(rows, "verification", ["pending", "approved", "rejected"]))}<span style="flex:1"></span>${searchBox("tutors")}</div>
+    const list = rows.filter((r) => (tab === "all" || r.verification === tab || (tab === "changes" && r.pending_changes)) && match(r, q, ["full_name", "phone", "country", "headline"]));
+    const counts = { ...countBy(rows, "verification", ["pending", "approved", "rejected"]), changes: rows.filter((r) => r.pending_changes).length };
+    return `<section class="panel"><div class="panel-head">${tabsBar("tutors", ["pending", "changes", "approved", "rejected", "all"], counts)}<span style="flex:1"></span>${searchBox("tutors")}</div>
       ${table([{ label: t("name") }, { label: t("subjects"), cls: "hide-sm" }, { label: t("price") }, { label: t("rating"), cls: "hide-sm" }, { label: t("joined"), cls: "hide-sm" }, { label: t("status") }, { label: "" }],
         list.map((r) => `<tr class="clickable" data-act="tutor" data-id="${esc(r.user_id)}">
           <td>${person(r.full_name || "—", r.phone || r.email)}</td>
@@ -437,7 +444,7 @@
           <td class="num">${money(r.hourly_price)}</td>
           <td class="hide-sm num">${r.rating_count ? `★ ${Number(r.rating_avg).toFixed(1)} <span class="muted">(${r.rating_count})</span>` : "—"}</td>
           <td class="hide-sm">${fmtDate(r.joined_at)}</td>
-          <td>${pill(r.verification)}${r.account_status === "blocked" ? " " + pill("blocked") : ""}</td>
+          <td>${pill(r.verification)}${r.pending_changes ? ` <span class="pill">${t("changes")}</span>` : ""}${r.account_status === "blocked" ? " " + pill("blocked") : ""}</td>
           <td class="actions">${r.verification === "pending" ? `<button class="btn good" data-act="approve" data-id="${esc(r.user_id)}">${t("approve")}</button><button class="btn bad" data-act="reject" data-id="${esc(r.user_id)}">${t("reject")}</button>` : ""}</td>
         </tr>`))}</section>`;
   }
@@ -460,11 +467,17 @@
           <dt>${t("country")}</dt><dd>${esc([r.city, r.country].filter(Boolean).join("، ") || "—")}</dd>
           <dt>${t("rating")}</dt><dd class="num">${r.rating_count ? `★ ${Number(r.rating_avg).toFixed(1)} (${r.rating_count})` : "—"}</dd>
           <dt>${t("hours_taught")}</dt><dd class="num">${Math.round((r.minutes_taught || 0) / 60)}</dd>
-          <dt>${t("cv")}</dt><dd>${r.cv_url ? "✓ " + esc(r.cv_url) : `<span class="muted">${t("missing")}</span>`}</dd>
+          <dt>${t("documents")}</dt><dd>${(r.documents || []).length ? (r.documents || []).map((d) => `<button class="btn small" data-act="receipt" data-path="${esc(d.file_path)}">${esc(t("doc_" + d.kind))} · ${t("open_file_doc")}</button>`).join(" ") : `<span class="pill bad">${t("no_docs")}</span>`}</dd>
+          <dt>${t("conduct")}</dt><dd>${r.conduct_accepted_at ? `✓ ${t("accepted")} · ${fmtDate(r.conduct_accepted_at)}` : `<span class="muted">${t("missing")}</span>`}</dd>
           <dt>${t("video")}</dt><dd>${r.video_url ? "✓" : `<span class="muted">${t("missing")}</span>`}</dd>
           ${r.rejection_reason ? `<dt>${t("reason")}</dt><dd>${esc(r.rejection_reason)}</dd>` : ""}
           <dt>${t("joined")}</dt><dd>${fmtDate(r.joined_at)}</dd>
         </dl>
+        ${r.pending_changes ? `<h4 style="margin:14px 0 6px">${t("changes")} · ${fmtDate(r.pending_since)}</h4>
+          <table class="mini"><thead><tr><th></th><th>${t("changes_now")}</th><th>${t("changes_new")}</th></tr></thead><tbody>
+          ${Object.entries(r.pending_changes).map(([k, v]) => `<tr><td>${esc(t("f_" + k))}</td><td>${esc(k === "full_name" ? r.full_name : k === "level_prices" ? "" : r[k] == null ? "—" : String(r[k]))}</td><td style="font-weight:700">${esc(typeof v === "object" && v !== null ? Object.entries(v).map(([l, p]) => l + ": " + p).join(" · ") : v == null ? "—" : String(v))}</td></tr>`).join("")}
+          </tbody></table>
+          <div style="margin-top:8px"><button class="btn good" data-act="changes-ok" data-id="${esc(r.user_id)}">${t("approve_changes")}</button> <button class="btn bad" data-act="changes-no" data-id="${esc(r.user_id)}">${t("reject_changes")}</button></div>` : ""}
       </div>
       <div class="drawer-foot">
         ${r.verification !== "approved" ? `<button class="btn primary" data-act="approve" data-id="${esc(r.user_id)}">${t("approve")}</button>` : ""}
@@ -479,7 +492,13 @@
     const rows = S.data.students || [];
     const tab = S.tab.students ?? "all", q = S.q.students || "";
     const list = rows.filter((r) => (tab === "all" || r.status === tab) && match(r, q, ["full_name", "phone", "city"]));
-    return `<section class="panel"><div class="panel-head">${tabsBar("students", ["all", "active", "blocked"], countBy(rows, "status", ["active", "blocked"]))}<span style="flex:1"></span>${searchBox("students")}</div>
+    const dels = S.data.deletions || [];
+    const delPanel = dels.length ? `<section class="panel"><div class="panel-head"><h3 style="margin:0">${t("deletions")}</h3></div>
+      ${table([{ label: t("name") }, { label: t("role") }, { label: t("requested") }, { label: t("delete_after") }, { label: t("balance") }, { label: t("upcoming"), cls: "hide-sm" }, { label: "" }],
+        dels.map((r) => `<tr><td>${person(r.full_name || "—", r.phone || r.email)}</td><td>${t(r.role)}</td><td>${fmtDate(r.requested_at)}</td><td>${fmtDate(r.delete_after)}</td>
+          <td class="num">${money(r.balance)}${Number(r.open_payouts) ? ` · ${r.open_payouts} ${t("payouts")}` : ""}</td><td class="hide-sm num">${r.upcoming_lessons || 0}</td>
+          <td class="actions"><button class="btn bad" data-act="delete-now" data-id="${esc(r.user_id)}">${t("delete_now")}</button></td></tr>`))}</section>` : "";
+    return `${delPanel}<section class="panel"><div class="panel-head">${tabsBar("students", ["all", "active", "blocked"], countBy(rows, "status", ["active", "blocked"]))}<span style="flex:1"></span>${searchBox("students")}</div>
       ${table([{ label: t("name") }, { label: t("role") }, { label: t("level"), cls: "hide-sm" }, { label: t("city"), cls: "hide-sm" }, { label: t("balance") }, { label: t("joined"), cls: "hide-sm" }, { label: t("status") }, { label: "" }],
         list.map((r) => `<tr>
           <td>${person(r.full_name || "—", r.phone || r.email)}</td><td>${t(r.role)}</td><td class="hide-sm">${esc(levelName(r.level_id))}</td>
@@ -497,9 +516,9 @@
     return `<section class="panel"><div class="panel-head">${tabsBar("lessons", ["all", ...keys], countBy(rows, "status", keys))}<span style="flex:1"></span>${searchBox("lessons")}</div>
       ${table([{ label: t("number") }, { label: t("student_c") }, { label: t("tutor"), cls: "hide-sm" }, { label: t("subject"), cls: "hide-sm" }, { label: t("when") }, { label: t("duration"), cls: "hide-sm" }, { label: t("amount") }, { label: t("status") }, { label: "" }],
         list.slice(0, 300).map((r) => `<tr>
-          <td class="num">#${esc(r.number)}</td><td>${esc(r.student_name)}</td><td class="hide-sm">${esc(r.tutor_name)}</td>
+          <td class="num">#${esc(r.number)}</td><td>${esc(r.student_name)}${r.child_name ? `<div class="small muted">${t("for_child")} ${esc(r.child_name)}</div>` : ""}</td><td class="hide-sm">${esc(r.tutor_name)}</td>
           <td class="hide-sm">${esc(subjName(r.subject_id))}${r.mode === "in_person" ? ` <span class="tag">${t("in_person")}</span>` : ""}</td>
-          <td>${fmtDateTime(r.starts_at)}</td><td class="hide-sm num">${r.duration_min} ${t("min")}</td>
+          <td>${fmtDateTime(r.starts_at)}${(r.attendance || []).length ? `<div class="small muted" title="${esc((r.attendance || []).map((a) => t("att_" + a.who) + " " + t("att_" + a.event) + " " + fmtDateTime(a.at)).join("\n"))}">${(r.attendance || []).map((a) => `${t("att_" + a.who)} ${t("att_" + a.event)} ${fmtTime(a.at)}`).join(" · ")}</div>` : ""}</td><td class="hide-sm num">${r.duration_min} ${t("min")}</td>
           <td class="num">${money(r.price)}</td><td>${pill(r.status)}</td>
           <td class="actions">${["confirmed", "delivered", "disputed", "pending_payment"].includes(r.status) ? `<button class="btn bad" data-act="refund" data-id="${esc(r.id)}">${t("refund")}</button>` : ""}${r.status === "disputed" ? `<button class="btn good" data-act="release" data-id="${esc(r.id)}">${t("release")}</button>` : ""}</td>
         </tr>`))}</section>`;
@@ -634,6 +653,7 @@
     ["pay_to_sham_cash", "s_pay_sham", "text", "s_pay_h"], ["pay_to_syriatel_cash", "s_pay_syriatel", "text", "s_pay_h"],
     ["pay_to_mtn_cash", "s_pay_mtn", "text", "s_pay_h"], ["pay_to_bank", "s_pay_bank", "text", "s_pay_h"],
     ["min_app_build", "s_min_build", "int"],
+    ["terms_version", "s_terms_version", "int"], ["phone_signin", "s_phone_signin", "text"],
   ];
   function pageConfig() {
     const s = S.data.settings || {};
@@ -671,7 +691,7 @@
           <td>${fmtDateTime(r.created_at)}<div class="small muted">${ago(r.created_at)}</div></td>
           <td>${person(r.sender_name || "—", roleName(r.sender_role) + (r.sender_phone ? " · " + r.sender_phone : ""))}</td>
           <td style="max-width:320px"><span class="pill bad">${esc(kindLabel(r.kind))}</span><div class="mono small" style="margin-top:4px;direction:ltr;unicode-bidi:plaintext">${esc(r.matched)}</div><div class="small muted">${esc(r.excerpt)}</div></td>
-          <td class="hide-sm">${r.conversation_id ? `${esc(r.student_name || "—")} <span class="muted">(${esc(roleName(r.student_role))})</span><br>${esc(r.tutor_name || "—")} <span class="muted">(${t("role_tutor")})</span>` : `<span class="pill">${t("live_question")}</span><br>${esc(r.student_name || "—")}`}</td>
+          <td class="hide-sm">${r.conversation_id ? `${esc(r.student_name || "—")} <span class="muted">(${esc(roleName(r.student_role))})</span><br>${esc(r.tutor_name || "—")} <span class="muted">(${t("role_tutor")})</span>` : r.live_request_id ? `<span class="pill">${t("live_question")}</span><br>${esc(r.student_name || "—")}` : `<span class="pill">${t("src_" + r.source)}</span><br>${t("sender")}: ${esc(r.sender_name || "—")}`}</td>
           <td>${pill(r.status)}</td>
           <td class="actions">${r.conversation_id ? `<button class="btn" data-act="chat" data-id="${esc(r.conversation_id)}" data-msg="${esc(r.message_id)}">${t("open_chat")}</button>` : ""}${r.status === "new" ? `<button class="btn good" data-act="flag" data-id="${esc(r.id)}" data-status="reviewed">${t("mark_reviewed")}</button><button class="btn" data-act="flag" data-id="${esc(r.id)}" data-status="dismissed">${t("dismiss")}</button>` : ""}</td>
         </tr>`))}</section>`;
@@ -796,7 +816,7 @@
       <div class="alarm-text">
         <b>${t("alarm_title")} — ${esc(kindLabel(a.kind))}</b>
         <div><b>${esc(a.sender_name || "—")}</b> <span class="muted">(${esc(roleName(a.sender_role))}${a.sender_phone ? " · " + esc(a.sender_phone) : ""})</span> ${t("alarm_did")}</div>
-        <div>${a.conversation_id ? `${t("alarm_where")} <b>${esc(a.student_name || "—")}</b> ${t("and")} <b>${esc(a.tutor_name || "—")}</b>` : `${t("live_question_by")} <b>${esc(a.student_name || "—")}</b>`} · ${fmtDateTime(a.created_at)}</div>
+        <div>${a.conversation_id ? `${t("alarm_where")} <b>${esc(a.student_name || "—")}</b> ${t("and")} <b>${esc(a.tutor_name || "—")}</b>` : a.live_request_id ? `${t("live_question_by")} <b>${esc(a.student_name || "—")}</b>` : `${t("src_" + a.source)} · <b>${esc(a.sender_name || "—")}</b>`} · ${fmtDateTime(a.created_at)}</div>
         <div class="mono small" style="direction:ltr;unicode-bidi:plaintext">${esc(a.matched || "")}</div>
         <div class="small">“${esc(a.excerpt || "")}”</div>
       </div>
@@ -936,6 +956,9 @@
       case "alarm-reviewed": { const a = S.alarm; stopSiren(); flashTitle(false); S.alarm = null; if (a) act(() => api.setFlag(a.id, "reviewed").then(async () => { try { S.openFlags = await api.flagCount(); } catch (e2) { /* ignore */ } }), ["flags", "conversations"]); else render(); break; }
       case "tutor": S.drawer = { type: "tutor", id }; render(); break;
       case "approve": act(() => api.verifyTutor(id, "approved"), ["tutors"]); break;
+      case "delete-now": ask({ title: t("delete_now"), label: t("delete_now_q"), confirm: t("delete_now"), danger: true, run: () => act(() => api.deleteNow(id), ["deletions", "students"]) }); break;
+      case "changes-ok": act(() => api.reviewChanges(id, true), ["tutors"]); break;
+      case "changes-no": ask({ title: t("reject_changes"), label: t("reject_reason"), confirm: t("reject_changes"), danger: true, required: true, run: (v) => act(() => api.reviewChanges(id, false, v), ["tutors"]) }); break;
       case "reject": ask({ title: t("reject"), label: t("reject_reason"), confirm: t("reject"), danger: true, required: true, run: (v) => act(() => api.verifyTutor(id, "rejected", v), ["tutors"]) }); break;
       case "block": act(() => api.setUserStatus(id, el.dataset.status), ["students", "tutors"]); break;
       case "password": ask({ title: t("set_password"), label: t("new_password"), hint: t("pw_hint"), confirm: t("save"), pw: true, required: true, run: (v) => act(() => api.setPassword(id, v), [], t("pw_saved")) }); break;
@@ -1012,6 +1035,7 @@
         const raw = document.getElementById("set-" + key).value;
         out[key] = kind === "pct" ? Number(raw) / 100 : kind === "int" ? (parseInt(raw, 10) || 0) : kind === "num" ? (Number(raw) || 0) : kind === "bool" ? raw === "true" : raw.trim();
       });
+      if (!["off", "sms", "whatsapp"].includes(out.phone_signin)) out.phone_signin = "off";
       act(() => api.saveSettings(out), ["settings"], t("saved"));
     } else if (f.id === "login-form") {
       const email = document.getElementById("login-email").value, password = document.getElementById("login-pass").value;

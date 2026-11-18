@@ -37,7 +37,7 @@ class TutorFilters {
     ..mode = mode;
 }
 
-/// Search results: query, subject chips, sort (AI best match / price / rating) and filter sheet.
+/// Search results: query, subject chips, sort (best match: rating, availability, your subjects / price / rating) and filter sheet.
 class TutorListScreen extends StatefulWidget {
   final String? initialSubject;
   const TutorListScreen({super.key, this.initialSubject});

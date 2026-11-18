@@ -17,6 +17,7 @@ psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/week2_retest.sql"
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/capacity.sql"
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/round_b.sql"
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/round_d.sql"
+psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/round_e.sql"
 # Edge functions turn-credentials and push-notifications (fakes for Cloudflare / Firebase / Supabase; Node 22+)
 if command -v node >/dev/null 2>&1 && node -e 'process.exit(Number(process.versions.node.split(".")[0]) < 22 ? 1 : 0)'; then
   node --experimental-strip-types --no-warnings "$HERE/tests/turn_credentials.test.mjs" \

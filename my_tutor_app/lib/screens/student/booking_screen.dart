@@ -32,6 +32,7 @@ class _BookingScreenState extends State<BookingScreen> {
   DateTime? _slot; // chosen lesson start (my local time)
   TutorSchedule? _schedule; // the tutor's working hours + booked times (null while loading)
   bool _online = true;
+  String? _childId; // Round E3: a parent books for one of his child profiles (null = for me)
   bool _useBalance = true;
   String? _method; // transfer method (pay-to key) when credit does not cover the booking
   bool _terms = true;
@@ -323,6 +324,20 @@ class _BookingScreenState extends State<BookingScreen> {
               ),
             ),
           ]),
+          if (app.role == UserRole.parent && app.childProfiles.isNotEmpty && !_package) ...[
+            const SizedBox(height: 18),
+            _label(context.tr('lesson_for')),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              ChoiceChip(label: Text(context.tr('for_me')), selected: _childId == null, onSelected: (_) => setState(() => _childId = null)),
+              for (final c in app.childProfiles)
+                ChoiceChip(
+                  key: Key('for-child-${c['id']}'),
+                  label: Text('${c['name']}'),
+                  selected: _childId == '${c['id']}',
+                  onSelected: (_) => setState(() => _childId = '${c['id']}'),
+                ),
+            ]),
+          ],
           const SizedBox(height: 18),
           TextField(controller: _notes, maxLines: 3, decoration: InputDecoration(hintText: context.tr('notes_opt'))),
         ]);
@@ -530,6 +545,7 @@ class _BookingScreenState extends State<BookingScreen> {
                               subjectId: _subjectId,
                               method: _method ?? 'bank',
                               notes: _notes.text,
+                              childId: _package ? null : _childId,
                             );
                           } catch (e) {
                             if (mounted) setState(() => _processing = false);

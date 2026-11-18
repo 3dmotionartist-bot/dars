@@ -8,7 +8,7 @@ import Icon from './Icon';
 import { useTutors } from './LiveTutors';
 import { TutorCard } from './Ui';
 
-/** Client-side search, subject chips, filters and AI/price/rating sort. */
+/** Client-side search, subject chips, filters and best-match/price/rating sort. */
 export default function TutorBrowser({ lang, initialSubject = '' }: { lang: Lang; initialSubject?: string }) {
   const d = getDict(lang).browse;
   const [q, setQ] = useState('');

@@ -192,15 +192,19 @@ class Avatar extends StatelessWidget {
   }
 }
 
+/// A name with the blue "verified" badge — only for tutors the Dars team approved (Round E2).
 class VerifiedName extends StatelessWidget {
   final String text;
   final double size;
-  const VerifiedName(this.text, {super.key, this.size = 16});
+  final bool verified;
+  const VerifiedName(this.text, {super.key, this.size = 16, this.verified = true});
   @override
   Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
         Flexible(child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: size, fontWeight: FontWeight.w800))),
-        const SizedBox(width: 4),
-        Icon(Icons.verified_rounded, color: AppColors.info, size: size + 2),
+        if (verified) ...[
+          const SizedBox(width: 4),
+          Icon(Icons.verified_rounded, color: AppColors.info, size: size + 2),
+        ],
       ]);
 }
 
@@ -312,7 +316,7 @@ class TutorCard extends StatelessWidget {
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
-                Expanded(child: VerifiedName(t.name.of(context))),
+                Expanded(child: VerifiedName(t.name.of(context), verified: !t.stub)),
                 if (onFavorite != null)
                   InkWell(
                     onTap: onFavorite,
@@ -341,11 +345,7 @@ class TutorCard extends StatelessWidget {
         ),
         const Divider(height: 22),
         Row(children: [
-          Icon(Icons.auto_awesome_rounded, size: 16, color: t.matchScore >= 85 ? AppColors.success : AppColors.text3),
-          const SizedBox(width: 4),
-          Text('${t.matchScore}% ${context.tr('match')}', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: t.matchScore >= 85 ? AppColors.success : AppColors.text2)),
           if (t.instantBooking) ...[
-            const SizedBox(width: 10),
             const Icon(Icons.flash_on_rounded, size: 16, color: AppColors.accent),
             Text(context.tr('instant_booking'), style: const TextStyle(fontSize: 12.5, color: AppColors.text2)),
           ],

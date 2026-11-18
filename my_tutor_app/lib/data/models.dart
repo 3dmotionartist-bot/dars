@@ -55,7 +55,7 @@ class Tutor {
   final L country;
   final List<L> languages;
   final int years;
-  final int matchScore; // 0-100, AI best match
+  final int matchScore; // 0-100, order of "best match" (rating, available now, my subjects) — not shown as a percentage
   final Color color;
   final bool teachesOnline;
   final bool teachesInPerson;
@@ -119,6 +119,7 @@ class Lesson {
   final double commission;
   final String studentId; // backend student id ('' in demo)
   final String subjectId; // the subject booked ('' in demo) — used by "Book again"
+  final String childName; // Round E3: booked by a parent for this child ('' = for the account holder)
 
   Lesson({
     required this.id,
@@ -136,6 +137,7 @@ class Lesson {
     this.commission = 0,
     this.studentId = '',
     this.subjectId = '',
+    this.childName = '',
   });
 }
 
