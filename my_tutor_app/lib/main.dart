@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import 'data/models.dart';
 import 'screens/onboarding/welcome_screen.dart';
+import 'screens/shared/legal_screens.dart';
 import 'screens/shared/live_call_screen.dart';
 import 'screens/shared/update_required_screen.dart';
 import 'screens/student/student_shell.dart';
@@ -34,6 +35,10 @@ class DarsApp extends StatelessWidget {
       home = const _Splash();
     } else if (!app.loggedIn) {
       home = const WelcomeScreen();
+    } else if (app.live && app.deletionAfter != null) {
+      home = const DeletionPendingScreen();       // Round E4: asked to delete, signed in again
+    } else if (app.needsConsent) {
+      home = const ConsentScreen();               // Round E4: Terms / Privacy (new version) not accepted yet
     } else if (app.role == UserRole.tutor) {
       home = const TutorShell();
     } else {

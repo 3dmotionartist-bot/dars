@@ -12,6 +12,7 @@ import '../../l10n.dart';
 import '../../state/app_state.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../shared/legal_screens.dart';
 import '../onboarding/student_wizard_screen.dart';
 import '../tutor/tutor_registration_screen.dart';
 
@@ -39,11 +40,13 @@ class _LoginScreenState extends State<LoginScreen> {
   String _code = '+963';
   final _phone = TextEditingController();
   bool _sending = false;
+  bool _consent = false; // Round E4: Terms, Privacy and chat checks must be accepted to sign up
 
   String get _fullPhone => '$_code ${_phone.text.replaceAll(' ', '').replaceFirst(RegExp(r'^0+'), '')}';
 
   Future<void> _send() async {
     final app = context.read<AppState>();
+    app.consentTicked = true;
     if (app.live) {
       setState(() => _sending = true);
       try {
@@ -67,6 +70,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final phoneOn = context.watch<AppState>().phoneSignIn;
     final valid = _phone.text.replaceAll(' ', '').length >= 8;
     return Scaffold(
       backgroundColor: Colors.white,
@@ -87,10 +91,16 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            Text(context.tr('login_title'), style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800)),
+            Text(context.tr(phoneOn ? 'login_title' : 'login_title_email'), style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800)),
             const SizedBox(height: 6),
-            Text(context.tr('login_sub'), style: const TextStyle(color: AppColors.text2, fontSize: 15)),
+            Text(context.tr(phoneOn ? 'login_sub' : 'login_sub_email'), style: const TextStyle(color: AppColors.text2, fontSize: 15)),
             const SizedBox(height: 28),
+            // Round E5: phone codes only when the owner switched them on; otherwise e-mail + password.
+            if (!phoneOn) ...[
+              ConsentTick(value: _consent, onChanged: (v) => setState(() => _consent = v)),
+              const SizedBox(height: 8),
+            ],
+            if (phoneOn) ...[
             Text(context.tr('whatsapp_number'), style: const TextStyle(fontWeight: FontWeight.w700)),
             const SizedBox(height: 8),
             Directionality(
@@ -124,8 +134,10 @@ class _LoginScreenState extends State<LoginScreen> {
               ]),
             ),
             const SizedBox(height: 24),
+            ConsentTick(value: _consent, onChanged: (v) => setState(() => _consent = v)),
+            const SizedBox(height: 8),
             ElevatedButton(
-              onPressed: valid && !_sending ? _send : null,
+              onPressed: valid && _consent && !_sending ? _send : null,
               child: _sending
                   ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white))
                   : Text(context.tr('send_code')),
@@ -137,6 +149,7 @@ class _LoginScreenState extends State<LoginScreen> {
               const Expanded(child: Divider()),
             ]),
             const SizedBox(height: 16),
+            ],
             if (!DarsConfig.live) ...[
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(foregroundColor: AppColors.ink, side: const BorderSide(color: AppColors.line)),
@@ -148,15 +161,19 @@ class _LoginScreenState extends State<LoginScreen> {
             ],
             OutlinedButton.icon(
               style: OutlinedButton.styleFrom(foregroundColor: AppColors.ink, side: const BorderSide(color: AppColors.line)),
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => DarsConfig.live ? EmailAuthScreen(role: widget.role) : OtpScreen(role: widget.role, phone: 'email')),
-              ),
+              onPressed: !_consent
+                  ? null
+                  : () {
+                      context.read<AppState>().consentTicked = true;
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => DarsConfig.live ? EmailAuthScreen(role: widget.role) : OtpScreen(role: widget.role, phone: 'email')),
+                      );
+                    },
               icon: const Icon(Icons.mail_outline_rounded),
               label: Text(context.tr('continue_email')),
             ),
             const SizedBox(height: 24),
-            Text(context.tr('terms_agree'), textAlign: TextAlign.center, style: const TextStyle(color: AppColors.text3, fontSize: 12.5)),
           ]),
         ),
       ),

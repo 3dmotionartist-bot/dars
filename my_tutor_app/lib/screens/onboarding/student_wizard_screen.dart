@@ -24,6 +24,7 @@ class _StudentWizardScreenState extends State<StudentWizardScreen> {
   String _curriculum = 'syrian';
   final Set<String> _subjects = {};
   final _name = TextEditingController();
+  int? _birthYear; // Round E3: students only (parents are adults)
   bool _saving = false;
 
   @override
@@ -39,9 +40,21 @@ class _StudentWizardScreenState extends State<StudentWizardScreen> {
       app.say(context.tr('name_required'), bad: true);
       return;
     }
+    final student = widget.role == UserRole.student;
+    if (app.live && student && _birthYear == null && app.birthYear == null) {
+      setState(() => _step = 0);
+      app.say(context.tr('birth_year_required'), bad: true);
+      return;
+    }
+    if (student && _birthYear != null && DateTime.now().year - _birthYear! <= 12) {
+      setState(() => _step = 0);
+      _under13();
+      return;
+    }
     setState(() => _saving = true);
     try {
-      await app.setProfile(fullName: _name.text, level: _level, curriculum: _curriculum, subjects: _subjects.isEmpty ? {'math'} : _subjects);
+      await app.setProfile(fullName: _name.text, level: _level, curriculum: _curriculum, subjects: _subjects.isEmpty ? {'math'} : _subjects,
+          birthYear: student ? _birthYear : null);
     } catch (e) {
       if (mounted) setState(() => _saving = false);
       app.say(Backend.errorText(e), bad: true);
@@ -51,6 +64,15 @@ class _StudentWizardScreenState extends State<StudentWizardScreen> {
     Navigator.of(context).popUntil((r) => r.isFirst);
     app.login(asRole: widget.role, phoneNumber: widget.phone);
   }
+
+  void _under13() => showDialog<void>(
+        context: context,
+        builder: (d) => AlertDialog(
+          title: Text(context.tr('under13_t'), style: const TextStyle(fontWeight: FontWeight.w800)),
+          content: Text(context.tr('under13_b'), style: const TextStyle(height: 1.6)),
+          actions: [TextButton(onPressed: () => Navigator.pop(d), child: Text(context.tr('close')))],
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -65,6 +87,21 @@ class _StudentWizardScreenState extends State<StudentWizardScreen> {
           textCapitalization: TextCapitalization.words,
           decoration: InputDecoration(hintText: context.tr(widget.role == UserRole.parent ? 'parent_name' : 'your_name'), prefixIcon: const Icon(Icons.person_outline)),
         ),
+        if (widget.role == UserRole.student) ...[
+          const SizedBox(height: 12),
+          DropdownButtonFormField<int>(
+            key: const Key('birth-year'),
+            value: _birthYear,
+            decoration: InputDecoration(hintText: context.tr('birth_year'), prefixIcon: const Icon(Icons.cake_outlined)),
+            items: [
+              for (var y = DateTime.now().year - 5; y >= DateTime.now().year - 70; y--) DropdownMenuItem(value: y, child: Text('$y')),
+            ],
+            onChanged: (v) {
+              setState(() => _birthYear = v);
+              if (v != null && DateTime.now().year - v <= 12) _under13();
+            },
+          ),
+        ],
         const SizedBox(height: 14),
         for (final l in MockData.levels)
           Padding(

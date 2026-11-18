@@ -43,7 +43,7 @@ const ar = {
     ],
   },
   subjects: { title: 'تصفح حسب المادة', subtitle: 'من تأسيس الأطفال إلى الجامعة والمهارات المهنية', all: 'كل المواد' },
-  featured: { title: 'مدرسون مميزون', subtitle: 'اختيارات الذكاء الاصطناعي حسب التقييم والخبرة والتطابق', viewAll: 'عرض كل المدرسين' },
+  featured: { title: 'مدرسون مميزون', subtitle: 'مدرسون موثّقون بأعلى التقييمات', viewAll: 'عرض كل المدرسين' },
   tutor: {
     perHour: '/ساعة', from: 'يبدأ من', reviews: 'تقييم', available: 'متاح الآن', busy: 'غير متاح', instant: 'حجز فوري', match: 'تطابق', newTutor: 'انضم حديثاً',
     upTo: 'خصم حتى', onPackages: 'على الباقات', view: 'عرض الملف', book: 'احجز درساً', message: 'راسل المدرس',
@@ -54,7 +54,7 @@ const ar = {
   },
   browse: {
     title: 'ابحث عن مدرس', subtitle: 'مدرسون موثّقون لكل المواد والمراحل', search: 'ابحث بالاسم أو المادة…', subject: 'المادة', all: 'الكل',
-    sort: 'الترتيب', best: 'الأنسب (ذكاء اصطناعي)', price: 'الأقل سعراً', rating: 'الأعلى تقييماً', availableNow: 'متاح الآن', instantOnly: 'حجز فوري',
+    sort: 'الترتيب', best: 'الأنسب لك', price: 'الأقل سعراً', rating: 'الأعلى تقييماً', availableNow: 'متاح الآن', instantOnly: 'حجز فوري',
     gender: 'الجنس', male: 'ذكر', female: 'أنثى', maxPrice: 'أقصى سعر للساعة', results: 'نتيجة', empty: 'لا يوجد مدرسون مطابقون', emptyCta: 'دع مستشارنا يساعدك',
   },
   guarantee: { title: 'ضمان الرضا', body: 'إن لم تكن راضياً عن الساعة الأولى مع أي مدرس، نعيد لك المبلغ كاملاً — بلا أسئلة.' },
@@ -110,7 +110,7 @@ const ar = {
   faq: {
     title: 'الأسئلة الشائعة',
     items: [
-      { q: 'كيف أختار المدرس المناسب؟', a: 'استخدم البحث والفلاتر حسب المادة والمرحلة والمنهج والسعر. نعرض لك نسبة التطابق المحسوبة بالذكاء الاصطناعي وتقييمات الطلاب الحقيقيين. وإن احترت، يساعدك المستشار الأكاديمي عبر واتساب.' },
+      { q: 'كيف أختار المدرس المناسب؟', a: 'استخدم البحث والفلاتر حسب المادة والمرحلة والمنهج والسعر. نرتّب لك المدرسين حسب التقييم والتوفر والمواد التي تدرسها، مع تقييمات الطلاب الحقيقيين. وإن احترت، يساعدك المستشار الأكاديمي عبر واتساب.' },
       { q: 'ما هي المساعدة الفورية؟', a: 'ترسل سؤالك نصاً أو صوتاً أو صورة، فيصل لكل المدرسين المتاحين الآن. تظهر لك قائمة من قبلوا طلبك خلال دقائق لتبدأ المحادثة أو المكالمة.' },
       { q: 'كيف تعمل الباقات؟', a: 'عند حجز 4 ساعات أو أكثر مع نفس المدرس تحصل على خصم يحدده المدرس (حتى 25% عادةً). تبقى الساعات في رصيدك وتحجز منها متى شئت.' },
       { q: 'ماذا لو لم أكن راضياً؟', a: 'إن لم تكن راضياً عن الساعة الأولى مع أي مدرس، نعيد لك المبلغ كاملاً. ويمكنك الإبلاغ عن عدم حضور المدرس لاسترداد المبلغ.' },
@@ -125,7 +125,7 @@ const ar = {
   },
   legal: {
     terms: { t: 'الشروط والأحكام', b: ['باستخدامك منصة درس فأنت توافق على هذه الشروط.', 'تتم جميع الحجوزات والمدفوعات عبر المنصة، ويُمنع تبادل وسائل التواصل خارجها.', 'يلتزم المدرس بالمواعيد وسياسة الإلغاء التي حددها، ويلتزم الطالب بآداب التعامل.', 'تحتفظ المنصة بعمولة من أجر الدرس مقابل خدماتها.'] },
-    privacy: { t: 'سياسة الخصوصية', b: ['نجمع فقط البيانات اللازمة لتقديم الخدمة: الاسم، رقم واتساب، المرحلة الدراسية، وسجل الدروس.', 'لا نبيع بياناتك لأي طرف ثالث.', 'تُسجَّل المحادثات والمكالمات لضمان الجودة والأمان وتُحذف وفق سياسة الاحتفاظ.', 'يمكنك طلب حذف حسابك وبياناتك في أي وقت من الإعدادات.'] },
+    privacy: { t: 'سياسة الخصوصية', b: ['نجمع فقط البيانات اللازمة لتقديم الخدمة: الاسم، رقم واتساب، المرحلة الدراسية، وسجل الدروس.', 'لا نبيع بياناتك لأي طرف ثالث.', 'تُفحص المحادثات آلياً بحثاً عن معلومات التواصل لحماية الطلاب، والمكالمات لا تُسجَّل.', 'يمكنك طلب حذف حسابك وبياناتك في أي وقت من الإعدادات.'] },
     refund: { t: 'سياسة الاسترجاع', b: ['ضمان الساعة الأولى: استرداد كامل إن لم تكن راضياً عن أول ساعة مع مدرس جديد.', 'الإلغاء قبل مهلة المدرس: يعود المبلغ كاملاً لرصيدك.', 'عدم حضور المدرس: استرداد كامل بعد التحقق.', 'يمكنك طلب تحويل رصيد المحفظة إلى حسابك البنكي.'] },
   },
   footer: { tagline: 'مدرّسك الخاص، متى ما احتجته.', product: 'المنصة', company: 'الشركة', legal: 'قانوني', rights: 'جميع الحقوق محفوظة', terms: 'الشروط والأحكام', privacy: 'سياسة الخصوصية', refund: 'سياسة الاسترجاع' },
@@ -167,13 +167,13 @@ const en: Dict = {
   how: {
     title: 'How Dars works',
     steps: [
-      { t: 'Search & choose', d: 'Filter by subject, level, curriculum and price, and see real reviews plus an AI match score.' },
+      { t: 'Search & choose', d: 'Filter by subject, level, curriculum and price, and see real reviews from students.' },
       { t: 'Book & pay safely', d: 'Single lessons or hour packages with up to 25% off. Pay by card, Apple Pay or in 3 instalments.' },
       { t: 'Learn & progress', d: 'Join the virtual classroom with video and whiteboard, and get a summary and homework after every lesson.' },
     ],
   },
   subjects: { title: 'Explore by subject', subtitle: 'From early-years foundations to university and professional skills', all: 'All subjects' },
-  featured: { title: 'Featured tutors', subtitle: 'AI picks based on rating, experience and match', viewAll: 'View all tutors' },
+  featured: { title: 'Featured tutors', subtitle: 'Verified tutors with the best ratings', viewAll: 'View all tutors' },
   tutor: {
     perHour: '/hr', from: 'From', reviews: 'reviews', available: 'Available now', busy: 'Busy', instant: 'Instant booking', match: 'match', newTutor: 'Newly joined',
     upTo: 'Up to', onPackages: 'off packages', view: 'View profile', book: 'Book a lesson', message: 'Message',
@@ -184,7 +184,7 @@ const en: Dict = {
   },
   browse: {
     title: 'Find a tutor', subtitle: 'Verified tutors for every subject and level', search: 'Search by name or subject…', subject: 'Subject', all: 'All',
-    sort: 'Sort', best: 'Best match (AI)', price: 'Lowest price', rating: 'Top rated', availableNow: 'Available now', instantOnly: 'Instant booking',
+    sort: 'Sort', best: 'Best match for you', price: 'Lowest price', rating: 'Top rated', availableNow: 'Available now', instantOnly: 'Instant booking',
     gender: 'Gender', male: 'Male', female: 'Female', maxPrice: 'Max price per hour', results: 'results', empty: 'No matching tutors', emptyCta: 'Let our advisor help',
   },
   guarantee: { title: 'Satisfaction guarantee', body: 'Not happy with your first hour with any tutor? We refund you in full — no questions asked.' },
@@ -240,7 +240,7 @@ const en: Dict = {
   faq: {
     title: 'Frequently asked questions',
     items: [
-      { q: 'How do I choose the right tutor?', a: 'Use search and filters for subject, level, curriculum and price. We show an AI match score and reviews from real students. If you are unsure, our academic advisor can help on WhatsApp.' },
+      { q: 'How do I choose the right tutor?', a: 'Use search and filters for subject, level, curriculum and price. We order tutors by rating, availability and your subjects, with reviews from real students. If you are unsure, our academic advisor can help on WhatsApp.' },
       { q: 'What is live help?', a: 'Send your question as text, voice or a photo and it reaches every tutor who is online. Within minutes you see who accepted and can start chatting or calling.' },
       { q: 'How do packages work?', a: 'Book 4+ hours with the same tutor to get a discount the tutor sets (usually up to 25%). The hours stay in your balance and you book from them anytime.' },
       { q: 'What if I am not satisfied?', a: 'If you are not happy with your first hour with any tutor, we refund you in full. You can also report a tutor no-show for a refund.' },
@@ -255,7 +255,7 @@ const en: Dict = {
   },
   legal: {
     terms: { t: 'Terms & Conditions', b: ['By using Dars you agree to these terms.', 'All bookings and payments happen through the platform; exchanging contact details off-platform is not allowed.', 'Tutors keep their schedule and cancellation policy; students follow the code of conduct.', 'Dars keeps a commission from the lesson fee for its services.'] },
-    privacy: { t: 'Privacy Policy', b: ['We collect only what the service needs: name, WhatsApp number, study level and lesson history.', 'We never sell your data to third parties.', 'Chats and calls are recorded for quality and safety and deleted per our retention policy.', 'You can request deletion of your account and data at any time in Settings.'] },
+    privacy: { t: 'Privacy Policy', b: ['We collect only what the service needs: name, WhatsApp number, study level and lesson history.', 'We never sell your data to third parties.', 'Chats are checked automatically for contact details to protect students; calls are not recorded.', 'You can request deletion of your account and data at any time in Settings.'] },
     refund: { t: 'Refund Policy', b: ['First-hour guarantee: full refund if you are not satisfied with your first hour with a new tutor.', 'Cancelling before the tutor’s notice period: full amount back to your balance.', 'Tutor no-show: full refund after verification.', 'You can request a transfer of your wallet balance to your bank account.'] },
   },
   footer: { tagline: 'Your private tutor, whenever you need.', product: 'Product', company: 'Company', legal: 'Legal', rights: 'All rights reserved', terms: 'Terms & Conditions', privacy: 'Privacy Policy', refund: 'Refund Policy' },

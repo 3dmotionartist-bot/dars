@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/backend.dart';
@@ -8,8 +9,10 @@ import '../../l10n.dart';
 import '../../state/app_state.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import 'tutor_documents_screen.dart';
 
-/// Tutor sign-up: About you → Subjects → Fees per level → Profile (CV/video) → Ethical pledge → Under review.
+/// Tutor sign-up: About you (photo) → Subjects → Fees per level → Profile (ID, certificate, CV, video) →
+/// Code of conduct → Under review. Files are really uploaded (Round E2).
 class TutorRegistrationScreen extends StatefulWidget {
   final String phone;
   const TutorRegistrationScreen({super.key, required this.phone});
@@ -26,8 +29,10 @@ class _TutorRegistrationScreenState extends State<TutorRegistrationScreen> {
   bool _online = true;
   bool _inPerson = false;
   final Map<String, double> _fees = {'elementary': 10, 'middle': 12, 'high': 15, 'university': 18};
-  bool _cv = false;
+  bool _photo = false;
   bool _video = false;
+  bool _photoBusy = false;
+  bool _videoBusy = false;
   bool _pledge = false;
   bool _saving = false;
   final _name = TextEditingController();
@@ -64,6 +69,16 @@ class _TutorRegistrationScreenState extends State<TutorRegistrationScreen> {
         setState(() => _step = 1);
         return;
       }
+      if (app.avatarUrl.isEmpty) {
+        setState(() => _step = 0);
+        app.say(context.tr('photo_required'), bad: true);
+        return;
+      }
+      if (!app.hasTutorDoc('id') || !app.hasTutorDoc('certificate')) {
+        setState(() => _step = 3);
+        app.say(context.tr('docs_required'), bad: true);
+        return;
+      }
     }
     setState(() => _saving = true);
     try {
@@ -88,6 +103,30 @@ class _TutorRegistrationScreenState extends State<TutorRegistrationScreen> {
     }
   }
 
+  Future<void> _pickPhoto() async {
+    final app = context.read<AppState>();
+    final f = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 640, maxHeight: 640, imageQuality: 85);
+    if (f == null || !mounted) return;
+    setState(() => _photoBusy = true);
+    final ok = !app.live || await app.setProfilePhoto(await f.readAsBytes(), f.name, f.mimeType ?? 'image/jpeg');
+    if (mounted) setState(() {
+      _photoBusy = false;
+      _photo = _photo || ok;
+    });
+  }
+
+  Future<void> _pickVideo() async {
+    final app = context.read<AppState>();
+    final f = await ImagePicker().pickVideo(source: ImageSource.gallery, maxDuration: const Duration(minutes: 3));
+    if (f == null || !mounted) return;
+    setState(() => _videoBusy = true);
+    final ok = !app.live || await app.setIntroVideo(await f.readAsBytes(), name: f.name.isEmpty ? 'intro.mp4' : f.name, mime: f.mimeType ?? 'video/mp4');
+    if (mounted) setState(() {
+      _videoBusy = false;
+      _video = _video || ok;
+    });
+  }
+
   void _finish() {
     final app = context.read<AppState>();
     Navigator.of(context).popUntil((r) => r.isFirst);
@@ -96,7 +135,8 @@ class _TutorRegistrationScreenState extends State<TutorRegistrationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final app = context.read<AppState>();
+    final app = context.watch<AppState>();
+    final hasPhoto = _photo || app.avatarUrl.isNotEmpty;
     if (_done) {
       return Scaffold(
         backgroundColor: Colors.white,
@@ -126,16 +166,25 @@ class _TutorRegistrationScreenState extends State<TutorRegistrationScreen> {
           TextField(controller: _city, decoration: InputDecoration(hintText: context.tr('city'), prefixIcon: const Icon(Icons.location_city_outlined))),
           const SizedBox(height: 16),
           Center(
-            child: Column(children: [
-              Container(
-                width: 96,
-                height: 96,
-                decoration: BoxDecoration(color: AppColors.primarySoft, borderRadius: BorderRadius.circular(30), border: Border.all(color: AppColors.primary)),
-                child: const Icon(Icons.add_a_photo_outlined, color: AppColors.primary, size: 34),
-              ),
-              const SizedBox(height: 6),
-              Text(context.isAr ? 'صورة شخصية واضحة' : 'Clear profile photo', style: const TextStyle(color: AppColors.text2)),
-            ]),
+            child: GestureDetector(
+              key: const Key('treg-photo'),
+              onTap: _photoBusy ? null : _pickPhoto,
+              child: Column(children: [
+                if (app.avatarUrl.isNotEmpty)
+                  Avatar(name: L(app.name, app.name), color: AppColors.primary, size: 96, photo: app.avatarUrl)
+                else
+                  Container(
+                    width: 96,
+                    height: 96,
+                    decoration: BoxDecoration(color: AppColors.primarySoft, borderRadius: BorderRadius.circular(30), border: Border.all(color: AppColors.primary)),
+                    child: _photoBusy
+                        ? const Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator(strokeWidth: 2.4))
+                        : Icon(hasPhoto ? Icons.check_rounded : Icons.add_a_photo_outlined, color: AppColors.primary, size: 34),
+                  ),
+                const SizedBox(height: 6),
+                Text('${context.isAr ? 'صورة شخصية واضحة' : 'Clear profile photo'} *', style: const TextStyle(color: AppColors.text2)),
+              ]),
+            ),
           ),
         ]);
         break;
@@ -209,15 +258,21 @@ class _TutorRegistrationScreenState extends State<TutorRegistrationScreen> {
           TextField(controller: _headline, maxLength: 80, decoration: InputDecoration(hintText: context.tr('headline'))),
           TextField(controller: _about, maxLines: 5, maxLength: 1000, decoration: InputDecoration(hintText: context.tr('about_you'))),
           const SizedBox(height: 6),
-          ChoiceTile(title: _cv ? 'CV.pdf ✓' : context.tr('upload_cv'), icon: Icons.upload_file_rounded, color: AppColors.info, selected: _cv, onTap: () => setState(() => _cv = !_cv)),
+          const TutorDocsPanel(),
           const SizedBox(height: 8),
-          ChoiceTile(title: _video ? 'intro.mp4 ✓' : context.tr('upload_video'), icon: Icons.video_call_rounded, color: AppColors.lavenderInk, selected: _video, onTap: () => setState(() => _video = !_video)),
+          ChoiceTile(
+            key: const Key('treg-video'),
+            title: _video || (app.live && app.me.videoUrl.isNotEmpty) ? 'intro.mp4 ✓' : context.tr('upload_video'),
+            subtitle: _videoBusy ? context.tr('uploading') : null,
+            icon: Icons.video_call_rounded,
+            color: AppColors.lavenderInk,
+            selected: _video,
+            onTap: () {
+              if (!_videoBusy) _pickVideo();
+            },
+          ),
           const SizedBox(height: 10),
           TextField(controller: _linkedin, keyboardType: TextInputType.url, textDirection: TextDirection.ltr, decoration: const InputDecoration(hintText: 'LinkedIn URL', prefixIcon: Icon(Icons.link_rounded))),
-          if (app.live) ...[
-            const SizedBox(height: 6),
-            Text(context.tr('files_later'), style: const TextStyle(color: AppColors.text3, fontSize: 12.5)),
-          ],
         ]);
         break;
       default:
@@ -233,6 +288,8 @@ class _TutorRegistrationScreenState extends State<TutorRegistrationScreen> {
               ]),
               const SizedBox(height: 10),
               Text(context.tr('pledge_b'), style: const TextStyle(height: 1.8)),
+              const SizedBox(height: 10),
+              Text(context.tr('conduct_b'), style: const TextStyle(height: 1.8)),
             ]),
           ),
           CheckboxListTile(

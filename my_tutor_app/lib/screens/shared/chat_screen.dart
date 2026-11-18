@@ -268,6 +268,22 @@ class _ChatScreenState extends State<ChatScreen> {
                 final link = await app.createMeeting(c);
                 await Clipboard.setData(ClipboardData(text: link));
                 if (context.mounted) toast(context, context.tr('meeting_created'));
+              } else if (v == 'block' || v == 'unblock') {
+                final id = c.counterpartId ?? '';
+                if (v == 'block') {
+                  final yes = await showDialog<bool>(
+                    context: context,
+                    builder: (d) => AlertDialog(
+                      content: Text(context.tr('block_q')),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(d, false), child: Text(context.tr('cancel'))),
+                        TextButton(onPressed: () => Navigator.pop(d, true), child: Text(context.tr('block_user'), style: const TextStyle(color: AppColors.danger))),
+                      ],
+                    ),
+                  );
+                  if (yes != true) return;
+                }
+                await app.setBlocked(id, v == 'block');
               } else {
                 await _report(app);
               }
@@ -279,6 +295,12 @@ class _ChatScreenState extends State<ChatScreen> {
                   child: Row(children: [const Icon(Icons.add_link_rounded, color: AppColors.primary), const SizedBox(width: 10), Text(context.tr('create_meeting'))]),
                 ),
               PopupMenuItem(value: 'report', child: Text(context.tr('report_chat'))),
+              if (app.live && (c.counterpartId ?? '').isNotEmpty)
+                PopupMenuItem(
+                  key: const Key('block-user'),
+                  value: app.isBlocked(c.counterpartId!) ? 'unblock' : 'block',
+                  child: Text(context.tr(app.isBlocked(c.counterpartId!) ? 'unblock_user' : 'block_user'), style: const TextStyle(color: AppColors.danger)),
+                ),
             ],
           ),
         ],

@@ -7,6 +7,7 @@ import '../../state/app_state.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../shared/account_screen.dart';
+import '../shared/family_screen.dart';
 import '../shared/notifications_screen.dart';
 import 'help_me_find_screen.dart';
 import 'student_shell.dart';
@@ -52,6 +53,10 @@ class HomeScreen extends StatelessWidget {
                 ],
               ]),
               const SizedBox(height: 18),
+              if (app.waitingForParent) ...[
+                const ParentApprovalCard(),
+                const SizedBox(height: 18),
+              ],
 
               // ---------- search ----------
               InkWell(
@@ -201,8 +206,6 @@ class HomeScreen extends StatelessWidget {
                           Row(children: [
                             Text(money(t.pricePerHour), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
                             Text(context.tr('per_hour'), style: const TextStyle(color: AppColors.text3, fontSize: 12)),
-                            const Spacer(),
-                            Text('${t.matchScore}%', style: const TextStyle(color: AppColors.success, fontWeight: FontWeight.w800)),
                           ]),
                         ]),
                       ),

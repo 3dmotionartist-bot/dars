@@ -152,6 +152,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   /// Live mode: 'pending' | 'approved' | 'rejected' for the signed-in tutor.
   String? tutorVerification;
   String? rejectionReason;
+  /// Round E2: my verification documents [{id, kind, file_path, created_at}] and my edits waiting for review.
+  List<Map<String, dynamic>> tutorDocs = const [];
+  Map<String, dynamic>? pendingTutorChanges;
   Tutor? _me;
 
   /// The signed-in tutor's public card.
@@ -333,13 +336,22 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     phone = (p['phone'] as String?) ?? (p['email'] as String?) ?? '';
     levelId = (p['level_id'] as String?) ?? levelId;
     curriculumId = (p['curriculum_id'] as String?) ?? curriculumId;
+    birthYear = (p['birth_year'] as num?)?.toInt();
     if (p['locale'] == 'en' || p['locale'] == 'ar') locale = Locale(p['locale'] as String);
-    if (role != UserRole.tutor) return name.trim().isNotEmpty;
+    unawaited(loadTermsStatus());
+    if (role != UserRole.tutor) {
+      unawaited(refreshFamily());
+      return name.trim().isNotEmpty;
+    }
 
     final tp = await _b.myTutorProfile();
     if (tp == null) return false;
     tutorVerification = '${tp['verification']}';
     rejectionReason = tp['rejection_reason'] as String?;
+    try {
+      tutorDocs = await _b.myTutorDocuments();
+      pendingTutorChanges = await _b.myPendingTutorChanges();
+    } catch (_) {}
     final dnd = tp['dnd_until'] == null ? null : Backend.time(tp['dnd_until']);
     tutorAvailable = tp['available_now'] == true && (dnd == null || dnd.isBefore(DateTime.now()));
     instantBooking = tp['instant_booking'] != false;
@@ -488,7 +500,46 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Checks min_app_build (on start and whenever the app comes back to the front).
   /// Builds without a build number (older versions, local builds) are never blocked.
+  /// Round E5: phone sign-in is offered only when the owner switched it on (admin setting "phone_signin").
+  bool get phoneSignIn => !live || Backend.phoneChannel != 'off';
+
+  Future<void> loadPhoneSetting() async {
+    if (!live) return;
+    try {
+      final v = '${await _b.setting('phone_signin') ?? 'off'}';
+      final c = v == 'sms' || v == 'whatsapp' ? v : 'off';
+      if (c != Backend.phoneChannel) {
+        Backend.phoneChannel = c;
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  Future<bool> linkPhone(String phoneNumber) async {
+    try {
+      await _b.linkPhone(phoneNumber);
+      return true;
+    } catch (e) {
+      _error(e);
+      return false;
+    }
+  }
+
+  Future<bool> verifyLinkedPhone(String phoneNumber, String code) async {
+    try {
+      await _b.verifyLinkedPhone(phoneNumber, code);
+      phone = Backend.e164(phoneNumber);
+      notifyListeners();
+      say(_t('تم ربط رقم الهاتف بحسابك', 'Phone number added to your account'));
+      return true;
+    } catch (e) {
+      _error(e);
+      return false;
+    }
+  }
+
   Future<void> checkAppVersion() async {
+    unawaited(loadPhoneSetting());
     if (!live || DarsConfig.build <= 0) return;
     try {
       final v = await _b.setting('min_app_build');
@@ -1020,7 +1071,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// Saves the student/parent profile (name, level, curriculum, interests).
-  Future<void> setProfile({String? fullName, String? level, String? curriculum, Set<String>? subjects}) async {
+  Future<void> setProfile({String? fullName, String? level, String? curriculum, Set<String>? subjects, int? birthYear}) async {
     if (fullName != null && fullName.trim().isNotEmpty) name = fullName.trim();
     if (level != null) levelId = level;
     if (curriculum != null) curriculumId = curriculum;
@@ -1037,6 +1088,187 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         'curriculum_id': curriculumId,
         'locale': locale.languageCode,
       });
+      // Round E3: the year of birth is saved once (the server refuses under 13 and later changes).
+      if (birthYear != null && this.birthYear == null) {
+        await _b.updateProfile({'birth_year': birthYear});
+        this.birthYear = birthYear;
+        await refreshFamily();
+      }
+    }
+  }
+
+  // =====================================================================
+  // Round E3: age, parent approval, children, blocking, lesson attendance
+  // =====================================================================
+  int? birthYear;
+  // Round E4: consent to the Terms & Privacy, and a deletion waiting.
+  int termsVersion = 0;
+  bool termsAccepted = true;
+  /// Ticked on the sign-in screen: recorded on the server right after sign-in (no second question).
+  bool consentTicked = false;
+  DateTime? deletionAfter;
+  bool get needsConsent => live && loggedIn && !termsAccepted;
+
+  Future<void> loadTermsStatus() async {
+    if (!live) return;
+    try {
+      final r = await _b.termsStatus();
+      if (r == null) return;
+      termsVersion = ((r['version'] as num?) ?? 1).toInt();
+      termsAccepted = r['accepted'] == true;
+      final d = r['deletion'];
+      deletionAfter = d is Map && d['delete_after'] != null ? Backend.time(d['delete_after']) : null;
+      if (!termsAccepted && consentTicked) await acceptTerms();
+    } catch (_) {
+      // an older backend without Round E: nothing to ask
+    }
+    notifyListeners();
+  }
+
+  Future<bool> acceptTerms() async {
+    try {
+      await _b.acceptTerms(termsVersion < 1 ? 1 : termsVersion);
+      termsAccepted = true;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error(e);
+      return false;
+    }
+  }
+
+  /// "Delete my account": the server keeps it 14 days (signing in again can cancel), then removes it. Signs out.
+  Future<bool> requestAccountDeletion() async {
+    if (!live) return false;
+    try {
+      await _b.requestAccountDeletion();
+      await logout();
+      say(_t('سيُحذف حسابك بعد 14 يوماً. لإلغاء الحذف سجّل الدخول قبل ذلك.', 'Your account will be deleted in 14 days. Sign in before then to keep it.'));
+      return true;
+    } catch (e) {
+      _error(e);
+      return false;
+    }
+  }
+
+  Future<void> cancelAccountDeletion() async {
+    try {
+      await _b.cancelAccountDeletion();
+      deletionAfter = null;
+      notifyListeners();
+      say(_t('تم إلغاء حذف الحساب', 'Your account will be kept'));
+    } catch (e) {
+      _error(e);
+    }
+  }
+
+  /// A student under 18 whose parent has not approved yet: {needed: true, code: 'ABCD2345'}.
+  Map<String, dynamic>? parentCode;
+  bool get waitingForParent => parentCode?['needed'] == true;
+  /// Parent: linked child accounts and child profiles.
+  List<Map<String, dynamic>> childAccounts = const [];
+  List<Map<String, dynamic>> childProfiles = const [];
+  Set<String> blockedUsers = {};
+
+  static bool minorYear(int? y) => y != null && DateTime.now().year - y <= 18;
+
+  Future<void> refreshFamily() async {
+    if (!live) return;
+    try {
+      if (role == UserRole.student && minorYear(birthYear)) {
+        parentCode = await _b.myParentCode();
+      } else {
+        parentCode = null;
+      }
+      if (role == UserRole.parent) {
+        final r = await _b.myChildren();
+        childAccounts = [for (final x in (r['accounts'] as List? ?? const [])) Map<String, dynamic>.from(x as Map)];
+        childProfiles = [for (final x in (r['profiles'] as List? ?? const [])) Map<String, dynamic>.from(x as Map)];
+      }
+      blockedUsers = (await _b.myBlockedUsers()).toSet();
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  Future<bool> linkChildAccount(String code) async {
+    try {
+      final r = await _b.linkChildAccount(code.trim());
+      await refreshFamily();
+      say(_t('تمت الموافقة على حساب ${r['name'] ?? ''}', 'Approved ${r['name'] ?? ''}\'s account'));
+      return true;
+    } catch (e) {
+      _error(e);
+      return false;
+    }
+  }
+
+  Future<void> unlinkChildAccount(String studentId) async {
+    try {
+      await _b.unlinkChildAccount(studentId);
+      await refreshFamily();
+    } catch (e) {
+      _error(e);
+    }
+  }
+
+  Future<bool> saveChildProfile({String? id, required String name, String? level, int? birthYear}) async {
+    if (!live) return true;
+    try {
+      await _b.saveChildProfile(id: id, name: name.trim(), level: level, birthYear: birthYear);
+      await refreshFamily();
+      return true;
+    } catch (e) {
+      _error(e);
+      return false;
+    }
+  }
+
+  Future<void> removeChildProfile(String id) async {
+    try {
+      await _b.removeChildProfile(id);
+      await refreshFamily();
+    } catch (e) {
+      _error(e);
+    }
+  }
+
+  Future<Map<String, dynamic>?> childActivity(String id) async {
+    try {
+      return await _b.childActivity(id);
+    } catch (e) {
+      _error(e);
+      return null;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> childChatMessages(String conversationId, {DateTime? before}) async {
+    try {
+      return await _b.childChatMessages(conversationId, before: before);
+    } catch (e) {
+      _error(e);
+      return const [];
+    }
+  }
+
+  bool isBlocked(String userId) => blockedUsers.contains(userId);
+
+  /// Block / unblock the other person of a chat: no messages or calls either way while blocked.
+  Future<bool> setBlocked(String userId, bool blocked) async {
+    if (!live || userId.isEmpty) return false;
+    try {
+      if (blocked) {
+        await _b.blockUser(userId);
+        blockedUsers = {...blockedUsers, userId};
+      } else {
+        await _b.unblockUser(userId);
+        blockedUsers = {...blockedUsers}..remove(userId);
+      }
+      notifyListeners();
+      say(blocked ? _t('تم الحظر. لا رسائل ولا مكالمات بينكما.', 'Blocked. No messages or calls between you.') : _t('تم إلغاء الحظر', 'Unblocked'));
+      return true;
+    } catch (e) {
+      _error(e);
+      return false;
     }
   }
 
@@ -1072,7 +1304,54 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       curricula: curricula,
       levelPrices: fees,
     );
+    await _b.submitTutorApplication();
     await _loadProfile();
+  }
+
+  /// Round E2: a verification document (kind 'id' | 'certificate' | 'cv') uploaded to the private tutor-docs bucket.
+  Future<bool> addTutorDocument(String kind, Uint8List bytes, String name, String mime) async {
+    if (!live) return true;
+    if (bytes.length > 10 * 1024 * 1024) {
+      say(_t('الملف كبير جداً (الحد 10 ميغابايت).', 'The file is too big (10 MB max).'), bad: true);
+      return false;
+    }
+    try {
+      await _b.addTutorDocument(kind, bytes, _ext(name, mime == 'application/pdf' ? 'pdf' : 'jpg'), mime);
+      tutorDocs = await _b.myTutorDocuments();
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error(e);
+      return false;
+    }
+  }
+
+  Future<void> removeTutorDocument(String id) async {
+    if (!live) return;
+    try {
+      await _b.removeTutorDocument(id);
+      tutorDocs = await _b.myTutorDocuments();
+      notifyListeners();
+    } catch (e) {
+      _error(e);
+    }
+  }
+
+  bool hasTutorDoc(String kind) => tutorDocs.any((d) => d['kind'] == kind);
+
+  /// Sends my application again (e.g. after the Dars team asked for a clearer document).
+  Future<bool> resubmitTutorApplication() async {
+    if (!live) return true;
+    try {
+      await _b.submitTutorApplication();
+      await _loadProfile();
+      notifyListeners();
+      say(_t('تم إرسال طلبك للمراجعة', 'Sent for review'));
+      return true;
+    } catch (e) {
+      _error(e);
+      return false;
+    }
   }
 
   // =====================================================================
@@ -1264,7 +1543,10 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         await _loadTutors();
       } catch (_) {}
       notifyListeners();
-      say(_t('تم حفظ الملف الشخصي', 'Profile saved'));
+      say(role == UserRole.tutor && tutorVerification == 'approved' && pendingTutorChanges != null
+          ? _t('تم الحفظ. التغييرات على الاسم والنبذة والسعر والفيديو تظهر للطلاب بعد مراجعة فريق درس.',
+              'Saved. Changes to your name, about, prices and video go public after the Dars team reviews them.')
+          : _t('تم حفظ الملف الشخصي', 'Profile saved'));
       return true;
     } catch (e) {
       _error(e);
@@ -1517,6 +1799,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     String? subjectId,
     String method = 'bank', // pay-to key of the transfer method (used when credit does not cover it)
     String notes = '',
+    String? childId, // Round E3: a parent books for a child profile
   }) async {
     if (live) {
       final pm = methodValue(method);
@@ -1524,7 +1807,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       if (isPackage) {
         res = await _b.rpc('buy_package', {'p_tutor': tutor.id, 'p_hours': hours, 'p_level': levelId, 'p_use_wallet': balanceUsed > 0, 'p_method': pm}) as Map;
       } else {
-        res = await _b.rpc('book_lesson', {
+        res = await _b.rpc(childId == null ? 'book_lesson' : 'book_lesson_for_child', {
+          if (childId != null) 'p_child': childId,
           'p_tutor': tutor.id,
           'p_starts_at': start.toUtc().toIso8601String(),
           'p_duration': minutes,
@@ -1931,9 +2215,12 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// Video room for a booked lesson — the student and the tutor both join from "Join lesson".
-  Future<void> joinLesson(Lesson l) {
+  Future<void> joinLesson(Lesson l) async {
     final other = role == UserRole.tutor ? _nameOf(l.studentName) : _nameOf(l.tutor.name);
-    return joinCall(room: 'lesson-${l.id}', video: true, peer: other);
+    // Round E3: join / leave times of both sides are kept for the Dars team (no-show disputes).
+    if (live) unawaited(_b.logAttendance(l.id, 'join').catchError((_) {}));
+    await joinCall(room: 'lesson-${l.id}', video: true, peer: other);
+    if (live) unawaited(_b.logAttendance(l.id, 'leave').catchError((_) {}));
   }
 
   // ---- ringing & notifications ----

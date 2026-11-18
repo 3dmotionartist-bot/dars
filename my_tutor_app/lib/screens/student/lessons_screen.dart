@@ -94,7 +94,7 @@ class LessonsScreen extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    VerifiedName(p.tutor.name.of(context), size: 15),
+                    VerifiedName(p.tutor.name.of(context), size: 15, verified: !p.tutor.stub),
                     Text('#${p.id} · ${p.totalHours} ${context.tr('hours')} · -${p.discount}%', style: const TextStyle(color: AppColors.text3, fontSize: 13)),
                   ]),
                 ),
@@ -183,6 +183,7 @@ class LessonCard extends StatelessWidget {
                 Pill(statusText, bg: bg, fg: fg),
                 Pill('${l.minutes} ${context.tr('min')}', bg: AppColors.surface, fg: AppColors.text2, icon: Icons.timer_outlined),
                 Pill(l.online ? context.tr('online') : context.tr('in_person'), bg: AppColors.surface, fg: AppColors.text2, icon: l.online ? Icons.videocam_outlined : Icons.home_outlined),
+                if (l.childName.isNotEmpty) Pill('${context.tr('for_child')} ${l.childName}', bg: AppColors.accentSoft, fg: AppColors.accent, icon: Icons.child_care_rounded),
               ]),
             ]),
           ),
