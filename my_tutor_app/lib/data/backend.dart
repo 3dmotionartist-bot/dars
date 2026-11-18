@@ -315,6 +315,37 @@ class Backend {
     return list;
   }
 
+  // ---- Round D ----
+  /// The call I started ended before the other person joined: they get one "missed call" (which also stops
+  /// the ringing on their phone if the app is closed). True if it was sent.
+  Future<bool> callNotAnswered(String room) async => (await db.rpc('call_not_answered', params: {'p_room': room})) == true;
+
+  /// The server's clock (is a call found by a reload still ringing? — the phone's clock may be wrong).
+  Future<DateTime?> serverNow() async {
+    try {
+      final r = await db.rpc('server_now').timeout(const Duration(seconds: 5));
+      return r == null ? null : DateTime.parse('$r').toUtc();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// This phone's push token for the signed-in account (and the app's language for the notification texts).
+  Future<void> saveDeviceToken(String token, {required String lang}) =>
+      db.rpc('save_device_token', params: {'p_token': token, 'p_platform': 'android', 'p_lang': lang});
+
+  Future<void> removeDeviceToken(String token) => db.rpc('remove_device_token', params: {'p_token': token});
+
+  /// Notification switches: messages / calls / reminders (all on by default).
+  Future<({bool messages, bool calls, bool reminders})> notificationPrefs() async {
+    final r = await db.rpc('my_notification_prefs');
+    final row = r is List && r.isNotEmpty ? r.first as Map : (r is Map ? r : const {});
+    return (messages: row['messages'] != false, calls: row['calls'] != false, reminders: row['reminders'] != false);
+  }
+
+  Future<void> setNotificationPrefs({bool? messages, bool? calls, bool? reminders}) => db.rpc('set_notification_prefs',
+      params: {'p_messages': messages, 'p_calls': calls, 'p_reminders': reminders});
+
   /// Realtime room the two sides of a call use to exchange connection details.
   RealtimeChannel callChannel(String room) => db.channel('dars-call-$room', opts: const RealtimeChannelConfig(self: false));
 

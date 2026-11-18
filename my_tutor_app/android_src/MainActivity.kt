@@ -1,47 +1,81 @@
 package com.dars.my_tutor_app
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
-import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.MediaRecorder
-import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.PowerManager
+import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
 /**
- * Dars: rings the phone for incoming calls and shows message notifications.
- * Copied over the generated MainActivity by the GitHub build (see .github/workflows/build.yml).
- * Uses only the Android SDK — no extra libraries.
+ * Dars: rings the phone for incoming calls, shows notifications (DarsNotify), voice notes, the call service
+ * (CallService), push tokens (DarsMessagingService) and meeting links.
+ * Copied over the generated MainActivity by the GitHub build (see my_tutor_app/tool/prepare_android.sh).
  */
 class MainActivity : FlutterActivity() {
-    private val callsChannel = "dars_calls_v1"
-    private val messagesChannel = "dars_messages_v1"
-    private val callId = 7001
+    companion object {
+        /** True while the app is on screen (push messages for chats / calls are then shown by the app itself). */
+        @Volatile var foreground = false
+        private var instance: MainActivity? = null
+
+        /** A push said "incoming call" while the app is open: let the app ring (false if it can't). */
+        fun deliverIncomingCall(call: Map<String, String>): Boolean {
+            val a = instance ?: return false
+            val ch = a.channel ?: return false
+            Handler(Looper.getMainLooper()).post { ch.invokeMethod("incomingCall", call) }
+            return true
+        }
+
+        /** "Decline" was tapped in the ringing notification: the open app stops its ringing screen too. */
+        fun deliverDeclined(room: String) {
+            val ch = instance?.channel ?: return
+            Handler(Looper.getMainLooper()).post { ch.invokeMethod("callDeclined", mapOf("room" to room)) }
+        }
+    }
+
+    private var channel: MethodChannel? = null
     private var pendingAction: String? = null
+    private var pendingCall: Map<String, String>? = null
+    private var pendingOpen: Map<String, String>? = null
     private var pendingLink: String? = null
+    private var proximityLock: PowerManager.WakeLock? = null
     private var recorder: MediaRecorder? = null
     private var recordFile: File? = null
     private var recordStarted = 0L
     private var player: MediaPlayer? = null
 
-    private fun manager(): NotificationManager =
-        getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        instance = this
         readIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        foreground = true
+    }
+
+    override fun onPause() {
+        foreground = false
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        if (instance === this) instance = null
+        foreground = false
+        releaseProximity()
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -64,21 +98,54 @@ class MainActivity : FlutterActivity() {
             setShowWhenLocked(isCall)
             setTurnScreenOn(isCall)
         }
-        if (isCall) pendingAction = i?.getStringExtra("dars_action") ?: "open"
+        if (isCall) {
+            pendingAction = i?.getStringExtra("dars_action") ?: "open"
+            val room = i?.getStringExtra("room") ?: ""
+            if (room.isNotEmpty()) {
+                pendingCall = mapOf(
+                    "action" to (pendingAction ?: "open"),
+                    "room" to room,
+                    "video" to (i?.getStringExtra("video") ?: "true"),
+                    "name" to (i?.getStringExtra("name") ?: ""),
+                    "conversation_id" to (i?.getStringExtra("conversation_id") ?: ""),
+                    "sent_at" to (i?.getStringExtra("sent_at") ?: ""),
+                )
+            }
+            if (pendingAction == "join") DarsNotify.stopRing(this)
+        }
+        // A tapped chat / reminder / notice notification: which screen to open.
+        val open = i?.getStringExtra("dars_open") ?: ""
+        if (open.isNotEmpty()) {
+            pendingOpen = mapOf("open" to open, "conversation_id" to (i?.getStringExtra("conversation_id") ?: ""))
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        createChannels()
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "dars/ring").setMethodCallHandler { call, result ->
+        DarsNotify.createChannels(this)
+        val ch = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "dars/ring")
+        channel = ch
+        CallService.onHangUp = { Handler(Looper.getMainLooper()).post { channel?.invokeMethod("hangUp", null) } }
+        ch.setMethodCallHandler { call, result ->
             try {
                 when (call.method) {
                     "ring" -> {
-                        ring(call.argument<String>("title") ?: "Dars", call.argument<String>("body") ?: "", call.argument<String>("join") ?: "Join")
+                        val room = call.argument<String>("room") ?: ""
+                        val details: Map<String, String> = if (room.isEmpty()) emptyMap() else mapOf(
+                            "room" to room,
+                            "video" to (call.argument<String>("video") ?: "true"),
+                            "name" to (call.argument<String>("title") ?: ""),
+                            "conversation_id" to (call.argument<String>("conversation_id") ?: ""),
+                            "sent_at" to "",
+                        )
+                        DarsNotify.ring(
+                            this, call.argument<String>("title") ?: "Dars", call.argument<String>("body") ?: "",
+                            call.argument<String>("join") ?: "Join", call.argument<String>("decline") ?: "", details,
+                        )
                         result.success(true)
                     }
                     "stop" -> {
-                        manager().cancel(callId)
+                        DarsNotify.stopRing(this)
                         result.success(true)
                     }
                     "abis" -> {
@@ -100,7 +167,7 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     }
                     "notify" -> {
-                        notifyMessage(call.argument<String>("title") ?: "Dars", call.argument<String>("body") ?: "")
+                        DarsNotify.simple(this, call.argument<String>("title") ?: "Dars", call.argument<String>("body") ?: "")
                         result.success(true)
                     }
                     "askPermission" -> {
@@ -111,6 +178,50 @@ class MainActivity : FlutterActivity() {
                         val a = pendingAction
                         pendingAction = null
                         result.success(a)
+                    }
+                    "takeCall" -> {
+                        // Opened from a ringing notification (push): which call, and "open" or "join".
+                        val c = pendingCall
+                        pendingCall = null
+                        pendingAction = null
+                        result.success(c)
+                    }
+                    "takeOpen" -> {
+                        val o = pendingOpen
+                        pendingOpen = null
+                        result.success(o)
+                    }
+                    "clearChat" -> {
+                        DarsNotify.clearChat(this, call.argument<String>("conversation_id") ?: "")
+                        result.success(true)
+                    }
+                    "pushToken" -> pushToken(result)
+                    "setBackend" -> {
+                        DarsNotify.prefs(this).edit()
+                            .putString("backend_url", call.argument<String>("url") ?: "")
+                            .putString("backend_key", call.argument<String>("key") ?: "")
+                            .putString("lang", call.argument<String>("lang") ?: "ar")
+                            .apply()
+                        result.success(true)
+                    }
+                    "callActive" -> {
+                        callActive(
+                            call.argument<Boolean>("on") ?: false, call.argument<Boolean>("video") ?: false,
+                            call.argument<String>("title") ?: "", call.argument<String>("text") ?: "", call.argument<String>("hangUp") ?: "",
+                        )
+                        result.success(true)
+                    }
+                    "callShare" -> {
+                        val on = call.argument<Boolean>("on") ?: false
+                        val i = Intent(this, CallService::class.java).setAction(if (on) CallService.SHARE_ON else CallService.SHARE_OFF)
+                        if (on) CallService.shareReady = false
+                        if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
+                        result.success(CallService.shareReady)
+                    }
+                    "callShareReady" -> result.success(CallService.shareReady)
+                    "proximity" -> {
+                        if (call.argument<Boolean>("on") == true) acquireProximity() else releaseProximity()
+                        result.success(true)
                     }
                     "takeLink" -> {
                         val l = pendingLink
@@ -128,13 +239,15 @@ class MainActivity : FlutterActivity() {
                         stopAudio()
                         result.success(true)
                     }
+                    // Older app code paths: screen sharing alone (now part of the call service).
                     "shareStart" -> {
-                        val i = Intent(this, ScreenShareService::class.java)
+                        val i = Intent(this, CallService::class.java).setAction(CallService.SHARE_ON)
                         if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
                         result.success(true)
                     }
                     "shareStop" -> {
-                        stopService(Intent(this, ScreenShareService::class.java))
+                        val i = Intent(this, CallService::class.java).setAction(CallService.SHARE_OFF)
+                        if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
                         result.success(true)
                     }
                     else -> result.notImplemented()
@@ -264,77 +377,57 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun createChannels() {
-        if (Build.VERSION.SDK_INT < 26) return
-        val ringtone = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-        val calls = NotificationChannel(callsChannel, "Calls", NotificationManager.IMPORTANCE_HIGH)
-        calls.description = "Incoming voice and video calls"
-        calls.setSound(
-            ringtone,
-            AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build()
-        )
-        calls.enableVibration(true)
-        calls.vibrationPattern = longArrayOf(0, 1000, 800, 1000, 800)
-        calls.lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-        val messages = NotificationChannel(messagesChannel, "Messages", NotificationManager.IMPORTANCE_HIGH)
-        messages.description = "New chat messages"
-        manager().createNotificationChannel(calls)
-        manager().createNotificationChannel(messages)
-    }
-
-    private fun openIntent(action: String, code: Int): PendingIntent {
-        val i = Intent(this, MainActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            .putExtra("dars_call", action != "message")
-            .putExtra("dars_action", action)
-        var flags = PendingIntent.FLAG_UPDATE_CURRENT
-        if (Build.VERSION.SDK_INT >= 23) flags = flags or PendingIntent.FLAG_IMMUTABLE
-        return PendingIntent.getActivity(this, code, i, flags)
-    }
-
-    @Suppress("DEPRECATION")
-    private fun builder(channel: String): Notification.Builder =
-        if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, channel) else Notification.Builder(this)
-
-    @Suppress("DEPRECATION")
-    private fun ring(title: String, body: String, joinLabel: String) {
-        val open = openIntent("open", 1)
-        val b = builder(callsChannel)
-            .setSmallIcon(android.R.drawable.sym_call_incoming)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setCategory(Notification.CATEGORY_CALL)
-            .setPriority(Notification.PRIORITY_MAX)
-            .setVisibility(Notification.VISIBILITY_PUBLIC)
-            .setContentIntent(open)
-            .setFullScreenIntent(open, true)
-            .setAutoCancel(true)
-            .setOngoing(true)
-            .addAction(android.R.drawable.sym_action_call, joinLabel, openIntent("join", 2))
-        if (Build.VERSION.SDK_INT >= 26) {
-            b.setTimeoutAfter(45000)
+    // ------------------------------------------------------------ calls (Round D, D2)
+    private fun callActive(on: Boolean, video: Boolean, title: String, text: String, hangUp: String) {
+        if (on) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            val i = Intent(this, CallService::class.java).setAction(CallService.START)
+                .putExtra("video", video).putExtra("title", title).putExtra("text", text).putExtra("hangUp", hangUp)
+            try {
+                if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
+            } catch (ignored: Exception) {
+            }
         } else {
-            b.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE), AudioManager.STREAM_RING)
-            b.setVibrate(longArrayOf(0, 1000, 800, 1000, 800))
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            releaseProximity()
+            stopService(Intent(this, CallService::class.java))
         }
-        val n = b.build()
-        n.flags = n.flags or Notification.FLAG_INSISTENT
-        manager().notify(callId, n)
     }
 
     @Suppress("DEPRECATION")
-    private fun notifyMessage(title: String, body: String) {
-        val b = builder(messagesChannel)
-            .setSmallIcon(android.R.drawable.sym_action_chat)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setPriority(Notification.PRIORITY_HIGH)
-            .setContentIntent(openIntent("message", 3))
-            .setAutoCancel(true)
-        if (Build.VERSION.SDK_INT < 26) b.setDefaults(Notification.DEFAULT_ALL)
-        manager().notify((System.currentTimeMillis() % 100000).toInt() + 100, b.build())
+    private fun acquireProximity() {
+        if (proximityLock?.isHeld == true) return
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (Build.VERSION.SDK_INT >= 21 && pm.isWakeLockLevelSupported(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK)) {
+                val l = pm.newWakeLock(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK, "dars:proximity")
+                l.acquire(4 * 60 * 60 * 1000L)
+                proximityLock = l
+            }
+        } catch (ignored: Exception) {
+        }
+    }
+
+    private fun releaseProximity() {
+        try {
+            proximityLock?.let { if (it.isHeld) it.release() }
+        } catch (ignored: Exception) {
+        }
+        proximityLock = null
+    }
+
+    // ------------------------------------------------------------ push (Round D, D1)
+    private fun pushToken(result: MethodChannel.Result) {
+        val saved = DarsNotify.prefs(this).getString("token", null)
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token.addOnCompleteListener { t ->
+                val token = if (t.isSuccessful) t.result else saved
+                if (token != null) DarsNotify.prefs(this).edit().putString("token", token).apply()
+                result.success(token)
+            }
+        } catch (e: Exception) {
+            // Firebase is not set up in this build (no google-services values): no push, the app works as before.
+            result.success(saved)
+        }
     }
 }
