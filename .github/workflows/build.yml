@@ -37,42 +37,12 @@ jobs:
           channel: stable
           cache: true
 
+      # Platform folders + Dars' own Android parts (call service, push notifications…): tool/prepare_android.sh,
+      # the same script the branch check uses. GOOGLE_SERVICES_JSON (repository secret) turns on push notifications.
       - name: Generate Android & web platform folders
-        run: |
-          flutter create --org com.dars --project-name my_tutor_app --platforms=android,web .
-          sed -i 's/android:label="my_tutor_app"/android:label="Dars"/' android/app/src/main/AndroidManifest.xml
-          # Release builds need this to reach the backend
-          grep -q 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml || \
-            sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' android/app/src/main/AndroidManifest.xml
-          # Calls open in the browser: let the app find one
-          grep -q 'android:scheme="https"' android/app/src/main/AndroidManifest.xml || \
-            sed -i 's#<queries>#<queries>\n        <intent><action android:name="android.intent.action.VIEW"/><data android:scheme="https"/></intent>#' android/app/src/main/AndroidManifest.xml
-          # Ringing phone for incoming calls + message notifications (android_src/MainActivity.kt)
-          cp android_src/MainActivity.kt android_src/ScreenShareService.kt android/app/src/main/kotlin/com/dars/my_tutor_app/
-          for p in POST_NOTIFICATIONS USE_FULL_SCREEN_INTENT VIBRATE FOREGROUND_SERVICE FOREGROUND_SERVICE_MEDIA_PROJECTION; do
-            grep -q "android.permission.$p" android/app/src/main/AndroidManifest.xml || \
-              sed -i "s#<application#<uses-permission android:name=\"android.permission.$p\"/>\n    <application#" android/app/src/main/AndroidManifest.xml
-          done
-          # In-app voice / video calls (flutter_webrtc): camera + microphone, Android 6+, keep WebRTC classes in release
-          for p in CAMERA RECORD_AUDIO MODIFY_AUDIO_SETTINGS ACCESS_NETWORK_STATE CHANGE_NETWORK_STATE; do
-            grep -q "android.permission.$p\"" android/app/src/main/AndroidManifest.xml || \
-              sed -i "s#<application#<uses-permission android:name=\"android.permission.$p\"/>\n    <application#" android/app/src/main/AndroidManifest.xml
-          done
-          grep -q 'android.hardware.camera' android/app/src/main/AndroidManifest.xml || \
-            sed -i 's#<application#<uses-feature android:name="android.hardware.camera" android:required="false"/>\n    <application#' android/app/src/main/AndroidManifest.xml
-          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/' android/app/build.gradle* || true
-          grep -n "minSdk" android/app/build.gradle* || true
-          # Screen sharing service + meeting links (dars://join?room=...) open the app
-          grep -q 'ScreenShareService' android/app/src/main/AndroidManifest.xml || \
-            sed -i 's#</application>#    <service android:name=".ScreenShareService" android:exported="false" android:foregroundServiceType="mediaProjection"/>\n    </application>#' android/app/src/main/AndroidManifest.xml
-          grep -q 'android:scheme="dars"' android/app/src/main/AndroidManifest.xml || \
-            sed -i 's#</activity>#    <intent-filter>\n                <action android:name="android.intent.action.VIEW"/>\n                <category android:name="android.intent.category.DEFAULT"/>\n                <category android:name="android.intent.category.BROWSABLE"/>\n                <data android:scheme="dars" android:host="join"/>\n            </intent-filter>\n        </activity>#' android/app/src/main/AndroidManifest.xml
-          # Shared meeting links (https://3dmotionartist-bot.github.io/dars/call/?room=...) open the app directly.
-          # Android checks https://3dmotionartist-bot.github.io/.well-known/assetlinks.json against the signing key.
-          grep -q 'android:autoVerify' android/app/src/main/AndroidManifest.xml || \
-            sed -i 's#</activity>#    <intent-filter android:autoVerify="true">\n                <action android:name="android.intent.action.VIEW"/>\n                <category android:name="android.intent.category.DEFAULT"/>\n                <category android:name="android.intent.category.BROWSABLE"/>\n                <data android:scheme="https" android:host="3dmotionartist-bot.github.io" android:pathPrefix="/dars/call"/>\n            </intent-filter>\n        </activity>#' android/app/src/main/AndroidManifest.xml
-          printf -- '-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**\n-keep class com.cloudwebrtc.webrtc.** { *; }\n' > android/app/proguard-rules.pro
-          cat android/app/src/main/AndroidManifest.xml
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: bash tool/prepare_android.sh
 
       - run: flutter pub get
 

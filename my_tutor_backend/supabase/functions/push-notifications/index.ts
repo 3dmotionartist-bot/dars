@@ -1,19 +1,26 @@
-// Supabase Edge Function: push-notifications
-// Sends every new row of `notifications` to the user's phone with Firebase Cloud Messaging (HTTP v1).
+// Supabase Edge Function: push-notifications (Round D, D1)
+// Sends chat messages, incoming calls, missed calls, lesson reminders and other app notices to the person's
+// phones with Firebase Cloud Messaging (HTTP v1). The decisions are in logic.ts (tested by
+// tests/push_notifications.test.mjs); this file connects them to the database and to Firebase.
 //
-// Setup:
-//   1. Firebase console → Project settings → Service accounts → Generate new private key (JSON).
-//   2. supabase secrets set FCM_SERVICE_ACCOUNT="$(cat service-account.json)"
-//   3. supabase functions deploy push-notifications
-//   4. Pick a long random secret: supabase secrets set DARS_HOOK_SECRET="<random text>"
-//   5. Supabase dashboard → Database → Webhooks → new webhook on table `notifications`, event INSERT,
-//      type "Supabase Edge Functions" → push-notifications, and add the HTTP header
-//      x-dars-hook: <the same random text>. Requests without it are refused (401).
-// The app saves the device token in profiles.fcm_token after sign-in.
+// Setup (the owner, in the dashboards — never in chat):
+//   1. Firebase console → Project settings → Service accounts → Generate new private key (a JSON file).
+//   2. Supabase → Edge Functions → Secrets: FCM_SERVICE_ACCOUNT = the whole JSON file;
+//      DARS_HOOK_SECRET = a long random password you make up.
+//   3. Deploy this function with "Verify JWT" OFF (the webhooks prove themselves with x-dars-hook instead):
+//        supabase functions deploy push-notifications --no-verify-jwt
+//   4. Supabase → Database → Webhooks → two webhooks, each type "Supabase Edge Functions" → push-notifications,
+//      method POST, with the HTTP header  x-dars-hook: <the same password>:
+//        dars_push_messages       on table messages,      event Insert
+//        dars_push_notifications  on table notifications, event Insert
+//   Requests without the header are refused (401).
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
+import { handle, type Lang, type Prefs, type Token } from "./logic.ts";
 
-const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-const sa = JSON.parse(Deno.env.get("FCM_SERVICE_ACCOUNT") ?? "{}");
+const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
+  auth: { persistSession: false },
+});
+const sa = JSON.parse(Deno.env.get("FCM_SERVICE_ACCOUNT") || "{}");
 
 let cached: { token: string; exp: number } | null = null;
 
@@ -21,6 +28,7 @@ const b64url = (data: ArrayBuffer | string) =>
   btoa(typeof data === "string" ? data : String.fromCharCode(...new Uint8Array(data)))
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
+/** A Google access token for FCM, signed with the service account's key (kept for its lifetime). */
 async function googleAccessToken(): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   if (cached && cached.exp > now + 60) return cached.token;
@@ -39,48 +47,46 @@ async function googleAccessToken(): Promise<string> {
     body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${header}.${claim}.${b64url(sig)}` }),
   });
   const json = await res.json();
+  if (!json.access_token) throw new Error("Google sign-in for FCM failed: " + JSON.stringify(json).slice(0, 200));
   cached = { token: json.access_token, exp: now + (json.expires_in ?? 3600) };
   return cached.token;
 }
 
-const hookSecret = Deno.env.get("DARS_HOOK_SECRET") ?? "";
-
-// Constant-time comparison, so the secret cannot be guessed from response times.
-function sameSecret(a: string, b: string): boolean {
-  const x = new TextEncoder().encode(a), y = new TextEncoder().encode(b);
-  let diff = x.length ^ y.length;
-  for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] ?? 0) ^ (y[i] ?? 0);
-  return diff === 0;
-}
-
-Deno.serve(async (req) => {
-  // Only the database webhook may call this (anyone with the public app key could otherwise send fake notifications).
-  if (!hookSecret || !sameSecret(req.headers.get("x-dars-hook") ?? "", hookSecret)) {
-    return new Response("Unauthorized", { status: 401 });
-  }
-  const payload = await req.json();                       // Database webhook: { type, table, record, ... }
-  const n = payload.record;
-  if (!n?.user_id) return new Response("No record", { status: 400 });
-
-  const { data: profile } = await supabase.from("profiles").select("fcm_token").eq("id", n.user_id).single();
-  if (!profile?.fcm_token) return Response.json({ skipped: "no device token" });
-
-  const urgent = n.data?.urgent === true || n.data?.urgent === "true";   // live requests ring like a call
-  const res = await fetch(`https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${await googleAccessToken()}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message: {
-        token: profile.fcm_token,
-        notification: { title: n.title, body: n.body },
-        data: Object.fromEntries(Object.entries(n.data ?? {}).map(([k, v]) => [k, String(v)])),
-        android: { priority: urgent ? "HIGH" : "NORMAL", notification: { channel_id: urgent ? "live_requests" : "general" } },
-        apns: { headers: { "apns-priority": urgent ? "10" : "5" }, payload: { aps: { sound: "default" } } },
-      },
-    }),
-  });
-  if (res.status === 404 || res.status === 400) {
-    await supabase.from("profiles").update({ fcm_token: null }).eq("id", n.user_id);   // stale token
-  }
-  return Response.json({ sent: res.ok, status: res.status });
-});
+Deno.serve((req) =>
+  handle(req, {
+    hookSecret: Deno.env.get("DARS_HOOK_SECRET") ?? "",
+    conversation: async (id) => {
+      const { data } = await db.from("conversations").select("student_id, tutor_id").eq("id", id).maybeSingle();
+      return data ?? null;
+    },
+    name: async (uid) => {
+      const { data } = await db.from("profiles").select("full_name").eq("id", uid).maybeSingle();
+      return (data?.full_name as string | undefined) ?? "";
+    },
+    tokens: async (uid) => {
+      const { data } = await db.from("device_tokens").select("token, lang").eq("user_id", uid)
+        .order("updated_at", { ascending: false }).limit(10);
+      return (data ?? []).map((r) => ({ token: r.token as string, lang: (r.lang === "en" ? "en" : "ar") as Lang })) as Token[];
+    },
+    prefs: async (uid) => {
+      const { data } = await db.from("notification_prefs").select("messages, calls, reminders").eq("user_id", uid).maybeSingle();
+      return { messages: data?.messages ?? true, calls: data?.calls ?? true, reminders: data?.reminders ?? true } as Prefs;
+    },
+    send: async (message) => {
+      if (!sa.project_id) return { status: 503, body: { error: { message: "FCM_SERVICE_ACCOUNT is not set" } } };
+      const res = await fetch(`https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${await googleAccessToken()}`, "Content-Type": "application/json" },
+        body: JSON.stringify(message),
+      });
+      let body: unknown = null;
+      try {
+        body = await res.json();
+      } catch { /* empty */ }
+      return { status: res.status, body };
+    },
+    dropToken: async (token) => {
+      await db.from("device_tokens").delete().eq("token", token);
+    },
+  })
+);

@@ -91,6 +91,12 @@ class AccountScreen extends StatelessWidget {
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsScreen())),
           ),
           MenuRow(icon: Icons.phone_in_talk_outlined, title: context.tr('call_settings'), trailing: context.tr('call_${app.callPermission}'), onTap: () => _callSettings(context, app)),
+          MenuRow(
+            key: const Key('notification-settings'),
+            icon: Icons.notifications_active_outlined,
+            title: context.isAr ? 'إعدادات الإشعارات' : 'Notification settings',
+            onTap: () => _notificationSettings(context, app),
+          ),
           MenuRow(icon: Icons.language_rounded, title: context.tr('language'), trailing: context.isAr ? 'العربية' : 'English', onTap: app.toggleLocale),
         ]),
         const SizedBox(height: 12),
@@ -158,6 +164,50 @@ class AccountScreen extends StatelessWidget {
           ],
         ]),
       );
+
+  /// Round D: which push notifications this account gets (all on by default).
+  void _notificationSettings(BuildContext context, AppState app) {
+    app.loadNotificationPrefs();
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => Consumer<AppState>(
+        builder: (ctx, a, _) {
+          final ar = ctx.isAr;
+          return SafeArea(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                child: Text(ar ? 'إعدادات الإشعارات' : 'Notification settings', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+              ),
+              SwitchListTile(
+                key: const Key('notify-messages'),
+                value: a.notifyMessages,
+                onChanged: (v) => a.setNotificationPref(messages: v),
+                title: Text(ar ? 'الرسائل' : 'Messages'),
+                subtitle: Text(ar ? 'اسم المرسل وجزء من الرسالة' : 'Sender name and a short preview'),
+              ),
+              SwitchListTile(
+                key: const Key('notify-calls'),
+                value: a.notifyCalls,
+                onChanged: (v) => a.setNotificationPref(calls: v),
+                title: Text(ar ? 'المكالمات' : 'Calls'),
+                subtitle: Text(ar ? 'رنين المكالمات الواردة والمكالمات الفائتة' : 'Ringing for incoming calls, and missed calls'),
+              ),
+              SwitchListTile(
+                key: const Key('notify-reminders'),
+                value: a.notifyReminders,
+                onChanged: (v) => a.setNotificationPref(reminders: v),
+                title: Text(ar ? 'تذكير بالدروس' : 'Lesson reminders'),
+                subtitle: Text(ar ? 'قبل الدرس بيوم وبساعة وبعشر دقائق' : '1 day, 1 hour and 10 minutes before'),
+              ),
+              const SizedBox(height: 12),
+            ]),
+          );
+        },
+      ),
+    );
+  }
 
   void _callSettings(BuildContext context, AppState app) {
     showModalBottomSheet(

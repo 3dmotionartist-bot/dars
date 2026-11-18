@@ -27,3 +27,7 @@ verify_jwt = false
 # Guests on the browser call page have no account, so turn-credentials checks tokens itself (Stage 3 B2).
 [functions.turn-credentials]
 verify_jwt = false
+
+# The database webhooks prove themselves with the x-dars-hook header, not a user token (Round D).
+[functions.push-notifications]
+verify_jwt = false

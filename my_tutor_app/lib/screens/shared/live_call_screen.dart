@@ -5,12 +5,14 @@ import 'dart:math';
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase/supabase.dart' show RealtimeChannel, RealtimeSubscribeStatus;
 
 import '../../data/backend.dart';
 import '../../l10n.dart';
 import '../../services/board_sync.dart';
-import '../../services/media_bridge.dart';
+import '../../services/call_logic.dart';
+import '../../services/call_native.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart' show toast;
 
@@ -20,8 +22,21 @@ import '../../widgets/common.dart' show toast;
 /// (hello / offer / answer / ice / bye messages) and then talk directly with WebRTC.
 /// When a direct route is impossible (most mobile networks), the TURN relay set in the
 /// admin dashboard carries the call. The browser call page (my_tutor_call/) speaks the same protocol.
+///
+/// Round D: when the connection fails, both sides rebuild it ("restart" with a counter, D3) and retry by
+/// themselves for a minute, then offer "Try again"; the reason is kept (D0, long-press the status text);
+/// "declined" / "cancelled" reach the other side at once (D4); a call service keeps the microphone working
+/// outside the app (D2).
 class LiveCallScreen extends StatefulWidget {
-  const LiveCallScreen({super.key, required this.room, required this.video, this.peerName = '', this.myName = '', this.testMode = false});
+  const LiveCallScreen({
+    super.key,
+    required this.room,
+    required this.video,
+    this.peerName = '',
+    this.myName = '',
+    this.testMode = false,
+    this.outgoing = false,
+  });
 
   final String room;
   final bool testMode;
@@ -29,11 +44,15 @@ class LiveCallScreen extends StatefulWidget {
   final String peerName;
   final String myName;
 
+  /// A call I started that rings the other person ("No answer" after a minute, "missed call" if it ends
+  /// before they join). Meetings and lessons just wait.
+  final bool outgoing;
+
   @override
   State<LiveCallScreen> createState() => _LiveCallScreenState();
 }
 
-enum _Phase { starting, waiting, connecting, connected, reconnecting, failed, noAnswer, denied, offline, full, ended }
+enum _Phase { starting, waiting, connecting, connected, reconnecting, failed, noAnswer, declined, denied, offline, full, ended }
 
 class _LiveCallScreenState extends State<LiveCallScreen> {
   static const _ringSeconds = 60;
@@ -78,11 +97,39 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
   int _strokeNo = 0;
   Timer? _flush;
 
-  // connection diagnostics (shown small at the bottom of the call screen)
+  // connection diagnostics (shown small at the bottom of the call screen; long-press the status to show)
   int _sent = 0;
   int _heard = 0;
   String _chStatus = '…';
   String _lastError = '';
+  final IceDiag _diag = IceDiag();
+  bool _showDiag = false;
+
+  // Round D (D3): rebuilding the connection on both sides; automatic retries for a minute
+  int _gen = 0; // which connection this is (both sides move to the higher number on a restart)
+  int _peerGen = 0;
+  bool _peerRestart = false; // the other side understands "restart" (new apps); older ones get an ICE restart
+  String _peerUid = ''; // the other person's account (to recognise them rejoining with a new id)
+  bool _pcUsed = false; // the current connection already took part in an offer / answer
+  final Map<int, List<RTCIceCandidate>> _futureIce = {};
+  DateTime? _failStart;
+  int _retryN = 0;
+  Timer? _retryTimer;
+  Timer? _discTimer;
+  bool _iceRefreshed = false;
+  bool _relayWarn = false;
+
+  // Round D (D4)
+  bool _everConnected = false;
+  bool _declined = false;
+  bool _missedSent = false;
+  bool _videoFallback = false; // camera unavailable: this video call continues as a voice call
+  bool _weak = false; // weak-internet mode: voice + board only
+  bool _peerWeak = false;
+  RTCRtpSender? _shareSender; // screen share in a voice call (a video track added for it)
+
+  bool get _video => widget.video && !_videoFallback;
+  String get _myUid => widget.testMode ? '' : (Backend.I.uid ?? '');
 
   Timer? _hello;
   Timer? _ring;
@@ -108,9 +155,10 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     await _local.initialize();
     await _remote.initialize();
     if (widget.video) await _loadVideoCap();
+    const audio = {'echoCancellation': true, 'noiseSuppression': true, 'autoGainControl': true};
     try {
       _stream = await navigator.mediaDevices.getUserMedia({
-        'audio': {'echoCancellation': true, 'noiseSuppression': true, 'autoGainControl': true},
+        'audio': audio,
         // Camera at most 640×480 at 24 frames a second by default ("ideal": phones pick the nearest they have).
         'video': widget.video
             ? {
@@ -122,26 +170,65 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
             : false,
       });
     } catch (e) {
-      _lastError = 'media: $e';
-      if (!widget.testMode) {
+      _note('media', e);
+      if (widget.video) {
+        // D4: the camera is busy, broken or not allowed — continue as a voice call instead of failing.
+        try {
+          _stream = await navigator.mediaDevices.getUserMedia({'audio': audio, 'video': false});
+          _videoFallback = true;
+        } catch (e2) {
+          _note('media', e2);
+        }
+      }
+      if (_stream == null && !widget.testMode) {
         _set(_Phase.denied);
         return;
       }
     }
     if (!mounted) return _cleanup();
     _local.srcObject = _stream;
+    if (_videoFallback) {
+      _speaker = false;
+      toast(context, context.isAr ? 'الكاميرا غير متاحة — تستمر المكالمة صوتياً' : 'Camera unavailable — continuing as a voice call',
+          icon: Icons.videocam_off_rounded);
+    }
     if (!kIsWeb) {
       try {
         await Helper.setSpeakerphoneOn(_speaker);
       } catch (_) {}
     }
+    // D2: the call service (microphone keeps working outside the app) and the screen kept on.
+    CallNative.onHangUp = _hangUp;
+    if (mounted) {
+      final ar = context.isAr;
+      CallNative.active(true,
+          video: _video,
+          title: _peerName.isNotEmpty ? _peerName : 'Dars',
+          text: ar ? 'مكالمة جارية' : 'Call in progress',
+          hangUp: ar ? 'إنهاء' : 'Hang up');
+    }
+    _applyProximity();
     _ice = await Backend.I.iceServers();
     _hasRelay = _ice.any((s) => '${s['urls']}'.contains('turn'));
+    _diag.relayHost = relayHostOf(_ice);
     await _newPeer();
     _join();
-    _ring = Timer(const Duration(seconds: _ringSeconds), () {
-      if (_peer == null && _phase == _Phase.waiting) _set(_Phase.noAnswer);
-    });
+    // Only a call I started rings with a time limit; a meeting or lesson room waits for the other person.
+    if (widget.outgoing) {
+      _ring = Timer(const Duration(seconds: _ringSeconds), () {
+        if (_peer == null && _phase == _Phase.waiting) {
+          _set(_Phase.noAnswer);
+          _endedUnanswered();
+        }
+      });
+    }
+  }
+
+  /// Keeps the reason of a failed step instead of swallowing it (D3); shown in the details line.
+  void _note(String where, Object e) {
+    _lastError = '$where: $e';
+    if (_lastError.length > 160) _lastError = _lastError.substring(0, 160);
+    _diag.lastError = _lastError;
   }
 
   Future<void> _newPeer() async {
@@ -153,7 +240,11 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
       } catch (_) {}
     }
     _remoteSet = false;
+    _pcUsed = false;
     _pendingIce.clear();
+    _shareSender = null;
+    _diag.resetRoutes();
+    final gen = _gen;
     final pc = await createPeerConnection({'iceServers': _ice, 'sdpSemantics': 'unified-plan'});
     await _openBoardChannel(pc);
     for (final t in _stream?.getTracks() ?? const <MediaStreamTrack>[]) {
@@ -164,12 +255,17 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
       }
     }
     pc.onIceCandidate = (c) {
-      if (c.candidate == null || _peer == null) return;
+      if (c.candidate == null) return;
+      _diag.addLocal(c.candidate);
+      if (_peer == null) return;
       _send('ice', {
         'to': _peer,
+        'gen': gen,
         'candidate': {'candidate': c.candidate, 'sdpMid': c.sdpMid, 'sdpMLineIndex': c.sdpMLineIndex},
       });
     };
+    pc.onIceGatheringState = (s) => _diag.gathering = s.name.replaceFirst('RTCIceGatheringState', '').toLowerCase();
+    pc.onIceConnectionState = (s) => _diag.iceState = s.name.replaceFirst('RTCIceConnectionState', '').toLowerCase();
     pc.onTrack = (e) {
       if (e.streams.isEmpty) return;
       _remote.srcObject = e.streams.first;
@@ -182,10 +278,16 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
           _onConnected();
           break;
         case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
+          if (_pc != pc) break;
           if (_phase == _Phase.connected) _set(_Phase.reconnecting);
+          // Still down after 5 s: rebuild instead of waiting for "failed" (which can take half a minute).
+          _discTimer?.cancel();
+          _discTimer = Timer(const Duration(seconds: 5), () {
+            if (_pc == pc && _phase != _Phase.connected) _onFailed();
+          });
           break;
         case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
-          _onFailed();
+          if (_pc == pc) _onFailed();
           break;
         default:
           break;
@@ -211,6 +313,9 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
         .onBroadcast(event: 'board', callback: (m) => _onBoard(_body(m)))
         .onBroadcast(event: 'clear', callback: (m) => _onClear(_body(m)))
         .onBroadcast(event: 'share', callback: (m) => _onShare(_body(m)))
+        .onBroadcast(event: 'restart', callback: (m) => _onRestart(_body(m)))
+        .onBroadcast(event: 'decline', callback: (m) => _onDecline(_body(m)))
+        .onBroadcast(event: 'weak', callback: (m) => _onWeak(_body(m)))
         .subscribe((status, err) {
       _chStatus = status.name;
       if (err != null) _lastError = '$err';
@@ -251,34 +356,59 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
   }
 
   void _sayHello() {
-    // caps: this app can carry the drawing board over the call's own connection (Stage 3 B1).
-    _send('hello', {'name': widget.myName, 'video': widget.video, 'at': _joinedAt, 'caps': const ['board-dc']});
+    // caps: board over the call's own connection (Stage 3 B1); "restart" with a counter, "decline" and
+    // weak-internet mode (Round D). uid lets the other side recognise me if I come back with a new id.
+    _send('hello', {
+      'name': widget.myName,
+      'video': _video,
+      'at': _joinedAt,
+      'caps': const ['board-dc', 'restart', 'decline', 'weak'],
+      'gen': _gen,
+      'uid': _myUid,
+    });
   }
 
   // ------------------------------------------------------------------ signaling
-  void _onHello(Map<String, dynamic> p) {
+  static int _int(dynamic v) => v is num ? v.toInt() : int.tryParse('${v ?? ''}') ?? 0;
+
+  Future<void> _onHello(Map<String, dynamic> p) async {
     final from = '${p['from'] ?? ''}';
     if (from.isEmpty || from == _me || _closing) return;
+    final uid = '${p['uid'] ?? ''}';
     if (_peer != null && from != _peer) {
-      _send('busy', {'to': from}); // two people per call
-      return;
+      final since = Duration(milliseconds: DateTime.now().millisecondsSinceEpoch - _peerSeen);
+      if (!isRejoin(helloUid: uid, partnerUid: _peerUid, sincePartnerSeen: since)) {
+        _send('busy', {'to': from}); // two people per call
+        return;
+      }
+      // D4: the same person came back (app restarted, page reloaded): take them instead of "call is full".
+      await _peerLeft();
+      if (_closing) return;
     }
     _peerSeen = DateTime.now().millisecondsSinceEpoch;
     final n = '${p['name'] ?? ''}'.trim();
     if (n.isNotEmpty && _peerName.isEmpty) _peerName = n;
     final caps = p['caps'];
     final dcCap = caps is List && caps.contains('board-dc');
+    _peerRestart = caps is List && caps.contains('restart');
+    final g = _int(p['gen']);
+    if (g > _peerGen) _peerGen = g;
     if (dcCap != _peerDc) {
       _peerDc = dcCap;
       if (_boardOnDc) _sendBoardHistory();
     }
     if (_peer == from) return;
     _peer = from;
+    _peerUid = uid;
     _ring?.cancel();
     _sayHello(); // let them know about me right away
-    _set(_Phase.connecting);
+    if (_phase != _Phase.reconnecting) _set(_Phase.connecting);
     _armConnectTimer();
-    if (_me.compareTo(from) < 0) _makeOffer(); // exactly one side starts
+    if (_me.compareTo(from) < 0) {
+      // exactly one side starts, with a counter at least as high as either side has used
+      if (_peerRestart && _peerGen > _gen) _gen = _peerGen;
+      _makeOffer();
+    }
   }
 
   Future<void> _makeOffer({bool restart = false}) async {
@@ -287,11 +417,15 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     try {
       final offer = await pc.createOffer({if (restart) 'iceRestart': true});
       await pc.setLocalDescription(offer);
+      _pcUsed = true;
       _send('offer', {
         'to': _peer,
+        'gen': _gen,
         'sdp': {'type': offer.type, 'sdp': offer.sdp},
       });
-    } catch (_) {}
+    } catch (e) {
+      _note('offer', e);
+    }
   }
 
   Future<void> _onOffer(Map<String, dynamic> p) async {
@@ -301,10 +435,21 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
       // The other person rejoined with a new id: start fresh with them.
       await _newPeer();
     }
+    final g = _int(p['gen']);
+    switch (offerAction(peerHasRestart: _peerRestart, myGen: _gen, offerGen: g, connectionUsed: _pcUsed)) {
+      case OfferAction.ignore:
+        return; // for a connection both sides already dropped
+      case OfferAction.rebuildThenAccept:
+        _gen = g;
+        await _newPeer();
+      case OfferAction.accept:
+        if (_peerRestart && g > _gen) _gen = g;
+    }
+    _takeFutureIce();
     _peer = from;
     _peerSeen = DateTime.now().millisecondsSinceEpoch;
     _ring?.cancel();
-    if (_phase != _Phase.connected) _set(_Phase.connecting);
+    if (_phase != _Phase.connected && _phase != _Phase.reconnecting) _set(_Phase.connecting);
     _armConnectTimer();
     final pc = _pc;
     final sdp = p['sdp'];
@@ -312,18 +457,24 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     try {
       await pc.setRemoteDescription(RTCSessionDescription('${sdp['sdp']}', '${sdp['type']}'));
       _remoteSet = true;
+      _pcUsed = true;
       await _flushIce();
       final answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       _send('answer', {
         'to': from,
+        'gen': _gen,
         'sdp': {'type': answer.type, 'sdp': answer.sdp},
       });
-    } catch (_) {}
+    } catch (e) {
+      _note('answer', e);
+      _onFailed(); // a connection in a state that can't take this offer: rebuild it
+    }
   }
 
   Future<void> _onAnswer(Map<String, dynamic> p) async {
     if (p['to'] != _me || p['from'] != _peer) return;
+    if (_peerRestart && _int(p['gen']) != _gen) return; // an answer for an older connection
     final pc = _pc;
     final sdp = p['sdp'];
     if (pc == null || sdp is! Map) return;
@@ -331,7 +482,9 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
       await pc.setRemoteDescription(RTCSessionDescription('${sdp['sdp']}', '${sdp['type']}'));
       _remoteSet = true;
       await _flushIce();
-    } catch (_) {}
+    } catch (e) {
+      _note('remote answer', e);
+    }
   }
 
   Future<void> _onIce(Map<String, dynamic> p) async {
@@ -339,13 +492,35 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     final c = p['candidate'];
     if (c is! Map || c['candidate'] == null) return;
     final cand = RTCIceCandidate('${c['candidate']}', c['sdpMid'] as String?, (c['sdpMLineIndex'] as num?)?.toInt());
+    if (_peerRestart && p.containsKey('gen')) {
+      final g = _int(p['gen']);
+      if (g < _gen) return; // for a dropped connection
+      if (g > _gen) {
+        _futureIce.putIfAbsent(g, () => []).add(cand); // the restart message is still on its way
+        return;
+      }
+    }
+    _diag.addRemote(cand.candidate);
     if (!_remoteSet) {
       _pendingIce.add(cand);
       return;
     }
     try {
       await _pc?.addCandidate(cand);
-    } catch (_) {}
+    } catch (e) {
+      _note('ice', e);
+    }
+  }
+
+  /// Routes that arrived early for the connection we just moved to.
+  void _takeFutureIce() {
+    final early = _futureIce.remove(_gen);
+    _futureIce.removeWhere((g, _) => g < _gen);
+    if (early == null) return;
+    for (final c in early) {
+      _diag.addRemote(c.candidate);
+    }
+    _pendingIce.addAll(early);
   }
 
   Future<void> _flushIce() async {
@@ -354,8 +529,45 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     for (final c in list) {
       try {
         await _pc?.addCandidate(c);
-      } catch (_) {}
+      } catch (e) {
+        _note('ice', e);
+      }
     }
+  }
+
+  /// D3: the other side rebuilt its connection: rebuild mine too, and the side that offers sends a new offer.
+  Future<void> _onRestart(Map<String, dynamic> p) async {
+    if (p['to'] != _me || p['from'] != _peer || _closing) return;
+    final g = _int(p['gen']);
+    if (g <= _gen) return; // already on this connection (both sides restarted at once)
+    _gen = g;
+    _peerGen = g;
+    if (_sharing) await _stopShare();
+    await _newPeer();
+    _takeFutureIce();
+    _diag.attempts++;
+    if (_phase != _Phase.connected) _set(_Phase.reconnecting);
+    _armConnectTimer(seconds: 15);
+    if (_me.compareTo(_peer!) < 0) await _makeOffer();
+  }
+
+  /// D3: rebuild the connection on both sides (or, with an older app, an ICE restart as before).
+  Future<void> _restartCall() async {
+    final peer = _peer;
+    if (peer == null || _closing || _phase == _Phase.connected) return;
+    _diag.attempts++;
+    if (!_peerRestart) {
+      if (_me.compareTo(peer) < 0) await _makeOffer(restart: true);
+      _armConnectTimer(seconds: 15);
+      return;
+    }
+    if (_sharing) await _stopShare();
+    _gen = nextGen(_gen, _peerGen);
+    await _newPeer();
+    if (_peer != peer) return;
+    _send('restart', {'to': peer, 'gen': _gen});
+    if (_me.compareTo(peer) < 0) await _makeOffer();
+    _armConnectTimer(seconds: 15);
   }
 
   void _onBusy(Map<String, dynamic> p) {
@@ -369,50 +581,152 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
 
   void _checkPeerGone() {
     if (_peer == null || _phase == _Phase.connected) return;
-    if (DateTime.now().millisecondsSinceEpoch - _peerSeen > 20000) _peerLeft();
+    // While reconnecting (e.g. one phone in airplane mode) give the other person longer to come back.
+    final limit = _failStart != null ? 75000 : 20000;
+    if (DateTime.now().millisecondsSinceEpoch - _peerSeen > limit) _peerLeft();
   }
 
   Future<void> _peerLeft() async {
     _peer = null;
+    _peerUid = '';
+    _peerRestart = false;
+    _peerSharing = false;
     _remoteVideo = false;
     _connectedAt = null;
     _clock?.cancel();
     _clock = null;
     _connectTimer?.cancel();
+    _retryTimer?.cancel();
+    _discTimer?.cancel();
+    _failStart = null;
+    _retryN = 0;
+    _relayWarn = false;
+    _futureIce.clear();
+    if (_peerWeak) {
+      _peerWeak = false;
+      _applyWeak();
+    }
     _remote.srcObject = null;
     await _newPeer();
     _set(_Phase.waiting);
   }
 
-  void _armConnectTimer() {
+  void _armConnectTimer({int seconds = _connectSeconds}) {
     _connectTimer?.cancel();
-    _connectTimer = Timer(const Duration(seconds: _connectSeconds), () {
-      if (_phase == _Phase.connecting) _onFailed();
+    _connectTimer = Timer(Duration(seconds: seconds), () {
+      if (_phase == _Phase.connecting || _phase == _Phase.reconnecting) _onFailed();
     });
   }
 
-  int _restarts = 0;
-  void _onFailed() {
-    if (_closing) return;
-    if (_restarts < 2 && _peer != null) {
-      _restarts++;
-      _set(_Phase.reconnecting);
-      _armConnectTimer();
-      if (_me.compareTo(_peer!) < 0) _makeOffer(restart: true);
+  bool _failing = false;
+
+  /// The connection failed (or did not come up in time): retry by itself for a minute (D3), fetching fresh
+  /// relay passwords once if the relay never answered (D0), then show the reason and "Try again".
+  Future<void> _onFailed() async {
+    if (_closing || _failing || _phase == _Phase.ended || _phase == _Phase.failed) return;
+    _failing = true;
+    try {
+      _connectTimer?.cancel();
+      _discTimer?.cancel();
+      await _collectStats();
+      if (_peer == null) return; // the other person left; "waiting" again
+      final now = DateTime.now();
+      _failStart ??= now;
+      if (keepRetrying(_failStart!, now)) {
+        if (_hasRelay && !_diag.relayGathered && !_iceRefreshed) {
+          _iceRefreshed = true;
+          _relayWarn = true; // "the call relay is not answering — trying again"
+          try {
+            final fresh = await Backend.I.iceServers();
+            if (fresh.isNotEmpty) {
+              _ice = fresh;
+              _hasRelay = _ice.any((s) => '${s['urls']}'.contains('turn'));
+              _diag.relayHost = relayHostOf(_ice);
+            }
+          } catch (e) {
+            _note('relay', e);
+          }
+        }
+        _set(_Phase.reconnecting);
+        _retryTimer?.cancel();
+        _retryTimer = Timer(retryDelay(_retryN++), _restartCall);
+      } else {
+        _set(_Phase.failed);
+        _saveFailure();
+      }
+    } finally {
+      _failing = false;
+    }
+  }
+
+  /// "Try again" on the failed screen.
+  void _tryAgain() {
+    _failStart = DateTime.now();
+    _retryN = 0;
+    _iceRefreshed = false;
+    _relayWarn = false;
+    if (_peer == null) {
+      _set(_Phase.waiting);
+      _sayHello();
       return;
     }
-    _set(_Phase.failed);
+    _set(_Phase.reconnecting);
+    _restartCall();
+  }
+
+  /// Which routes the connection used (the details line), read from the connection's statistics.
+  Future<void> _collectStats() async {
+    final pc = _pc;
+    if (pc == null) return;
+    try {
+      final stats = await pc.getStats();
+      final kinds = <String, String>{};
+      for (final r in stats) {
+        if (r.type == 'local-candidate' || r.type == 'remote-candidate') kinds[r.id] = '${r.values['candidateType'] ?? ''}';
+        if (r.type == 'local-candidate' && r.values['candidateType'] == 'relay' && !_diag.relayGathered) _diag.local['relay'] = 1;
+      }
+      for (final r in stats) {
+        if (r.type != 'candidate-pair') continue;
+        final v = r.values;
+        if (v['selected'] == true || v['nominated'] == true || '${v['nominated']}' == 'true' || v['state'] == 'succeeded') {
+          _diag.selected = '${kinds[v['localCandidateId']] ?? '?'} → ${kinds[v['remoteCandidateId']] ?? '?'}';
+        }
+      }
+    } catch (e) {
+      _note('stats', e);
+    }
+  }
+
+  /// Keeps the last failure on the phone (for a later look / the error reporter in Round H).
+  Future<void> _saveFailure() async {
+    try {
+      final kind = failureKind(relayConfigured: _hasRelay, relayGathered: _diag.relayGathered);
+      final p = await SharedPreferences.getInstance();
+      await p.setString('dars.last_call_failure', jsonEncode({
+        'at': DateTime.now().toUtc().toIso8601String(),
+        'kind': kind.name,
+        'video': _video,
+        ..._diag.toJson(),
+      }));
+    } catch (_) {}
   }
 
   void _onConnected() {
     _connectTimer?.cancel();
-    _restarts = 0;
+    _retryTimer?.cancel();
+    _discTimer?.cancel();
+    _failStart = null;
+    _retryN = 0;
+    _relayWarn = false;
+    _everConnected = true;
     _connectedAt ??= DateTime.now();
+    Future<void>.delayed(const Duration(seconds: 2), _collectStats);
+    if (_weak || _peerWeak) _applyWeak();
     _clock ??= Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
     _set(_Phase.connected);
-    if (widget.video) _startCameraCap();
+    if (_video) _startCameraCap();
   }
 
   void _set(_Phase p) {
@@ -436,10 +750,58 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     if (v.isEmpty) return;
     _camOn = !_camOn;
     for (final t in v) {
-      t.enabled = _camOn;
+      t.enabled = _camOn && !_weak && !_peerWeak;
     }
     setState(() {});
   }
+
+  // ---- D4: weak-internet mode — one tap for voice + board only ----
+  // My camera stops sending, and the other side is asked to stop sending theirs (both ways save data).
+  void _toggleWeak() {
+    _weak = !_weak;
+    _applyWeak();
+    _send('weak', {'on': _weak});
+    toast(
+        context,
+        _weak
+            ? (context.isAr ? 'وضع الإنترنت الضعيف: صوت ولوح فقط' : 'Weak internet: voice and board only')
+            : (context.isAr ? 'عاد الفيديو' : 'Video is back'),
+        icon: Icons.network_check_rounded);
+  }
+
+  void _onWeak(Map<String, dynamic> p) {
+    if (p['from'] != _peer || !mounted) return;
+    _peerWeak = p['on'] == true;
+    _applyWeak();
+  }
+
+  void _applyWeak() {
+    final off = _weak || _peerWeak;
+    for (final t in _stream?.getVideoTracks() ?? const <MediaStreamTrack>[]) {
+      t.enabled = _camOn && !off;
+    }
+    if (mounted) setState(() {});
+  }
+
+  // ---- D4: "declined" reaches the caller at once ----
+  void _onDecline(Map<String, dynamic> p) {
+    if (!widget.outgoing || _everConnected || _peer != null || _closing) return;
+    _declined = true;
+    _ring?.cancel();
+    _set(_Phase.declined);
+  }
+
+  /// The call ends before the other person ever joined: stop their ringing now ("cancel" for an open app,
+  /// "missed call" through the server for a closed one). Only for a call I started, once.
+  void _endedUnanswered() {
+    if (!sendMissedCall(outgoing: widget.outgoing, everConnected: _everConnected, declined: _declined) || _missedSent) return;
+    _missedSent = true;
+    _send('cancel', {});
+    Backend.I.callNotAnswered(widget.room).catchError((_) => false);
+  }
+
+  /// Voice call on the earpiece: the screen turns off at the ear (D2).
+  void _applyProximity() => CallNative.proximity(!_video && !_speaker && !_sharing && !_board);
 
   Future<void> _flip() async {
     final v = _stream?.getVideoTracks() ?? const <MediaStreamTrack>[];
@@ -454,11 +816,13 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     try {
       await Helper.setSpeakerphoneOn(_speaker);
     } catch (_) {}
+    _applyProximity();
     setState(() {});
   }
 
   Future<void> _hangUp() async {
     if (_closing) return;
+    _endedUnanswered();
     _closing = true;
     _send('bye', {});
     await Future<void>.delayed(const Duration(milliseconds: 250));
@@ -474,8 +838,9 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
       if (!kIsWeb) {
         final allowed = await Helper.requestCapturePermission();
         if (!allowed) return;
-        await MediaBridge.screenShareService(true);
-        await Future<void>.delayed(const Duration(milliseconds: 500));
+        // D2: the call service adds "screen capture"; wait until Android confirms (slow phones need longer
+        // than the fixed half second used before).
+        if (!await CallNative.share(true)) throw Exception('screen capture service not ready');
       }
       final screen = await navigator.mediaDevices.getDisplayMedia({'video': true, 'audio': false});
       final tracks = screen.getVideoTracks();
@@ -483,17 +848,23 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
       final track = tracks.first;
       final senders = await pc.getSenders();
       final video = senders.where((x) => x.track?.kind == 'video').toList();
-      if (video.isEmpty) throw Exception('no video sender');
-      await video.first.replaceTrack(track);
+      if (video.isNotEmpty) {
+        await video.first.replaceTrack(track);
+      } else {
+        // D4: a voice call has no video yet — add the screen and offer it to the other side.
+        _shareSender = await pc.addTrack(track, screen);
+        await _makeOffer();
+      }
       track.onEnded = () => _stopShare();
       _screen = screen;
       _sharing = true;
       _send('share', {'on': true});
       _startShareQuality();
+      _applyProximity();
       if (mounted) setState(() {});
     } catch (e) {
-      await MediaBridge.screenShareService(false);
-      _lastError = 'share: $e';
+      await CallNative.share(false);
+      _note('share', e);
       if (mounted) {
         setState(() {});
         toast(context, context.isAr ? 'تعذّرت مشاركة الشاشة' : 'Could not share the screen', icon: Icons.error_outline);
@@ -510,12 +881,22 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     final screen = _screen;
     _screen = null;
     try {
-      final cam = _stream?.getVideoTracks() ?? const <MediaStreamTrack>[];
-      final senders = await _pc?.getSenders() ?? const <RTCRtpSender>[];
-      for (final x in senders) {
-        if (x.track?.kind == 'video' && cam.isNotEmpty) await x.replaceTrack(cam.first);
+      final added = _shareSender;
+      _shareSender = null;
+      if (added != null) {
+        // voice call: take the screen track out again
+        await _pc?.removeTrack(added);
+        await _makeOffer();
+      } else {
+        final cam = _stream?.getVideoTracks() ?? const <MediaStreamTrack>[];
+        final senders = await _pc?.getSenders() ?? const <RTCRtpSender>[];
+        for (final x in senders) {
+          if (x.track?.kind == 'video' && cam.isNotEmpty) await x.replaceTrack(cam.first);
+        }
       }
-    } catch (_) {}
+    } catch (e) {
+      _note('share', e);
+    }
     for (final t in screen?.getTracks() ?? const <MediaStreamTrack>[]) {
       try {
         await t.stop();
@@ -524,8 +905,9 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     try {
       await screen?.dispose();
     } catch (_) {}
-    await MediaBridge.screenShareService(false);
+    await CallNative.share(false);
     _send('share', {'on': false});
+    _applyProximity();
     if (mounted) setState(() {});
   }
 
@@ -768,6 +1150,7 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
       _board = !_board;
       _boardUnseen = false;
     });
+    _applyProximity();
     _sendBoard('board', {'open': _board});
   }
 
@@ -1062,14 +1445,17 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     _drip?.cancel();
     _qualityTimer?.cancel();
     _camTimer?.cancel();
+    _retryTimer?.cancel();
+    _discTimer?.cancel();
     if (_sharing) {
       for (final t in _screen?.getTracks() ?? const <MediaStreamTrack>[]) {
         try {
           await t.stop();
         } catch (_) {}
       }
-      MediaBridge.screenShareService(false);
     }
+    if (CallNative.onHangUp == _hangUp) CallNative.onHangUp = null;
+    CallNative.active(false); // stops the call service (and screen capture), lets the screen sleep again
     _hello?.cancel();
     _ring?.cancel();
     _connectTimer?.cancel();
@@ -1101,7 +1487,10 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
 
   @override
   void dispose() {
-    if (!_closing) _send('bye', {});
+    if (!_closing) {
+      _endedUnanswered();
+      _send('bye', {});
+    }
     _closing = true;
     _phase = _Phase.ended;
     _cleanup();
@@ -1120,17 +1509,25 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
       case _Phase.connecting:
         return t('جارٍ الاتصال…', 'Connecting…');
       case _Phase.reconnecting:
-        return t('جارٍ إعادة الاتصال…', 'Reconnecting…');
+        return _relayWarn
+            ? t('خادم ترحيل المكالمات لا يستجيب — نحاول مجدداً…', 'The call relay is not answering — trying again…')
+            : t('جارٍ إعادة الاتصال…', 'Reconnecting…');
       case _Phase.connected:
         final s = DateTime.now().difference(_connectedAt ?? DateTime.now()).inSeconds;
         return '${t('متصل', 'Connected')} · ${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
       case _Phase.noAnswer:
         return t('لا يوجد رد — لم ينضم الطرف الآخر.', 'No answer — the other person did not join.');
       case _Phase.failed:
-        return _hasRelay
-            ? t('تعذّر الاتصال على هذه الشبكة. جرّب واي فاي أو بيانات أخرى.', 'Could not connect on this network. Try Wi-Fi or other data.')
-            : t('الطرفان متصلان لكن الشبكة تمنع الاتصال المباشر. أضف خادم ترحيل (TURN) من لوحة التحكم ← الإعدادات.',
-                'Both sides joined, but the network blocks a direct connection. Add a call relay (TURN) in the dashboard → Settings.');
+        return switch (failureKind(relayConfigured: _hasRelay, relayGathered: _diag.relayGathered)) {
+          FailureKind.network =>
+            t('تعذّر الاتصال على هذه الشبكة. جرّب واي فاي أو بيانات أخرى.', 'Could not connect on this network. Try Wi-Fi or other data.'),
+          FailureKind.relayNotAnswering => t('خادم ترحيل المكالمات لا يستجيب. حاول مجدداً بعد قليل أو جرّب شبكة أخرى.',
+              'The call relay is not answering. Try again in a moment or use another network.'),
+          FailureKind.noRelay => t('الطرفان متصلان لكن الشبكة تمنع الاتصال المباشر. أضف خادم ترحيل (TURN) من لوحة التحكم ← الإعدادات.',
+              'Both sides joined, but the network blocks a direct connection. Add a call relay (TURN) in the dashboard → Settings.'),
+        };
+      case _Phase.declined:
+        return t('رُفضت المكالمة.', 'The call was declined.');
       case _Phase.denied:
         return t('اسمح للتطبيق باستخدام الكاميرا والميكروفون من الإعدادات ثم حاول مجدداً.',
             'Allow camera and microphone for the app in Settings, then try again.');
@@ -1147,13 +1544,16 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final showRemote = widget.video && _remoteVideo && _phase == _Phase.connected;
+    // Remote video: a video call, or the other person sharing the screen in a voice call (D4).
+    final showRemote = _phase == _Phase.connected && _remoteVideo && (_peerSharing || (_video && !_weak && !_peerWeak));
     final name = _peerName.isEmpty ? context.tr(widget.video ? 'video_call' : 'voice_call') : _peerName;
-    final bad = const {_Phase.noAnswer, _Phase.failed, _Phase.denied, _Phase.offline, _Phase.full}.contains(_phase);
+    final bad = const {_Phase.noAnswer, _Phase.failed, _Phase.declined, _Phase.denied, _Phase.offline, _Phase.full}.contains(_phase);
+    final diag = kDebugMode || widget.testMode || _showDiag;
     return PopScope(
       canPop: true,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop && !_closing) {
+          _endedUnanswered();
           _closing = true;
           _send('bye', {});
         }
@@ -1191,9 +1591,23 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
                     const SizedBox(height: 22),
                     Text(name, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w800)),
                     const SizedBox(height: 8),
-                    Text(_status(context),
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: bad ? const Color(0xFFFFB4B4) : const Color(0xFF9FB0C8), fontSize: 16, height: 1.5)),
+                    // Long-press: show / hide the connection details (also in normal builds, D0).
+                    GestureDetector(
+                      key: const Key('call-status'),
+                      onLongPress: () => setState(() => _showDiag = !_showDiag),
+                      child: Text(_status(context),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: bad ? const Color(0xFFFFB4B4) : const Color(0xFF9FB0C8), fontSize: 16, height: 1.5)),
+                    ),
+                    if (_phase == _Phase.failed) ...[
+                      const SizedBox(height: 16),
+                      FilledButton.icon(
+                        key: const Key('call-retry'),
+                        onPressed: _tryAgain,
+                        icon: const Icon(Icons.refresh_rounded),
+                        label: Text(context.isAr ? 'حاول مجدداً' : 'Try again'),
+                      ),
+                    ],
                   ]),
                 ),
               ),
@@ -1203,10 +1617,13 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
                 start: 18,
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(name, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800, shadows: [Shadow(blurRadius: 6)])),
-                  Text(_status(context), style: const TextStyle(color: Color(0xFFE6EDF7), fontSize: 13, shadows: [Shadow(blurRadius: 6)])),
+                  GestureDetector(
+                    onLongPress: () => setState(() => _showDiag = !_showDiag),
+                    child: Text(_status(context), style: const TextStyle(color: Color(0xFFE6EDF7), fontSize: 13, shadows: [Shadow(blurRadius: 6)])),
+                  ),
                 ]),
               ),
-            if (widget.video && _stream != null)
+            if (_video && _stream != null)
               PositionedDirectional(
                 top: MediaQuery.of(context).padding.top + 16,
                 end: 16,
@@ -1267,19 +1684,35 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
                   ]),
                 ),
               ),
-            if (kDebugMode || widget.testMode)
-            Positioned(
-              left: 12,
-              right: 12,
-              bottom: MediaQuery.of(context).padding.bottom + 110,
-              child: Text(
-                'ch $_chStatus · sent $_sent · heard $_heard · peer ${_peer == null ? '-' : 'ok'}${_hasRelay ? ' · relay' : ''} · video $_sendKbps/${_camSteps[_camStep]} kbps · board dc $_dcDraws / sb $_supaDraws${_boardOnDc ? ' (dc)' : ''}${_lastError.isEmpty ? '' : ' · $_lastError'}',
-                key: const Key('call-diag'),
-                textAlign: TextAlign.center,
-                maxLines: 3,
-                style: const TextStyle(color: Color(0x88FFFFFF), fontSize: 11),
+            if (_weak || _peerWeak)
+              PositionedDirectional(
+                top: MediaQuery.of(context).padding.top + (_video ? 180 : 16),
+                start: 16,
+                child: Container(
+                  key: const Key('weak-mode'),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(color: const Color(0xCCB45309), borderRadius: BorderRadius.circular(20)),
+                  child: Text(
+                    _weak
+                        ? (context.isAr ? 'إنترنت ضعيف: صوت ولوح فقط' : 'Weak internet: voice + board')
+                        : (context.isAr ? 'إنترنت الطرف الآخر ضعيف: الفيديو متوقف' : 'Other side has weak internet: video paused'),
+                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700),
+                  ),
+                ),
               ),
-            ),
+            if (diag)
+              Positioned(
+                left: 12,
+                right: 12,
+                bottom: MediaQuery.of(context).padding.bottom + 110,
+                child: Text(
+                  'ch $_chStatus · sent $_sent · heard $_heard · peer ${_peer == null ? '-' : 'ok'}${_hasRelay ? ' · relay' : ''} · gen $_gen${_peerRestart ? '' : ' (old peer)'} · video $_sendKbps/${_camSteps[_camStep]} kbps · board dc $_dcDraws / sb $_supaDraws${_boardOnDc ? ' (dc)' : ''}\n${_diag.summary()}',
+                  key: const Key('call-diag'),
+                  textAlign: TextAlign.center,
+                  maxLines: 5,
+                  style: const TextStyle(color: Color(0xAAFFFFFF), fontSize: 11),
+                ),
+              ),
             Positioned(
               left: 0,
               right: 0,
@@ -1290,11 +1723,12 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
                 runSpacing: 12,
                 children: [
                   _CallButton(icon: _micOn ? Icons.mic_rounded : Icons.mic_off_rounded, off: !_micOn, onTap: _toggleMic),
-                  if (widget.video) _CallButton(icon: _camOn ? Icons.videocam_rounded : Icons.videocam_off_rounded, off: !_camOn, onTap: _toggleCam),
-                  if (widget.video && !kIsWeb) _CallButton(icon: Icons.cameraswitch_rounded, onTap: _flip),
+                  if (_video) _CallButton(icon: _camOn ? Icons.videocam_rounded : Icons.videocam_off_rounded, off: !_camOn, onTap: _toggleCam),
+                  if (_video && !kIsWeb) _CallButton(icon: Icons.cameraswitch_rounded, onTap: _flip),
+                  if (_video) _CallButton(key: const Key('weak-button'), icon: Icons.network_check_rounded, off: _weak, onTap: _toggleWeak),
                   if (!kIsWeb) _CallButton(icon: _speaker ? Icons.volume_up_rounded : Icons.hearing_rounded, off: !_speaker, onTap: _toggleSpeaker),
                   _CallButton(icon: Icons.draw_rounded, off: _board, dot: _boardUnseen, onTap: _toggleBoard),
-                  if (widget.video) _CallButton(icon: _sharing ? Icons.stop_screen_share_rounded : Icons.screen_share_rounded, off: _sharing, onTap: _toggleShare),
+                  _CallButton(icon: _sharing ? Icons.stop_screen_share_rounded : Icons.screen_share_rounded, off: _sharing, onTap: _toggleShare),
                   _CallButton(icon: Icons.call_end_rounded, color: AppColors.danger, onTap: _hangUp),
                 ],
               ),
@@ -1307,7 +1741,7 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
 }
 
 class _CallButton extends StatelessWidget {
-  const _CallButton({required this.icon, required this.onTap, this.off = false, this.color, this.dot = false});
+  const _CallButton({super.key, required this.icon, required this.onTap, this.off = false, this.color, this.dot = false});
   final IconData icon;
   final VoidCallback onTap;
   final bool off;

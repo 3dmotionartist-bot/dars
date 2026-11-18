@@ -19,12 +19,30 @@ class Ringer {
     } catch (_) {}
   }
 
-  static Future<void> ring({required String title, required String body, required String joinLabel}) async {
+  /// [room] / [video] / [conversationId] go into the Android notification, so "Join" / "Decline" there work
+  /// even after the app was put away (Round D).
+  static Future<void> ring({
+    required String title,
+    required String body,
+    required String joinLabel,
+    String declineLabel = '',
+    String room = '',
+    bool video = true,
+    String conversationId = '',
+  }) async {
     try {
       if (kIsWeb) {
         web.ring(title, body);
       } else {
-        await _ch.invokeMethod('ring', {'title': title, 'body': body, 'join': joinLabel});
+        await _ch.invokeMethod('ring', {
+          'title': title,
+          'body': body,
+          'join': joinLabel,
+          'decline': declineLabel,
+          'room': room,
+          'video': '$video',
+          'conversation_id': conversationId,
+        });
       }
     } catch (_) {}
   }
@@ -55,6 +73,18 @@ class Ringer {
         await _ch.invokeMethod('notify', {'title': title, 'body': body});
       }
     } catch (_) {}
+  }
+
+  /// When the app was opened from a ringing notification that carries the call (push, Round D):
+  /// {action: 'open' | 'join', room, video, name, conversation_id, sent_at}; null otherwise.
+  static Future<Map<String, String>?> takeLaunchCall() async {
+    if (kIsWeb) return null;
+    try {
+      final r = await _ch.invokeMethod<Map<dynamic, dynamic>>('takeCall');
+      return r?.map((k, v) => MapEntry('$k', '$v'));
+    } catch (_) {
+      return null;
+    }
   }
 
   /// When the app was opened from the call notification: 'open' or 'join' (null otherwise).

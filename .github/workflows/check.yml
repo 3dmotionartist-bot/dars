@@ -1,4 +1,4 @@
-# Checks app changes on any branch other than main: analyzer, tests and a compile.
+# Checks app changes on any branch other than main: analyzer, tests, a web compile and an Android compile.
 # Nothing is published (main is built and shipped by build.yml).
 name: Check app (branches)
 
@@ -16,13 +16,18 @@ jobs:
         working-directory: my_tutor_app
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.27.4'
           channel: stable
           cache: true
+      # Same Android setup as the main build (tool/prepare_android.sh), so the Kotlin code is compiled here too.
       - name: Generate Android & web platform folders
-        run: flutter create --org com.dars --project-name my_tutor_app --platforms=android,web .
+        run: bash tool/prepare_android.sh
       - run: flutter pub get
       - name: Analyze
         run: flutter analyze --no-fatal-infos
@@ -30,3 +35,5 @@ jobs:
         run: flutter test
       - name: Compile web
         run: flutter build web --release
+      - name: Compile Android (Kotlin + Firebase, no signing)
+        run: flutter build apk --debug --target-platform android-arm64

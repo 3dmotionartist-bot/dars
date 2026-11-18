@@ -16,9 +16,13 @@ import '../data/models.dart';
 import '../l10n.dart';
 import '../screens/shared/incoming_call_screen.dart';
 import '../screens/shared/live_call_screen.dart';
+import '../screens/shared/notifications_screen.dart';
 import '../screens/shared/transfer_screens.dart';
+import '../services/call_logic.dart';
+import '../services/call_native.dart';
 import '../services/calls.dart';
 import '../services/media_bridge.dart';
+import '../services/push.dart';
 import '../services/ringer.dart';
 import 'poll_policy.dart';
 import 'tutor_lookup.dart';
@@ -60,6 +64,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       _startRealtime();
       await refresh();
       retryFailedMessages();
+      _setupPush();
+      _handlePushOpen();
     } else {
       _scheduleRestore();
     }
@@ -240,6 +246,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (loggedIn) {
       Ringer.askPermission();
       Future.delayed(const Duration(seconds: 2), _handleLaunchAction);
+      Future.delayed(const Duration(seconds: 2), _handlePushOpen);
+      _setupPush();
     }
     Future.delayed(const Duration(milliseconds: 1500), checkLaunchLink);
   }
@@ -766,7 +774,10 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         onNotification: (r) {
           final n = Backend.notificationFromRow(r);
           notifications.insert(0, n);
-          if (!_foreground || kIsWeb) Ringer.notify(title: _t(n.title.ar, n.title.en), body: _t(n.body.ar, n.body.en));
+          final data = r['data'];
+          if (data is Map && data['type'] == 'missed_call') _ringCancelled('${data['room'] ?? ''}');
+          // With push on, the phone shows it itself (also when the app is closed): don't show it twice.
+          if ((!_foreground || kIsWeb) && !_pushReady) Ringer.notify(title: _t(n.title.ar, n.title.en), body: _t(n.body.ar, n.body.en));
           final title = '${r['title']}';
           if (title.isNotEmpty) say(_t(n.title.ar, n.title.en));
           if (RegExp(r'book|cancel|Payment|Payout|Refund|approved|changes|review|Missed|rescheduled', caseSensitive: false).hasMatch(title)) {
@@ -873,7 +884,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
     c.messages.add(m);
-    _announce(c, m);
+    _announce(c, m, live: true);
     if (!m.mine) {
       if (identical(c, activeConversation)) {
         _b.markRead(c.id).catchError((_) {});
@@ -914,6 +925,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     locale = locale.languageCode == 'ar' ? const Locale('en') : const Locale('ar');
     notifyListeners();
     if (live && _b.uid != null) _b.updateProfile({'locale': locale.languageCode}).catchError((_) {});
+    _setupPush(); // notification texts in the new language
   }
 
   /// Live mode: send the sign-in code by SMS/WhatsApp. Throws with a readable message on failure.
@@ -940,6 +952,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       Future.delayed(const Duration(seconds: 1), _offerPendingJoin);
       await refresh();
       _startRealtime();
+      _setupPush();
       notifyListeners();
     }
     return ready;
@@ -953,6 +966,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
       refresh();
       _startRealtime();
+      _setupPush();
       return;
     }
     role = asRole;
@@ -981,6 +995,15 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     try {
       (await SharedPreferences.getInstance()).remove(_profileKey);
     } catch (_) {}
+    // This phone stops getting this account's notifications.
+    final token = _pushToken;
+    _pushToken = null;
+    _pushReady = false;
+    if (token != null) {
+      try {
+        await _b.removeDeviceToken(token);
+      } catch (_) {}
+    }
     try {
       await _b.signOut();
     } catch (_) {}
@@ -1775,6 +1798,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   void openConversation(Conversation c) {
     c.unread = 0;
     activeConversation = c;
+    Push.clearChat(c.id);
     notifyListeners();
     if (live && c.id.isNotEmpty) _b.markRead(c.id).catchError((_) {});
   }
@@ -1879,14 +1903,14 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   bool _inCall = false;
 
   /// Opens the call screen inside the app. Both people open the same room to talk.
-  Future<void> joinCall({required String room, required bool video, String peer = ''}) async {
+  Future<void> joinCall({required String room, required bool video, String peer = '', bool outgoing = false}) async {
     final nav = navigatorKey.currentState;
     if (nav == null || _inCall) return;
     _inCall = true;
     try {
       await nav.push(MaterialPageRoute<void>(
         fullscreenDialog: true,
-        builder: (_) => LiveCallScreen(room: room, video: video, peerName: peer, myName: name),
+        builder: (_) => LiveCallScreen(room: room, video: video, peerName: peer, myName: name, outgoing: outgoing),
       ));
     } finally {
       _inCall = false;
@@ -1903,7 +1927,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (conversations.remove(c)) conversations.insert(0, c);
     notifyListeners();
     if (live) await _push(c, m);
-    await joinCall(room: room, video: video, peer: _nameOf(c.name));
+    await joinCall(room: room, video: video, peer: _nameOf(c.name), outgoing: true);
   }
 
   /// Video room for a booked lesson — the student and the tutor both join from "Join lesson".
@@ -1919,7 +1943,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   ({String room, bool video, String who})? _ringing;
 
   /// Something new arrived from the other person: ring for calls, notify for messages.
-  void _announce(Conversation c, Message m) {
+  /// [live]: it came through live updates just now (the phone's clock is not consulted, D4).
+  void _announce(Conversation c, Message m, {bool live = false}) {
     if (m.mine) return;
     if (m.remoteId != 0 && !_announced.add(m.remoteId)) return;
     final who = _nameOf(c.name);
@@ -1927,14 +1952,22 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       final inv = Calls.parse(m.text);
       if (inv == null) return;
       if (inv.meet) {
-        Ringer.notify(title: who, body: _t('أرسل رابط اجتماع', 'sent a meeting link'));
+        if (!_pushReady || kIsWeb) Ringer.notify(title: who, body: _t('أرسل رابط اجتماع', 'sent a meeting link'));
         return;
       }
-      if (DateTime.now().difference(m.time).inSeconds.abs() > 60) return; // an old call — don't ring
-      _incomingCall(who, inv.room, inv.video, conversationId: c.id);
+      if (live) {
+        _incomingCall(who, inv.room, inv.video, conversationId: c.id);
+        return;
+      }
+      // Found by a reload: ring only if the call is still fresh by the SERVER's clock.
+      _b.serverNow().then((now) {
+        if (callStillRinging(arrivedLive: false, sentAt: m.time.toUtc(), serverNow: now)) {
+          _incomingCall(who, inv.room, inv.video, conversationId: c.id);
+        }
+      });
       return;
     }
-    if (!_foreground || kIsWeb) {
+    if ((!_foreground || kIsWeb) && !_pushReady) {
       final body = switch (m.type) {
         MsgType.voice => _t('🎤 رسالة صوتية', '🎤 Voice message'),
         MsgType.file => _t('📎 ملف', '📎 File'),
@@ -1950,13 +1983,19 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   void _incomingCall(String who, String room, bool video, {String conversationId = ''}) {
     if (_ringing != null || _inCall) return; // already ringing / already in a call
+    if (_endedRooms.contains(room)) return; // declined / cancelled / missed already
     _ringing = (room: room, video: video, who: who);
     _ringingConv = conversationId;
     Ringer.ring(
       title: who,
       body: video ? _t('مكالمة فيديو واردة', 'Incoming video call') : _t('مكالمة صوتية واردة', 'Incoming voice call'),
       joinLabel: _t('انضم', 'Join'),
+      declineLabel: _t('رفض', 'Decline'),
+      room: room,
+      video: video,
+      conversationId: conversationId,
     );
+    _watchRinging(room);
     final nav = navigatorKey.currentState;
     if (nav == null) return;
     _ringRoute = MaterialPageRoute<void>(
@@ -1967,7 +2006,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         onAccept: () => _answer(true),
         onDecline: () => _answer(false),
         onTimeout: () {
-          _answer(false);
+          _answer(false, tellCaller: false);
           say(_t('مكالمة فائتة من $who', 'Missed call from $who'));
           _addLocalNotification(L('مكالمة فائتة', 'Missed call'), L('من $who', 'From $who'), Icons.phone_missed_rounded, const Color(0xFFE5484D),
               {if (_ringingConv.isNotEmpty) 'conversation_id': _ringingConv, 'call': true});
@@ -1978,24 +2017,169 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// Accept or decline the call that is ringing now.
-  void _answer(bool accept) {
+  void _answer(bool accept, {bool tellCaller = true}) {
     final call = _ringing;
     _ringing = null;
     Ringer.stop();
     final r = _ringRoute;
     _ringRoute = null;
     if (r != null && r.isActive) navigatorKey.currentState?.removeRoute(r);
+    final ch = _ringWatch;
+    _ringWatch = null;
     if (accept && call != null) {
+      if (ch != null) _b.closeChannel(ch);
       joinCall(room: call.room, video: call.video, peer: call.who);
     } else {
+      if (call != null) _endedRooms.add(call.room);
+      if (ch != null) {
+        // D4: the caller sees "declined" at once instead of waiting a minute.
+        if (tellCaller) _sendDecline(ch);
+        Future<void>.delayed(const Duration(seconds: 2), () => _b.closeChannel(ch));
+      }
       Ringer.callEnded(); // declined / missed: lock-screen access ends here
     }
   }
 
-  /// Opened from the ringing notification ("Join" button / tap).
+  Future<void> _sendDecline(RealtimeChannel ch) async {
+    try {
+      await ch.sendBroadcastMessage(event: 'decline', payload: {
+        'payload': {'from': 'decline-${DateTime.now().millisecondsSinceEpoch}'},
+      });
+    } catch (_) {}
+  }
+
+  // D4: while ringing, listen in the call room so the ringing stops the moment the caller hangs up.
+  RealtimeChannel? _ringWatch;
+  final Set<String> _endedRooms = {};
+
+  void _watchRinging(String room) {
+    if (!live || _b.uid == null) return;
+    final old = _ringWatch;
+    if (old != null) _b.closeChannel(old);
+    try {
+      final ch = _b.callChannel(room);
+      _ringWatch = ch;
+      ch
+          .onBroadcast(event: 'cancel', callback: (_) => _ringCancelled(room))
+          .onBroadcast(event: 'bye', callback: (_) => _ringCancelled(room))
+          .subscribe();
+    } catch (_) {}
+  }
+
+  /// The caller hung up (or the server said "missed call") while this phone was ringing.
+  void _ringCancelled(String room) {
+    final call = _ringing;
+    if (room.isNotEmpty) _endedRooms.add(room);
+    if (call == null || (room.isNotEmpty && call.room != room)) {
+      Ringer.stop();
+      return;
+    }
+    _answer(false, tellCaller: false);
+    final who = call.who;
+    say(_t('مكالمة فائتة من $who', 'Missed call from $who'));
+    _addLocalNotification(L('مكالمة فائتة', 'Missed call'), L('من $who', 'From $who'), Icons.phone_missed_rounded, const Color(0xFFE5484D),
+        {if (_ringingConv.isNotEmpty) 'conversation_id': _ringingConv, 'call': true});
+  }
+
+  /// Opened from the ringing notification ("Join" button / tap), or a push rang while the app was closed.
   Future<void> _handleLaunchAction() async {
+    final call = await Ringer.takeLaunchCall();
+    if (call != null) {
+      await _openPushedCall(call);
+      return;
+    }
     final a = await Ringer.takeLaunchAction();
     if (a == 'join' && _ringing != null) _answer(true);
+  }
+
+  /// A call that arrived by push: "join" goes straight in; "open" rings in the app if it is still fresh.
+  Future<void> _openPushedCall(Map<String, dynamic> call) async {
+    final room = '${call['room'] ?? ''}';
+    if (!RegExp(r'^[a-zA-Z0-9-]{8,64}$').hasMatch(room) || _inCall) return;
+    final video = '${call['video']}' != 'false';
+    final who = '${call['name'] ?? ''}';
+    final conv = '${call['conversation_id'] ?? ''}';
+    if (call['action'] == 'join') {
+      if (_ringing?.room == room) {
+        _answer(true);
+      } else {
+        joinCall(room: room, video: video, peer: who);
+      }
+      return;
+    }
+    if (_ringing != null || _endedRooms.contains(room)) return;
+    final sent = DateTime.tryParse('${call['sent_at'] ?? ''}');
+    if (sent != null && !callStillRinging(arrivedLive: false, sentAt: sent.toUtc(), serverNow: await _b.serverNow())) return;
+    _incomingCall(who, room, video, conversationId: conv);
+  }
+
+  // ---- push notifications (Round D, D1) ----
+  String? _pushToken;
+  bool _pushReady = false; // this phone gets push notifications for this account
+
+  /// Saves this phone's push token for the signed-in account (Android with Firebase set up in the build).
+  Future<void> _setupPush() async {
+    CallNative.onIncomingCall = (call) => _openPushedCall({...call, 'action': 'open'});
+    CallNative.onDeclined = (room) {
+      _endedRooms.add(room);
+      if (_ringing?.room == room) _answer(false, tellCaller: false);
+    };
+    CallNative.listen();
+    if (!live || kIsWeb || _b.uid == null) return;
+    await Push.setBackend(url: DarsConfig.supabaseUrl, key: DarsConfig.supabaseAnonKey, lang: locale.languageCode);
+    final token = await Push.token();
+    if (token == null) return;
+    try {
+      await _b.saveDeviceToken(token, lang: locale.languageCode);
+      _pushToken = token;
+      _pushReady = true;
+    } catch (_) {/* offline: tried again on the next start / resume */}
+  }
+
+  /// Opened by tapping a notification: show that chat (or the notifications list).
+  Future<void> _handlePushOpen() async {
+    final o = await Push.takeOpen();
+    if (o == null || !loggedIn) return;
+    final id = o['conversation_id'] ?? '';
+    if (o['open'] == 'chat' && id.isNotEmpty) {
+      for (final c in conversations) {
+        if (c.id == id) {
+          openChatRoute?.call(c);
+          return;
+        }
+      }
+    }
+    navigatorKey.currentState?.push(MaterialPageRoute<void>(builder: (_) => const NotificationsScreen()));
+  }
+
+  // Notification switches (messages / calls / reminders), shown in Account → Notification settings.
+  bool notifyMessages = true;
+  bool notifyCalls = true;
+  bool notifyReminders = true;
+
+  Future<void> loadNotificationPrefs() async {
+    if (!live || _b.uid == null) return;
+    try {
+      final p = await _b.notificationPrefs();
+      notifyMessages = p.messages;
+      notifyCalls = p.calls;
+      notifyReminders = p.reminders;
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> setNotificationPref({bool? messages, bool? calls, bool? reminders}) async {
+    notifyMessages = messages ?? notifyMessages;
+    notifyCalls = calls ?? notifyCalls;
+    notifyReminders = reminders ?? notifyReminders;
+    notifyListeners();
+    if (!live) return;
+    try {
+      await _b.setNotificationPrefs(messages: messages, calls: calls, reminders: reminders);
+    } catch (e) {
+      say(Backend.errorText(e));
+      await loadNotificationPrefs();
+    }
   }
 
   /// Sends a meeting link into the chat (anyone in the chat can join it any time) and returns the link.

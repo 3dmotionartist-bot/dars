@@ -16,12 +16,15 @@ psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/week2.sql"
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/week2_retest.sql"
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/capacity.sql"
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/round_b.sql"
-# Edge function turn-credentials (fake Cloudflare / Supabase; needs Node 22+)
+psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/round_d.sql"
+# Edge functions turn-credentials and push-notifications (fakes for Cloudflare / Firebase / Supabase; Node 22+)
 if command -v node >/dev/null 2>&1 && node -e 'process.exit(Number(process.versions.node.split(".")[0]) < 22 ? 1 : 0)'; then
   node --experimental-strip-types --no-warnings "$HERE/tests/turn_credentials.test.mjs" \
     || { echo "FAIL: turn-credentials tests"; exit 1; }
+  node --experimental-strip-types --no-warnings "$HERE/tests/push_notifications.test.mjs" \
+    || { echo "FAIL: push-notifications tests"; exit 1; }
 else
-  echo "skip turn-credentials tests (Node 22+ not found)"
+  echo "skip edge-function tests (Node 22+ not found)"
 fi
 
 # --perf: big copy (50,000 users, ~78,000 chats, ~1.9 M messages) and timings. Not part of the default run.
