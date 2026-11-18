@@ -63,6 +63,9 @@ class Tutor {
   final List<Review> reviews;
   final String photoUrl; // profile photo ('' = initials)
   final String videoUrl; // intro video ('' = none)
+  /// Only an id and a name are known (the tutor is not in the public list any more, or not loaded yet).
+  /// Never priced or booked from: the booking screen loads the real tutor first.
+  final bool stub;
 
   const Tutor({
     required this.id,
@@ -92,6 +95,7 @@ class Tutor {
     this.reviews = const [],
     this.photoUrl = '',
     this.videoUrl = '',
+    this.stub = false,
   });
 
   bool get hasPackages => maxDiscount > 0;
@@ -114,6 +118,7 @@ class Lesson {
   final int number; // booking number shown to users (backend)
   final double commission;
   final String studentId; // backend student id ('' in demo)
+  final String subjectId; // the subject booked ('' in demo) — used by "Book again"
 
   Lesson({
     required this.id,
@@ -130,6 +135,7 @@ class Lesson {
     this.number = 0,
     this.commission = 0,
     this.studentId = '',
+    this.subjectId = '',
   });
 }
 

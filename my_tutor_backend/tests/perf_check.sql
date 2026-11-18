@@ -74,3 +74,13 @@ from perf_runs group by app, tutor order by app, tutor;
 
 select app || case when max(total_ms) < 30 then ': ok   every refresh under 30 ms'
             else ': WARN slowest refresh ' || round(max(total_ms), 1) || ' ms (target 30 ms)' end from perf_runs group by app order by app;
+
+-- B3: first screen of the tutor list (2,000 tutors in this copy)
+set role anon;
+select format('tutor list first page: %s tutors, %s bytes (target under 40 KB)', count(*), length(json_agg(t)::text)) from search_tutors() t;
+\timing on
+select count(*) from search_tutors();
+select count(*) from search_tutors(p_sort => 'price', p_offset => 60);
+select count(*) from search_tutors('tutor 19');
+\timing off
+reset role;

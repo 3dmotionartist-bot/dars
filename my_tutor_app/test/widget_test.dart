@@ -1,11 +1,16 @@
 // Unit tests for the chat logic (send status, day headers, unread line, text direction).
 // The app itself connects to the live backend on start, so it is not pumped here.
+import 'dart:convert';
+
 import 'package:flutter/widgets.dart' show TextDirection;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_tutor_app/config.dart';
+import 'package:my_tutor_app/data/backend.dart' show Backend;
 import 'package:my_tutor_app/data/models.dart';
 import 'package:my_tutor_app/screens/shared/chat_logic.dart';
+import 'package:my_tutor_app/services/board_sync.dart';
 import 'package:my_tutor_app/state/poll_policy.dart';
+import 'package:my_tutor_app/state/tutor_lookup.dart';
 
 Message msg(String text, DateTime t, {bool mine = false, int id = 0, bool sending = false, bool failed = false, DateTime? readAt, bool blocked = false}) =>
     Message(mine: mine, text: text, time: t, remoteId: id, sending: sending, failed: failed, readAt: readAt, blocked: blocked);
@@ -104,6 +109,71 @@ void main() {
       expect(DarsConfig.apkUrlFor(['armeabi-v7a'], installedCode: 25), endsWith('/Dars-arm32.apk'));
     });
     test('links point to the latest GitHub release', () => expect(DarsConfig.apkUrl, startsWith('https://github.com/3dmotionartist-bot/dars/releases/latest/download/')));
+  });
+
+  group('board history over the data channel (Stage 3 B1)', () {
+    List<List<double>> line(int n) => [for (var i = 0; i < n; i++) [i / n, 1 - i / n]];
+    final strokes = <BoardStroke>[
+      (id: 'a-0', pts: line(40)),
+      (id: 'a-1', pts: line(2500)), // one very long stroke
+      (id: 'b-0', pts: line(3)),
+      (id: 'b-1', pts: const []),
+    ];
+
+    test('every chunk stays under 16 KB', () {
+      final chunks = boardChunks(strokes);
+      expect(chunks.length, greaterThan(1));
+      for (final c in chunks) {
+        final msg = jsonEncode({'event': 'sync', 'payload': {'from': 'x' * 36, 'strokes': c}});
+        expect(utf8.encode(msg).length, lessThan(16 * 1024));
+      }
+    });
+
+    test('joining the chunks gives back every stroke and point, in order', () {
+      final back = joinBoardChunks(boardChunks(strokes));
+      expect(back.keys, ['a-0', 'a-1', 'b-0']); // empty strokes are not sent
+      expect(back['a-1']!.length, 2500);
+      expect(back['a-1']!.first, strokes[1].pts.first);
+      expect(back['a-1']!.last, strokes[1].pts.last);
+      expect(back['b-0'], strokes[2].pts);
+    });
+
+    test('an empty board sends no chunks', () => expect(boardChunks(const []), isEmpty));
+
+    test('"clear" uses a counter, not the phone clock', () {
+      var a = 0, b = 0;
+      a = nextClearCount(a); // A clears
+      b = clearCountAfter(b, a); // B hears it
+      expect([a, b], [1, 1]);
+      b = clearCountAfter(b, null); // an older app's clear (no count)
+      expect(b, 2);
+      expect(syncWins(1, 2), isFalse); // A's board from before that clear is not brought back to B
+      expect(syncWins(2, 1), isTrue); // B's board (after the clear) replaces A's
+      expect(syncWins(2, 2), isTrue); // same count: the two boards are merged
+      expect(clearCountAfter(5, 3), 5); // an older clear never lowers the count
+    });
+  });
+
+  group('my tutors outside the first page (Round B fix 1)', () {
+    const a = '11111111-1111-1111-1111-111111111111', b = '22222222-2222-2222-2222-222222222222';
+    final real = Backend.tutorFromRow({'id': a, 'full_name': 'Real', 'hourly_price': 17, 'subject_ids': ['physics']});
+    final stub = Backend.stubTutor(b, 'Placeholder');
+
+    test('a placeholder is marked and never looks bookable', () {
+      expect(stub.stub, isTrue);
+      expect(real.stub, isFalse);
+    });
+    test('unknown and placeholder tutors are loaded, known ones are not, each id once', () {
+      Tutor? known(String id) => id == a ? real : (id == b ? stub : null);
+      const c = '33333333-3333-3333-3333-333333333333';
+      expect(missingTutorIds([a, b, c, c, 'demo-1', ''], known), [b, c]);
+    });
+    test('"Book again" books the lesson\'s subject when the tutor still teaches it', () {
+      expect(bookingSubject('physics', ['math', 'physics']), 'physics');
+      expect(bookingSubject('chemistry', ['math', 'physics']), 'math');
+      expect(bookingSubject(null, ['english']), 'english');
+      expect(bookingSubject('', ['english']), 'english');
+    });
   });
 
   group('text direction per message', () {

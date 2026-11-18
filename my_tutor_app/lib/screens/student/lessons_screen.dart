@@ -233,7 +233,7 @@ class LessonCard extends StatelessWidget {
           l.reviewed
               ? Pill(context.tr('rated'), icon: Icons.check_rounded, bg: AppColors.successSoft, fg: AppColors.success)
               : btn(context.tr('rate_lesson'), Icons.star_outline_rounded, () => _review(context, app), primary: true),
-          btn(context.tr('book_again'), Icons.replay_rounded, () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookingScreen(tutor: l.tutor, hourPrice: l.tutor.pricePerHour.toDouble())))),
+          btn(context.tr('book_again'), Icons.replay_rounded, () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookingScreen(tutor: l.tutor, hourPrice: l.tutor.pricePerHour.toDouble(), subjectId: l.subjectId)))),
           if (!l.reviewed || !app.live) ...[
             btn(context.tr('not_satisfied'), Icons.sentiment_dissatisfied_outlined, () {
               app.disputeLesson(l, 'Student not satisfied with the lesson (first-hour guarantee)');
@@ -246,7 +246,7 @@ class LessonCard extends StatelessWidget {
           ],
         ];
       case LessonStatus.cancelled:
-        return [btn(context.tr('book_again'), Icons.replay_rounded, () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookingScreen(tutor: l.tutor, hourPrice: l.tutor.pricePerHour.toDouble()))))];
+        return [btn(context.tr('book_again'), Icons.replay_rounded, () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookingScreen(tutor: l.tutor, hourPrice: l.tutor.pricePerHour.toDouble(), subjectId: l.subjectId))))];
     }
   }
 

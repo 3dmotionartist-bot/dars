@@ -119,7 +119,7 @@ class HomeScreen extends StatelessWidget {
                           const SizedBox(width: 6),
                           Builder(builder: (context) {
                             // Real count of tutors who switched "available" on (no invented numbers).
-                            final online = app.tutors.where((t) => t.available).length;
+                            final online = app.live ? app.onlineTutors : app.tutors.where((t) => t.available).length;
                             final label = online > 0
                                 ? (context.isAr ? '$online متصل الآن' : '$online online now')
                                 : (context.isAr ? 'مدرسون موثّقون' : 'Verified tutors');

@@ -149,9 +149,55 @@ class Backend {
     return [for (final r in rows) '${r['subject_id']}'];
   }
 
-  Future<List<Map<String, dynamic>>> publicTutors() => db.from('public_tutors').select().order('rating_avg', ascending: false).limit(500);
-  Future<List<Map<String, dynamic>>> visibleReviews() =>
-      db.from('reviews').select('lesson_id, tutor_id, student_id, stars, comment, created_at').eq('status', 'visible').order('created_at', ascending: false).limit(500);
+  /// One page of the tutor list (Stage 3 B3), searched / filtered / sorted on the server.
+  /// Each row also carries total_count (all tutors that match).
+  Future<List<Map<String, dynamic>>> searchTutors({
+    String? query,
+    String? subject,
+    String? gender,
+    num? priceMin,
+    num? priceMax,
+    String sort = 'best',
+    int limit = 30,
+    int offset = 0,
+    bool available = false,
+    bool instant = false,
+    bool packages = false,
+    bool inPerson = false,
+    List<String>? interests,
+  }) async {
+    final r = await db.rpc('search_tutors', params: {
+      if (query != null && query.trim().isNotEmpty) 'p_query': query.trim(),
+      if (subject != null) 'p_subject': subject,
+      if (gender != null && gender != 'all') 'p_gender': gender,
+      if (priceMin != null) 'p_price_min': priceMin,
+      if (priceMax != null) 'p_price_max': priceMax,
+      'p_sort': sort,
+      'p_limit': limit,
+      'p_offset': offset,
+      if (available) 'p_available': true,
+      if (instant) 'p_instant': true,
+      if (packages) 'p_packages': true,
+      if (inPerson) 'p_in_person': true,
+      if (interests != null && interests.isNotEmpty) 'p_interests': interests,
+    });
+    return [for (final x in (r as List? ?? const [])) Map<String, dynamic>.from(x as Map)];
+  }
+
+  /// Tutors by id (e.g. ones that accepted a live-help request).
+  Future<List<Map<String, dynamic>>> tutorsByIds(List<String> ids) => db.from('public_tutors').select().inFilter('id', ids);
+
+  /// One tutor with the full "about" text (the list leaves it out to stay small).
+  Future<Map<String, dynamic>?> tutorRow(String id) => db.from('public_tutors').select().eq('id', id).maybeSingle();
+
+  /// A tutor's visible reviews, newest first, [limit] at a time (loaded when the profile opens).
+  Future<List<Map<String, dynamic>>> tutorReviews(String tutorId, {int offset = 0, int limit = 20}) => db
+      .from('reviews')
+      .select('stars, comment, created_at')
+      .eq('tutor_id', tutorId)
+      .eq('status', 'visible')
+      .order('created_at', ascending: false)
+      .range(offset, offset + limit - 1);
   Future<List<Map<String, dynamic>>> myReviews() => db.from('reviews').select('lesson_id').eq('student_id', uid!);
 
   Future<List<Map<String, dynamic>>> myLessons({required bool asTutor}) =>
@@ -249,6 +295,15 @@ class Backend {
         'urls': ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'],
       },
     ];
+    // Stage 3 B2: short-lived relay passwords (Cloudflare) from the turn-credentials function first.
+    try {
+      final r = await db.functions.invoke('turn-credentials', body: const {}).timeout(const Duration(seconds: 6));
+      final data = r.data;
+      final servers = data is Map ? data['iceServers'] : null;
+      if (data is Map && data['source'] == 'cloudflare' && servers is List && servers.isNotEmpty) {
+        return [for (final x in servers) if (x is Map) Map<String, dynamic>.from(x)];
+      }
+    } catch (_) {/* not deployed yet / offline: the current relay below */}
     try {
       final r = await db.rpc('call_ice_servers');
       if (r is List) {
@@ -537,10 +592,11 @@ class Backend {
       reviews: reviews,
       photoUrl: (r['avatar_url'] as String?) ?? '',
       videoUrl: (r['video_url'] as String?) ?? '',
+      stub: r['_stub'] == true,
     );
   }
 
-  static Tutor stubTutor(String id, String name) => tutorFromRow({'id': id, 'full_name': name, 'hourly_price': 10});
+  static Tutor stubTutor(String id, String name) => tutorFromRow({'id': id, 'full_name': name, 'hourly_price': 10, '_stub': true});
 
   static LessonStatus lessonStatus(String s) => switch (s) {
         'pending_payment' => LessonStatus.pending,
@@ -567,6 +623,7 @@ class Backend {
       number: _int(r['number']),
       commission: _num(r['commission']),
       studentId: '${r['student_id'] ?? ''}',
+      subjectId: '${r['subject_id'] ?? ''}',
     );
   }
 

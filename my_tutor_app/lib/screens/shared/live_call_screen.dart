@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
@@ -8,6 +9,7 @@ import 'package:supabase/supabase.dart' show RealtimeChannel, RealtimeSubscribeS
 
 import '../../data/backend.dart';
 import '../../l10n.dart';
+import '../../services/board_sync.dart';
 import '../../services/media_bridge.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart' show toast;
@@ -153,6 +155,7 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     _remoteSet = false;
     _pendingIce.clear();
     final pc = await createPeerConnection({'iceServers': _ice, 'sdpSemantics': 'unified-plan'});
+    await _openBoardChannel(pc);
     for (final t in _stream?.getTracks() ?? const <MediaStreamTrack>[]) {
       final sender = await pc.addTrack(t, _stream!);
       final screen = _screen;
@@ -248,7 +251,8 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
   }
 
   void _sayHello() {
-    _send('hello', {'name': widget.myName, 'video': widget.video, 'at': _joinedAt});
+    // caps: this app can carry the drawing board over the call's own connection (Stage 3 B1).
+    _send('hello', {'name': widget.myName, 'video': widget.video, 'at': _joinedAt, 'caps': const ['board-dc']});
   }
 
   // ------------------------------------------------------------------ signaling
@@ -262,6 +266,12 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     _peerSeen = DateTime.now().millisecondsSinceEpoch;
     final n = '${p['name'] ?? ''}'.trim();
     if (n.isNotEmpty && _peerName.isEmpty) _peerName = n;
+    final caps = p['caps'];
+    final dcCap = caps is List && caps.contains('board-dc');
+    if (dcCap != _peerDc) {
+      _peerDc = dcCap;
+      if (_boardOnDc) _sendBoardHistory();
+    }
     if (_peer == from) return;
     _peer = from;
     _ring?.cancel();
@@ -758,7 +768,7 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
       _board = !_board;
       _boardUnseen = false;
     });
-    _send('board', {'open': _board});
+    _sendBoard('board', {'open': _board});
   }
 
   void _onBoard(Map<String, dynamic> p) {
@@ -771,8 +781,9 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     _drawing = st;
     _sentPoints = 0;
     setState(() => _strokes.add(st));
-    // Points are sent in batches every 250 ms (fewer messages; same message shape as before).
-    _flush ??= Timer.periodic(const Duration(milliseconds: 250), (_) => _sendPoints());
+    // Points are sent in batches: every 60 ms over the call's own connection, every 250 ms through
+    // Supabase (fewer messages; same message shape as before).
+    _flush ??= Timer.periodic(Duration(milliseconds: _boardOnDc ? 60 : 250), (_) => _sendPoints());
   }
 
   void _penMove(Offset o) {
@@ -796,7 +807,7 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
       for (final o in st.pts.sublist(from)) [double.parse(o.dx.toStringAsFixed(4)), double.parse(o.dy.toStringAsFixed(4))]
     ];
     _sentPoints = st.pts.length;
-    _send('draw', {'id': st.id, 'pts': pts});
+    _sendBoard('draw', {'id': st.id, 'pts': pts});
   }
 
   void _onDraw(Map<String, dynamic> p) {
@@ -845,14 +856,155 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
 
   void _clearBoard() {
     _incoming.clear();
+    _boardEpoch = nextClearCount(_boardEpoch);
     setState(_strokes.clear);
-    _send('clear', {});
+    _sendBoard('clear', {'n': _boardEpoch});
   }
 
   void _onClear(Map<String, dynamic> p) {
     if (p['from'] == _me || !mounted) return;
+    _boardEpoch = clearCountAfter(_boardEpoch, (p['n'] as num?)?.toInt());
     _incoming.clear();
     setState(_strokes.clear);
+  }
+
+  // ---- drawing board over the call's own connection (Stage 3 B1) ----
+  // A negotiated data channel (id 1, "board") needs no extra offer/answer. It is used only when the other
+  // side said caps: ['board-dc'] in its hello AND the channel is open; otherwise (older app, browser call
+  // page) strokes go through Supabase as before. Both ways are always listened to.
+  RTCDataChannel? _dc;
+  bool _dcOpen = false;
+  bool _peerDc = false;
+  int _dcDraws = 0; // debug counters: strokes sent over the data channel / through Supabase
+  int _supaDraws = 0;
+  int _boardEpoch = 0; // how many "clears" this board has seen (a counter, not a clock — phones' clocks differ)
+  int _syncEpoch = 0;
+  Map<String, List<Offset>>? _syncIn;
+
+  bool get _boardOnDc => _dcOpen && _peerDc && _dc != null;
+
+  Future<void> _openBoardChannel(RTCPeerConnection pc) async {
+    _dc = null;
+    _dcOpen = false;
+    try {
+      final dc = await pc.createDataChannel(
+          'board',
+          RTCDataChannelInit()
+            ..negotiated = true
+            ..id = 1
+            ..ordered = true);
+      dc.onDataChannelState = (state) {
+        if (_dc != dc) return;
+        _dcOpen = state == RTCDataChannelState.RTCDataChannelOpen;
+        if (_boardOnDc) _sendBoardHistory(); // also brings a late joiner's board up to date
+        if (mounted) setState(() {});
+      };
+      dc.onMessage = (m) {
+        if (_dc == dc && !m.isBinary) _onBoardMessage(m.text);
+      };
+      _dc = dc;
+    } catch (e) {
+      _lastError = 'board channel: $e'; // the board keeps working through Supabase
+    }
+  }
+
+  void _sendBoard(String event, Map<String, dynamic> payload) {
+    final dc = _dc;
+    if (_boardOnDc && dc != null) {
+      try {
+        dc.send(RTCDataChannelMessage(jsonEncode({'event': event, 'payload': {'from': _me, ...payload}})));
+        if (event == 'draw') _dcDraws++;
+        return;
+      } catch (_) {/* channel just closed: use Supabase */}
+    }
+    if (event == 'draw') _supaDraws++;
+    _send(event, payload);
+  }
+
+  void _onBoardMessage(String text) {
+    try {
+      final m = jsonDecode(text);
+      if (m is! Map || m['payload'] is! Map) return;
+      final p = Map<String, dynamic>.from(m['payload'] as Map);
+      switch (m['event']) {
+        case 'draw':
+          _onDraw(p);
+        case 'clear':
+          _onClear(p);
+        case 'board':
+          _onBoard(p);
+        case 'sync-begin':
+          _onSyncBegin(p);
+        case 'sync':
+          _onSyncChunk(p);
+        case 'sync-end':
+          _onSyncEnd();
+      }
+    } catch (_) {}
+  }
+
+  /// Sends the whole board in chunks under 16 KB, so someone who (re)joined sees what was drawn.
+  void _sendBoardHistory() {
+    final dc = _dc;
+    if (dc == null || !_dcOpen) return;
+    final chunks = boardChunks([
+      for (final st in _strokes)
+        (id: st.id, pts: [for (final o in st.pts) [double.parse(o.dx.toStringAsFixed(4)), double.parse(o.dy.toStringAsFixed(4))]]),
+    ]);
+    try {
+      void send(String event, Map<String, dynamic> payload) =>
+          dc.send(RTCDataChannelMessage(jsonEncode({'event': event, 'payload': {'from': _me, ...payload}})));
+      send('sync-begin', {'epoch': _boardEpoch, 'chunks': chunks.length});
+      for (final c in chunks) {
+        send('sync', {'strokes': c});
+      }
+      send('sync-end', {});
+    } catch (_) {}
+  }
+
+  void _onSyncBegin(Map<String, dynamic> p) {
+    _syncEpoch = (p['epoch'] as num?)?.toInt() ?? 0;
+    _syncIn = {};
+  }
+
+  void _onSyncChunk(Map<String, dynamic> p) {
+    final into = _syncIn;
+    final list = p['strokes'];
+    if (into == null || list is! List) return;
+    joinBoardChunks([list]).forEach((id, pts) {
+      into.putIfAbsent(id, () => []).addAll(pts.map((x) => Offset(x[0], x[1])));
+    });
+  }
+
+  void _onSyncEnd() {
+    final got = _syncIn;
+    _syncIn = null;
+    if (got == null || !mounted) return;
+    if (!syncWins(_syncEpoch, _boardEpoch)) return; // drawn before a "clear" that this side already saw
+    var added = false;
+    setState(() {
+      if (_syncEpoch > _boardEpoch) {
+        // The other side cleared the board after this side last did: start from their board.
+        _boardEpoch = _syncEpoch;
+        _incoming.clear();
+        _strokes.clear();
+      }
+      got.forEach((id, pts) {
+        final have = _strokes.where((x) => x.id == id).firstOrNull;
+        if (have == null) {
+          _strokes.add(_Stroke(id, id.startsWith('$_me-'))..pts.addAll(pts));
+          added = true;
+        } else if (pts.length > have.pts.length) {
+          have.pts
+            ..clear()
+            ..addAll(pts);
+        }
+      });
+      if (added && !_board) {
+        _board = true;
+        _boardUnseen = true;
+      }
+    });
   }
 
   Widget _boardView(BuildContext context) {
@@ -1121,7 +1273,7 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
               right: 12,
               bottom: MediaQuery.of(context).padding.bottom + 110,
               child: Text(
-                'ch $_chStatus · sent $_sent · heard $_heard · peer ${_peer == null ? '-' : 'ok'}${_hasRelay ? ' · relay' : ''} · video $_sendKbps/${_camSteps[_camStep]} kbps${_lastError.isEmpty ? '' : ' · $_lastError'}',
+                'ch $_chStatus · sent $_sent · heard $_heard · peer ${_peer == null ? '-' : 'ok'}${_hasRelay ? ' · relay' : ''} · video $_sendKbps/${_camSteps[_camStep]} kbps · board dc $_dcDraws / sb $_supaDraws${_boardOnDc ? ' (dc)' : ''}${_lastError.isEmpty ? '' : ' · $_lastError'}',
                 key: const Key('call-diag'),
                 textAlign: TextAlign.center,
                 maxLines: 3,

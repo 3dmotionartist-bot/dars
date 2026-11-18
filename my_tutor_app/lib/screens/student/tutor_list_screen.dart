@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -49,19 +51,94 @@ class _TutorListScreenState extends State<TutorListScreen> {
   String _sort = 'best';
   TutorFilters _f = TutorFilters();
 
+  // ---- live app: the server sends 30 tutors at a time (Stage 3 B3) ----
+  late final bool _server = context.read<AppState>().live;
+  final _scroll = ScrollController();
+  final List<Tutor> _items = [];
+  int _total = 0;
+  bool _loading = false;
+  bool _failed = false;
+  int _request = 0; // answers to an older search are ignored
+  Timer? _typing;
+
   @override
   void initState() {
     super.initState();
     _subject = widget.initialSubject;
+    _scroll.addListener(_onScroll);
+    if (_server) WidgetsBinding.instance.addPostFrameCallback((_) => _reload());
   }
 
   @override
   void dispose() {
+    _typing?.cancel();
+    _scroll.dispose();
     _query.dispose();
     super.dispose();
   }
 
+  bool get _hasMore => _items.length < _total;
+
+  /// Search, filters, subject or sort changed: start again from the first page.
+  void _reload() {
+    if (!_server) {
+      setState(() {});
+      return;
+    }
+    _items.clear();
+    _total = 0;
+    _page();
+  }
+
+  void _onQueryChanged() {
+    setState(() {});
+    if (!_server) return;
+    _typing?.cancel();
+    _typing = Timer(const Duration(milliseconds: 350), _reload); // wait until typing pauses
+  }
+
+  void _onScroll() {
+    if (!_server || _loading || !_hasMore || !_scroll.hasClients) return;
+    if (_scroll.position.pixels > _scroll.position.maxScrollExtent - 600) _page();
+  }
+
+  Future<void> _page() async {
+    final req = ++_request;
+    setState(() {
+      _loading = true;
+      _failed = false;
+    });
+    try {
+      final r = await context.read<AppState>().searchTutors(
+            query: _query.text,
+            subject: _subject,
+            gender: _f.gender,
+            priceMin: _f.price.start > 5 ? _f.price.start : null,
+            priceMax: _f.price.end < 40 ? _f.price.end : null,
+            sort: _sort,
+            offset: _items.length,
+            available: _f.availableNow,
+            instant: _f.instantOnly,
+            packages: _f.hasPackages,
+            inPerson: _f.mode == 'in_person',
+          );
+      if (!mounted || req != _request) return;
+      setState(() {
+        _items.addAll(r.items);
+        _total = r.total;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted || req != _request) return;
+      setState(() {
+        _loading = false;
+        _failed = true;
+      });
+    }
+  }
+
   List<Tutor> _results(BuildContext context) {
+    if (_server) return _items;
     final q = _query.text.trim().toLowerCase();
     final list = context.read<AppState>().tutors.where((t) {
       if (_subject != null && !t.subjectIds.contains(_subject)) return false;
@@ -102,7 +179,10 @@ class _TutorListScreenState extends State<TutorListScreen> {
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (_) => _FilterSheet(initial: _f.copy()),
     );
-    if (result != null) setState(() => _f = result);
+    if (result != null) {
+      _f = result;
+      _reload();
+    }
   }
 
   void _openSort() {
@@ -122,7 +202,8 @@ class _TutorListScreenState extends State<TutorListScreen> {
               secondary: Icon(o[2] as IconData),
               title: Text(context.tr(o[1] as String)),
               onChanged: (v) {
-                setState(() => _sort = v!);
+                _sort = v!;
+                _reload();
                 Navigator.pop(context);
               },
             ),
@@ -148,7 +229,7 @@ class _TutorListScreenState extends State<TutorListScreen> {
     return SafeArea(
       child: MaxWidth(
         max: 1240,
-        child: CustomScrollView(slivers: [
+        child: CustomScrollView(controller: _scroll, slivers: [
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
@@ -159,13 +240,18 @@ class _TutorListScreenState extends State<TutorListScreen> {
                   Expanded(
                     child: TextField(
                       controller: _query,
-                      onChanged: (_) => setState(() {}),
+                      onChanged: (_) => _onQueryChanged(),
                       decoration: InputDecoration(
                         hintText: context.tr('search_hint'),
                         prefixIcon: const Icon(Icons.search_rounded),
                         suffixIcon: _query.text.isEmpty
                             ? null
-                            : IconButton(icon: const Icon(Icons.close_rounded), onPressed: () => setState(_query.clear)),
+                            : IconButton(
+                                icon: const Icon(Icons.close_rounded),
+                                onPressed: () {
+                                  _query.clear();
+                                  _onQueryChanged();
+                                }),
                       ),
                     ),
                   ),
@@ -182,13 +268,20 @@ class _TutorListScreenState extends State<TutorListScreen> {
                 SizedBox(
                   height: 40,
                   child: ListView(scrollDirection: Axis.horizontal, children: [
-                    _chip(context.tr('all'), _subject == null, () => setState(() => _subject = null)),
-                    for (final s in MockData.subjects) _chip(s.name.of(context), _subject == s.id, () => setState(() => _subject = s.id), icon: s.icon, color: s.color),
+                    _chip(context.tr('all'), _subject == null, () {
+                      _subject = null;
+                      _reload();
+                    }),
+                    for (final s in MockData.subjects)
+                      _chip(s.name.of(context), _subject == s.id, () {
+                        _subject = s.id;
+                        _reload();
+                      }, icon: s.icon, color: s.color),
                   ]),
                 ),
                 const SizedBox(height: 10),
                 Row(children: [
-                  Text('${results.length} ${context.tr('results')}', style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.text2)),
+                  Text('${_server ? _total : results.length} ${context.tr('results')}', style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.text2)),
                   const Spacer(),
                   const Icon(Icons.auto_awesome_rounded, size: 16, color: AppColors.primary),
                   const SizedBox(width: 4),
@@ -199,7 +292,16 @@ class _TutorListScreenState extends State<TutorListScreen> {
               ]),
             ),
           ),
-          if (results.isEmpty)
+          if (results.isEmpty && _server && (_loading || _failed))
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(
+                child: _loading
+                    ? const CircularProgressIndicator()
+                    : TextButton.icon(onPressed: _reload, icon: const Icon(Icons.refresh_rounded), label: Text(context.isAr ? 'إعادة المحاولة' : 'Try again')),
+              ),
+            )
+          else if (results.isEmpty)
             SliverFillRemaining(
               hasScrollBody: false,
               child: EmptyState(
@@ -227,6 +329,17 @@ class _TutorListScreenState extends State<TutorListScreen> {
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: cols, mainAxisSpacing: 12, crossAxisSpacing: 12, mainAxisExtent: 268),
                       delegate: SliverChildBuilderDelegate((_, i) => card(results[i]), childCount: results.length),
                     ),
+            ),
+          if (_server && results.isNotEmpty && (_hasMore || _failed))
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 28),
+                child: Center(
+                  child: _loading
+                      ? const SizedBox(width: 26, height: 26, child: CircularProgressIndicator(strokeWidth: 2.5))
+                      : TextButton(onPressed: _page, child: Text(context.isAr ? 'المزيد من المدرسين' : 'More tutors')),
+                ),
+              ),
             ),
         ]),
       ),
