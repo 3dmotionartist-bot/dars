@@ -148,6 +148,15 @@ class MainActivity : FlutterActivity() {
                         DarsNotify.stopRing(this)
                         result.success(true)
                     }
+                    "missedCall" -> {
+                        // The app heard the caller hang up while it was in the background: same notification
+                        // (same id) as the "missed_call" push, so the two never show twice.
+                        DarsNotify.missedCall(
+                            this, call.argument<String>("title") ?: "Dars", call.argument<String>("body") ?: "",
+                            call.argument<String>("conversation_id") ?: "",
+                        )
+                        result.success(true)
+                    }
                     "abis" -> {
                         // Which app file fits this phone (arm64 / arm32 / other), for the update download.
                         result.success(Build.SUPPORTED_ABIS.toList())
@@ -172,6 +181,11 @@ class MainActivity : FlutterActivity() {
                     }
                     "askPermission" -> {
                         askPermission()
+                        result.success(true)
+                    }
+                    "fullScreenOk" -> result.success(fullScreenOk())
+                    "openFullScreenSettings" -> {
+                        openFullScreenSettings()
                         result.success(true)
                     }
                     "takeAction" -> {
@@ -374,6 +388,34 @@ class MainActivity : FlutterActivity() {
             checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED
         ) {
             requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 7002)
+        }
+    }
+
+    /** Android 14+: may incoming calls fill the locked screen? Phones (and Xiaomi dual apps) can switch this off. */
+    private fun fullScreenOk(): Boolean {
+        if (Build.VERSION.SDK_INT < 34) return true
+        return try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            nm.javaClass.getMethod("canUseFullScreenIntent").invoke(nm) as Boolean
+        } catch (e: Exception) {
+            true
+        }
+    }
+
+    /** Opens the system page where "full-screen notifications" can be turned on for Dars. */
+    private fun openFullScreenSettings() {
+        val pkg = Uri.parse("package:$packageName")
+        val tries = listOf(
+            Intent("android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT", pkg),
+            Intent("android.settings.APP_NOTIFICATION_SETTINGS").putExtra("android.provider.extra.APP_PACKAGE", packageName),
+            Intent("android.settings.APPLICATION_DETAILS_SETTINGS", pkg),
+        )
+        for (i in tries) {
+            try {
+                startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                return
+            } catch (ignored: Exception) {
+            }
         }
     }
 

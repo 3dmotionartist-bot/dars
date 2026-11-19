@@ -103,4 +103,23 @@ void main() {
       expect(sendMissedCall(outgoing: false, everConnected: false, declined: false), isFalse, reason: 'meetings / lessons');
     });
   });
+
+  group('Round D fixes — phone test of 19 Nov', () {
+    test('a chat call ends on both sides when one person hangs up', () {
+      expect(afterBye(direct: true), AfterBye.endCall);
+    });
+    test('meetings and lessons keep waiting for the other person to come back', () {
+      expect(afterBye(direct: false), AfterBye.waitForReturn);
+    });
+    test('"Missed call" goes to the notification bar only when the app is not on screen', () {
+      expect(showMissedCallNotice(appOnScreen: false), isTrue);
+      expect(showMissedCallNotice(appOnScreen: true), isFalse);
+    });
+    test('switched-off full-screen alerts: asked at most once a week', () {
+      const day = 24 * 3600 * 1000;
+      expect(askFullScreenAgain(lastAskedMs: 0, nowMs: 100 * day), isTrue); // never asked
+      expect(askFullScreenAgain(lastAskedMs: 10 * day, nowMs: 16 * day), isFalse);
+      expect(askFullScreenAgain(lastAskedMs: 10 * day, nowMs: 17 * day), isTrue);
+    });
+  });
 }

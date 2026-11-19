@@ -161,3 +161,18 @@ bool callStillRinging({
 /// tell the other phone ("missed call", which also stops its ringing).
 bool sendMissedCall({required bool outgoing, required bool everConnected, required bool declined}) =>
     outgoing && !everConnected && !declined;
+
+/// What the screen does when the other person says "bye" (hung up).
+enum AfterBye { endCall, waitForReturn }
+
+/// Round D fix: a one-to-one call from a chat ends on both sides when one person hangs up. Meetings and
+/// lessons keep waiting, so people can leave and come back.
+AfterBye afterBye({required bool direct}) => direct ? AfterBye.endCall : AfterBye.waitForReturn;
+
+/// Round D fix: the app itself put "Missed call" in the phone's notification bar only while it is not on screen
+/// (on screen the call page already says so).
+bool showMissedCallNotice({required bool appOnScreen}) => !appOnScreen;
+
+/// Round D fix: ask about switched-off full-screen call alerts at most once a week.
+bool askFullScreenAgain({required int lastAskedMs, required int nowMs, Duration every = const Duration(days: 7)}) =>
+    nowMs - lastAskedMs >= every.inMilliseconds;
