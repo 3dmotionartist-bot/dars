@@ -22,6 +22,8 @@ class DarsMessagingService : FirebaseMessagingService() {
         val body = d["body"] ?: ""
         val ar = (DarsNotify.prefs(this).getString("lang", "ar") ?: "ar") != "en"
         val open = MainActivity.foreground
+        // One short line per push (no message text), so a phone log shows what arrived and what was done.
+        android.util.Log.i("DarsPush", "type=$type open=$open room=${d["room"] ?: ""} conv=${d["conversation_id"] ?: ""}")
         when (type) {
             "call" -> {
                 val room = d["room"] ?: return

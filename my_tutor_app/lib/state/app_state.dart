@@ -58,6 +58,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   /// Coming back to the app: wake the sign-in up again and fetch anything missed.
   Future<void> _resume() async {
     _handleLaunchAction();
+    checkFullScreen(); // back from the phone's settings: hide the warning once it is on
     checkLaunchLink();
     checkAppVersion();
     if (await _b.restore()) {
@@ -245,6 +246,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     if (loggedIn) {
       Ringer.askPermission();
+      Future.delayed(const Duration(seconds: 4), () => checkFullScreen(prompt: true));
       Future.delayed(const Duration(seconds: 2), _handleLaunchAction);
       Future.delayed(const Duration(seconds: 2), _handlePushOpen);
       _setupPush();
@@ -949,6 +951,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       await _saveProfileCache();
       Ringer.askPermission();
       loggedIn = true;
+      Future.delayed(const Duration(seconds: 4), () => checkFullScreen(prompt: true));
       Future.delayed(const Duration(seconds: 1), _offerPendingJoin);
       await refresh();
       _startRealtime();
@@ -1903,14 +1906,14 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   bool _inCall = false;
 
   /// Opens the call screen inside the app. Both people open the same room to talk.
-  Future<void> joinCall({required String room, required bool video, String peer = '', bool outgoing = false}) async {
+  Future<void> joinCall({required String room, required bool video, String peer = '', bool outgoing = false, bool direct = false}) async {
     final nav = navigatorKey.currentState;
     if (nav == null || _inCall) return;
     _inCall = true;
     try {
       await nav.push(MaterialPageRoute<void>(
         fullscreenDialog: true,
-        builder: (_) => LiveCallScreen(room: room, video: video, peerName: peer, myName: name, outgoing: outgoing),
+        builder: (_) => LiveCallScreen(room: room, video: video, peerName: peer, myName: name, outgoing: outgoing, direct: direct),
       ));
     } finally {
       _inCall = false;
@@ -1927,7 +1930,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (conversations.remove(c)) conversations.insert(0, c);
     notifyListeners();
     if (live) await _push(c, m);
-    await joinCall(room: room, video: video, peer: _nameOf(c.name), outgoing: true);
+    await joinCall(room: room, video: video, peer: _nameOf(c.name), outgoing: true, direct: true);
   }
 
   /// Video room for a booked lesson — the student and the tutor both join from "Join lesson".
@@ -2007,6 +2010,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         onDecline: () => _answer(false),
         onTimeout: () {
           _answer(false, tellCaller: false);
+          _missedCallNotice(who);
           say(_t('مكالمة فائتة من $who', 'Missed call from $who'));
           _addLocalNotification(L('مكالمة فائتة', 'Missed call'), L('من $who', 'From $who'), Icons.phone_missed_rounded, const Color(0xFFE5484D),
               {if (_ringingConv.isNotEmpty) 'conversation_id': _ringingConv, 'call': true});
@@ -2028,7 +2032,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _ringWatch = null;
     if (accept && call != null) {
       if (ch != null) _b.closeChannel(ch);
-      joinCall(room: call.room, video: call.video, peer: call.who);
+      joinCall(room: call.room, video: call.video, peer: call.who, direct: true);
     } else {
       if (call != null) _endedRooms.add(call.room);
       if (ch != null) {
@@ -2066,6 +2070,13 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     } catch (_) {}
   }
 
+  /// The app is in the background (screen off, another app on top): also put "Missed call" in the phone's
+  /// notification bar. It is the same notification as the missed-call push, so it never shows twice.
+  void _missedCallNotice(String who) {
+    if (!showMissedCallNotice(appOnScreen: _foreground)) return;
+    Ringer.missedCall(title: _t('مكالمة فائتة', 'Missed call'), body: _t('من $who', 'From $who'), conversationId: _ringingConv);
+  }
+
   /// The caller hung up (or the server said "missed call") while this phone was ringing.
   void _ringCancelled(String room) {
     final call = _ringing;
@@ -2076,6 +2087,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     }
     _answer(false, tellCaller: false);
     final who = call.who;
+    _missedCallNotice(who);
     say(_t('مكالمة فائتة من $who', 'Missed call from $who'));
     _addLocalNotification(L('مكالمة فائتة', 'Missed call'), L('من $who', 'From $who'), Icons.phone_missed_rounded, const Color(0xFFE5484D),
         {if (_ringingConv.isNotEmpty) 'conversation_id': _ringingConv, 'call': true});
@@ -2103,7 +2115,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       if (_ringing?.room == room) {
         _answer(true);
       } else {
-        joinCall(room: room, video: video, peer: who);
+        joinCall(room: room, video: video, peer: who, direct: true);
       }
       return;
     }
@@ -2150,6 +2162,54 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
     navigatorKey.currentState?.push(MaterialPageRoute<void>(builder: (_) => const NotificationsScreen()));
+  }
+
+  // Android 14+: full-screen call alerts switched off on this phone (then calls only show a small banner and
+  // may not show on the lock screen). Shown in Account → Notification settings, and asked about once a week.
+  bool fullScreenBlocked = false;
+  static const _fullScreenAskedKey = 'dars.full_screen_asked';
+
+  Future<void> checkFullScreen({bool prompt = false}) async {
+    final ok = await Ringer.fullScreenOk();
+    if (fullScreenBlocked == ok) {
+      fullScreenBlocked = !ok;
+      notifyListeners();
+    }
+    if (ok || !prompt || !loggedIn) return;
+    try {
+      final p = await SharedPreferences.getInstance();
+      final last = p.getInt(_fullScreenAskedKey) ?? 0;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (!askFullScreenAgain(lastAskedMs: last, nowMs: now)) return;
+      final ctx = navigatorKey.currentContext;
+      if (ctx == null) return;
+      await p.setInt(_fullScreenAskedKey, now);
+      if (!ctx.mounted) return;
+      showDialog<void>(
+        context: ctx,
+        builder: (d) => AlertDialog(
+          icon: const Icon(Icons.ring_volume_rounded, color: Color(0xFF0E8F7E), size: 44),
+          title: Text(_t('اسمح بظهور المكالمات على الشاشة', 'Let calls show on your screen'), textAlign: TextAlign.center),
+          content: Text(
+            _t('المكالمات الواردة تظهر الآن كإشعار صغير فقط وقد لا تظهر والهاتف مقفل. فعّل "الإشعارات بملء الشاشة" لدرس.',
+                'Incoming calls now show only as a small banner and may not show while the phone is locked. Turn on "full-screen notifications" for Dars.'),
+            textAlign: TextAlign.center,
+          ),
+          actionsAlignment: MainAxisAlignment.spaceEvenly,
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d), child: Text(_t('ليس الآن', 'Not now'))),
+            FilledButton(
+              key: const Key('full-screen-open'),
+              onPressed: () {
+                Navigator.pop(d);
+                Ringer.openFullScreenSettings();
+              },
+              child: Text(_t('فتح الإعدادات', 'Open settings')),
+            ),
+          ],
+        ),
+      );
+    } catch (_) {}
   }
 
   // Notification switches (messages / calls / reminders), shown in Account → Notification settings.

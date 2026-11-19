@@ -485,7 +485,7 @@ class _Bubble extends StatelessWidget {
           if (inv != null) ...[
             const SizedBox(height: 8),
             Wrap(spacing: 8, runSpacing: 6, children: [
-              _JoinButton(mine: m.mine, label: context.tr(meet ? 'join_meeting' : 'join_call'), onTap: () => _join(context, inv.room, inv.video)),
+              _JoinButton(mine: m.mine, label: context.tr(meet ? 'join_meeting' : 'join_call'), onTap: () => _join(context, inv.room, inv.video, direct: !meet)),
               if (meet)
                 _JoinButton(
                   mine: m.mine,
@@ -675,10 +675,10 @@ class _JumpToNewest extends StatelessWidget {
       ]);
 }
 
-void _join(BuildContext context, String room, bool video) {
+void _join(BuildContext context, String room, bool video, {bool direct = false}) {
   final app = context.read<AppState>();
   final c = app.activeConversation;
-  app.joinCall(room: room, video: video, peer: c == null ? '' : c.name.of(context));
+  app.joinCall(room: room, video: video, peer: c == null ? '' : c.name.of(context), direct: direct);
 }
 
 class _JoinButton extends StatelessWidget {

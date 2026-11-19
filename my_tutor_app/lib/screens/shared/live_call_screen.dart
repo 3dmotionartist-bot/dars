@@ -36,6 +36,7 @@ class LiveCallScreen extends StatefulWidget {
     this.myName = '',
     this.testMode = false,
     this.outgoing = false,
+    this.direct = false,
   });
 
   final String room;
@@ -47,6 +48,10 @@ class LiveCallScreen extends StatefulWidget {
   /// A call I started that rings the other person ("No answer" after a minute, "missed call" if it ends
   /// before they join). Meetings and lessons just wait.
   final bool outgoing;
+
+  /// A one-to-one call from a chat (either side): when the other person hangs up, the call ends here too.
+  /// Meetings and lessons keep waiting, so people can leave and come back.
+  final bool direct;
 
   @override
   State<LiveCallScreen> createState() => _LiveCallScreenState();
@@ -576,7 +581,20 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
 
   void _onBye(Map<String, dynamic> p) {
     if (p['from'] != _peer) return;
+    if (afterBye(direct: widget.direct) == AfterBye.endCall) {
+      _otherHungUp();
+      return;
+    }
     _peerLeft();
+  }
+
+  /// One-to-one call: the other person hung up → "Call ended", then the screen closes by itself.
+  Future<void> _otherHungUp() async {
+    if (_closing) return;
+    _closing = true; // nothing more to tell the other side (no "bye", no "missed call")
+    _set(_Phase.ended);
+    await Future<void>.delayed(const Duration(milliseconds: 1500));
+    if (mounted) Navigator.of(context).maybePop();
   }
 
   void _checkPeerGone() {

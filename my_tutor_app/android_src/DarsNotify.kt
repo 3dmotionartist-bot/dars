@@ -160,21 +160,39 @@ object DarsNotify {
             .setAutoCancel(true)
         if (Build.VERSION.SDK_INT < 26) b.setDefaults(Notification.DEFAULT_ALL)
         manager(c).notify(chatId(conversationId), b.build())
-        if (Build.VERSION.SDK_INT >= 24) {
-            val summary = builder(c, MESSAGES)
-                .setSmallIcon(android.R.drawable.sym_action_chat)
-                .setContentTitle("Dars")
-                .setGroup(GROUP)
-                .setGroupSummary(true)
-                .setAutoCancel(true)
-                .build()
-            manager(c).notify(19999, summary)
+        updateSummary(c)
+    }
+
+    private const val SUMMARY_ID = 19999
+
+    /** Chats that have a message notification now (their lines are kept in prefs until opened). */
+    private fun openChats(c: Context): Int =
+        prefs(c).all.count { (k, v) -> k.startsWith("chat_") && v is String && v != "[]" }
+
+    /**
+     * The "Dars" group header only when two or more chats have notifications. With one chat some phones
+     * (Xiaomi) show the empty header as a second notification.
+     */
+    private fun updateSummary(c: Context) {
+        if (Build.VERSION.SDK_INT < 24) return
+        if (openChats(c) < 2) {
+            manager(c).cancel(SUMMARY_ID)
+            return
         }
+        val summary = builder(c, MESSAGES)
+            .setSmallIcon(android.R.drawable.sym_action_chat)
+            .setContentTitle("Dars")
+            .setGroup(GROUP)
+            .setGroupSummary(true)
+            .setAutoCancel(true)
+            .build()
+        manager(c).notify(SUMMARY_ID, summary)
     }
 
     fun clearChat(c: Context, conversationId: String) {
         prefs(c).edit().remove("chat_$conversationId").apply()
         manager(c).cancel(chatId(conversationId))
+        updateSummary(c)
     }
 
     // ------------------------------------------------------------ reminders and other notices
