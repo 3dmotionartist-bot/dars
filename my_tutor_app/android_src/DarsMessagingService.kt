@@ -41,7 +41,8 @@ class DarsMessagingService : FirebaseMessagingService() {
             }
             "missed_call" -> {
                 DarsNotify.stopRing(this, d["room"] ?: "")
-                if (!open) DarsNotify.missedCall(this, title, body, d["conversation_id"] ?: "")
+                // Always in the notification bar: the in-app notice can be hidden (behind the lock screen).
+                DarsNotify.missedCall(this, title, body, d["conversation_id"] ?: "")
             }
             "message" -> if (!open) DarsNotify.message(this, d["conversation_id"] ?: "", title, body)
             "reminder" -> DarsNotify.notice(
