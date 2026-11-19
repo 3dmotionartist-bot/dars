@@ -998,8 +998,15 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     try {
       (await SharedPreferences.getInstance()).remove(_profileKey);
     } catch (_) {}
-    // This phone stops getting this account's notifications.
-    final token = _pushToken;
+    // This phone stops getting this account's notifications. Also when this session never saved the token
+    // (it started offline, e.g.): ask the phone for it, or the old account keeps ringing here (phone test,
+    // 19 Nov 2026: a signed-out dual app still rang).
+    String? token = _pushToken;
+    if (token == null && !kIsWeb) {
+      try {
+        token = await Push.token().timeout(const Duration(seconds: 4));
+      } catch (_) {}
+    }
     _pushToken = null;
     _pushReady = false;
     if (token != null) {
@@ -2166,9 +2173,17 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   // Android 14+: full-screen call alerts switched off on this phone (then calls only show a small banner and
   // may not show on the lock screen). Shown in Account → Notification settings, and asked about once a week.
   bool fullScreenBlocked = false;
+  LockScreenFix lockScreenHow = LockScreenFix.androidSetting;
   static const _fullScreenAskedKey = 'dars.full_screen_asked';
 
+  /// What to switch on, in the person's language (Xiaomi has its own permission, phone test 19 Nov 2026).
+  String get lockScreenSteps => lockScreenHow == LockScreenFix.xiaomiPermissions
+      ? _t('في "أذونات أخرى" لدرس اسمح بـ "العرض على شاشة القفل" و"عرض النوافذ المنبثقة أثناء التشغيل في الخلفية".',
+          'In Dars "Other permissions", allow "Show on lock screen" and "Display pop-up windows while running in the background".')
+      : _t('فعّل "الإشعارات بملء الشاشة" لدرس.', 'Turn on "full-screen notifications" for Dars.');
+
   Future<void> checkFullScreen({bool prompt = false}) async {
+    lockScreenHow = lockScreenFix(xiaomi: await Ringer.isXiaomi());
     final ok = await Ringer.fullScreenOk();
     if (fullScreenBlocked == ok) {
       fullScreenBlocked = !ok;
@@ -2190,8 +2205,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
           icon: const Icon(Icons.ring_volume_rounded, color: Color(0xFF0E8F7E), size: 44),
           title: Text(_t('اسمح بظهور المكالمات على الشاشة', 'Let calls show on your screen'), textAlign: TextAlign.center),
           content: Text(
-            _t('المكالمات الواردة تظهر الآن كإشعار صغير فقط وقد لا تظهر والهاتف مقفل. فعّل "الإشعارات بملء الشاشة" لدرس.',
-                'Incoming calls now show only as a small banner and may not show while the phone is locked. Turn on "full-screen notifications" for Dars.'),
+            '${_t('المكالمات الواردة تظهر الآن كإشعار صغير فقط وقد لا تظهر والهاتف مقفل.', 'Incoming calls now show only as a small banner and may not show while the phone is locked.')} $lockScreenSteps',
             textAlign: TextAlign.center,
           ),
           actionsAlignment: MainAxisAlignment.spaceEvenly,
