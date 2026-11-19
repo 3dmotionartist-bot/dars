@@ -149,9 +149,10 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     }
                     "missedCall" -> {
-                        // The app heard the caller hang up while it was in the background: same notification
-                        // (same id) as the "missed_call" push, so the two never show twice.
-                        DarsNotify.missedCall(
+                        // The app heard the caller hang up while it was not in front of the person (background,
+                        // or behind the lock screen): same notification (same id) as the "missed_call" push,
+                        // so the two never show twice.
+                        if (!DarsNotify.appVisible(this)) DarsNotify.missedCall(
                             this, call.argument<String>("title") ?: "Dars", call.argument<String>("body") ?: "",
                             call.argument<String>("conversation_id") ?: "",
                         )

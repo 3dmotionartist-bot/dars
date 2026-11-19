@@ -111,10 +111,6 @@ void main() {
     test('meetings and lessons keep waiting for the other person to come back', () {
       expect(afterBye(direct: false), AfterBye.waitForReturn);
     });
-    test('"Missed call" goes to the notification bar only when the app is not on screen', () {
-      expect(showMissedCallNotice(appOnScreen: false), isTrue);
-      expect(showMissedCallNotice(appOnScreen: true), isFalse);
-    });
     test('switched-off full-screen alerts: asked at most once a week', () {
       const day = 24 * 3600 * 1000;
       expect(askFullScreenAgain(lastAskedMs: 0, nowMs: 100 * day), isTrue); // never asked

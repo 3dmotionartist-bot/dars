@@ -121,6 +121,22 @@ object DarsNotify {
         }
     }
 
+    /**
+     * Is Dars really in front of the person: resumed, screen on and phone unlocked? An incoming call can start
+     * Dars behind the lock screen (resumed but invisible, e.g. when "show on lock screen" is not allowed);
+     * that must not count as "open", or missed calls and messages would never show (phone test, 19 Nov 2026).
+     */
+    fun appVisible(c: Context): Boolean {
+        if (!MainActivity.foreground) return false
+        return try {
+            val pm = c.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            val km = c.getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+            pm.isInteractive && !km.isKeyguardLocked
+        } catch (e: Exception) {
+            true
+        }
+    }
+
     fun missedCall(c: Context, title: String, body: String, conversationId: String) {
         createChannels(c)
         val b = builder(c, MESSAGES)
