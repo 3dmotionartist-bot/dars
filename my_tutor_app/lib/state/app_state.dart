@@ -2070,9 +2070,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     } catch (_) {}
   }
 
-  /// Also put "Missed call" in the phone's notification bar. Android decides: only when Dars is not really in
-  /// front of the person (background, screen off, or behind the lock screen, where a call can open it). It is
-  /// the same notification as the missed-call push, so it never shows twice.
+  /// Also put "Missed call" in the phone's notification bar, always (the in-app notice can be hidden behind the
+  /// lock screen). It is the same notification as the missed-call push, so it never shows twice.
   void _missedCallNotice(String who) {
     Ringer.missedCall(title: _t('مكالمة فائتة', 'Missed call'), body: _t('من $who', 'From $who'), conversationId: _ringingConv);
   }

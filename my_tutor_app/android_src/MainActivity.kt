@@ -27,6 +27,9 @@ class MainActivity : FlutterActivity() {
     companion object {
         /** True while the app is on screen (push messages for chats / calls are then shown by the app itself). */
         @Volatile var foreground = false
+
+        /** The Dars window has the screen focus: false while it sits behind the lock screen or another app. */
+        @Volatile var focused = false
         private var instance: MainActivity? = null
 
         /** A push said "incoming call" while the app is open: let the app ring (false if it can't). */
@@ -66,14 +69,21 @@ class MainActivity : FlutterActivity() {
         foreground = true
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        focused = hasFocus
+    }
+
     override fun onPause() {
         foreground = false
+        focused = false
         super.onPause()
     }
 
     override fun onDestroy() {
         if (instance === this) instance = null
         foreground = false
+        focused = false
         releaseProximity()
         super.onDestroy()
     }
@@ -149,10 +159,10 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     }
                     "missedCall" -> {
-                        // The app heard the caller hang up while it was not in front of the person (background,
-                        // or behind the lock screen): same notification (same id) as the "missed_call" push,
+                        // The app heard the caller hang up: always in the notification bar (a missed call must
+                        // not depend on guessing whether Dars is on screen). Same id as the "missed_call" push,
                         // so the two never show twice.
-                        if (!DarsNotify.appVisible(this)) DarsNotify.missedCall(
+                        DarsNotify.missedCall(
                             this, call.argument<String>("title") ?: "Dars", call.argument<String>("body") ?: "",
                             call.argument<String>("conversation_id") ?: "",
                         )

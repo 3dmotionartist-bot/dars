@@ -127,7 +127,9 @@ object DarsNotify {
      * that must not count as "open", or missed calls and messages would never show (phone test, 19 Nov 2026).
      */
     fun appVisible(c: Context): Boolean {
-        if (!MainActivity.foreground) return false
+        // Window focus too: on Xiaomi a dual app (second Android user) cannot see the main user's lock screen,
+        // so the lock check alone said "open" while Dars sat behind it (retest, 19 Nov 2026).
+        if (!MainActivity.foreground || !MainActivity.focused) return false
         return try {
             val pm = c.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
             val km = c.getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
