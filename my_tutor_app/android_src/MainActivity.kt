@@ -195,6 +195,7 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     }
                     "fullScreenOk" -> result.success(fullScreenOk())
+                    "isXiaomi" -> result.success(isXiaomi())
                     "openFullScreenSettings" -> {
                         openFullScreenSettings()
                         result.success(true)
@@ -402,8 +403,13 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    /** Android 14+: may incoming calls fill the locked screen? Phones (and Xiaomi dual apps) can switch this off. */
-    private fun fullScreenOk(): Boolean {
+    /**
+     * May an incoming call fill the locked screen? Android 14+ has its own switch, and Xiaomi (MIUI / HyperOS)
+     * adds "Show on lock screen", off for newly installed apps (phone test, 19 Nov 2026). Both must be on.
+     */
+    private fun fullScreenOk(): Boolean = androidFullScreenOk() && miuiLockScreenOk()
+
+    private fun androidFullScreenOk(): Boolean {
         if (Build.VERSION.SDK_INT < 34) return true
         return try {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
@@ -413,10 +419,39 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    /** Opens the system page where "full-screen notifications" can be turned on for Dars. */
+    private fun isXiaomi(): Boolean {
+        val m = (Build.MANUFACTURER ?: "").lowercase()
+        val b = (Build.BRAND ?: "").lowercase()
+        return m.contains("xiaomi") || b == "xiaomi" || b == "redmi" || b == "poco"
+    }
+
+    /** Xiaomi's "Show on lock screen" (its own app-op 10020). Unknown → treated as on, so nobody is nagged by mistake. */
+    private fun miuiLockScreenOk(): Boolean {
+        if (!isXiaomi()) return true
+        return try {
+            val ops = getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
+            val check = ops.javaClass.getMethod(
+                "checkOpNoThrow", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, String::class.java,
+            )
+            (check.invoke(ops, 10020, applicationInfo.uid, packageName) as Int) == android.app.AppOpsManager.MODE_ALLOWED
+        } catch (e: Exception) {
+            true
+        }
+    }
+
+    /** Opens the page where calls can be allowed on the lock screen: Xiaomi's own Dars permissions first. */
     private fun openFullScreenSettings() {
         val pkg = Uri.parse("package:$packageName")
-        val tries = listOf(
+        val tries = mutableListOf<Intent>()
+        if (isXiaomi() && !miuiLockScreenOk()) {
+            tries.add(
+                Intent("miui.intent.action.APP_PERM_EDITOR")
+                    .setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity")
+                    .putExtra("extra_pkgname", packageName),
+            )
+            tries.add(Intent("miui.intent.action.APP_PERM_EDITOR").putExtra("extra_pkgname", packageName))
+        }
+        tries += listOf(
             Intent("android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT", pkg),
             Intent("android.settings.APP_NOTIFICATION_SETTINGS").putExtra("android.provider.extra.APP_PACKAGE", packageName),
             Intent("android.settings.APPLICATION_DETAILS_SETTINGS", pkg),

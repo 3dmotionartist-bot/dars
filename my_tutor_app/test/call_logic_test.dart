@@ -118,4 +118,13 @@ void main() {
       expect(askFullScreenAgain(lastAskedMs: 10 * day, nowMs: 17 * day), isTrue);
     });
   });
+
+  group('Calls on the lock screen — Xiaomi (phone test 19 Nov 2026)', () {
+    test('Xiaomi phones are sent to Xiaomi\'s own permissions page', () {
+      expect(lockScreenFix(xiaomi: true), LockScreenFix.xiaomiPermissions);
+    });
+    test('other phones are sent to Android\'s full-screen setting', () {
+      expect(lockScreenFix(xiaomi: false), LockScreenFix.androidSetting);
+    });
+  });
 }

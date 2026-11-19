@@ -172,3 +172,9 @@ AfterBye afterBye({required bool direct}) => direct ? AfterBye.endCall : AfterBy
 /// Round D fix: ask about switched-off full-screen call alerts at most once a week.
 bool askFullScreenAgain({required int lastAskedMs, required int nowMs, Duration every = const Duration(days: 7)}) =>
     nowMs - lastAskedMs >= every.inMilliseconds;
+
+/// Where a person turns on calls over the lock screen: Xiaomi phones need Xiaomi's own permissions page
+/// ("Other permissions" → "Show on lock screen" + background pop-ups); other phones Android's setting.
+enum LockScreenFix { androidSetting, xiaomiPermissions }
+
+LockScreenFix lockScreenFix({required bool xiaomi}) => xiaomi ? LockScreenFix.xiaomiPermissions : LockScreenFix.androidSetting;

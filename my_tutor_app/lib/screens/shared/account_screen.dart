@@ -201,9 +201,7 @@ class AccountScreen extends StatelessWidget {
                   key: const Key('full-screen-warning'),
                   leading: const Icon(Icons.warning_amber_rounded, color: Color(0xFFE5484D)),
                   title: Text(ar ? 'المكالمات لا تظهر بملء الشاشة' : 'Calls can\'t fill the screen'),
-                  subtitle: Text(ar
-                      ? 'فعّل "الإشعارات بملء الشاشة" لدرس لترى المكالمة والهاتف مقفل.'
-                      : 'Turn on "full-screen notifications" for Dars to see calls on the locked screen.'),
+                  subtitle: Text(a.lockScreenSteps),
                   trailing: TextButton(onPressed: Ringer.openFullScreenSettings, child: Text(ar ? 'فتح' : 'Open')),
                 ),
               SwitchListTile(

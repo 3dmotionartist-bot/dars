@@ -30,6 +30,16 @@ class Ringer {
     }
   }
 
+  /// Xiaomi / Redmi / POCO phone: calls on the lock screen need Xiaomi's own "Show on lock screen" permission.
+  static Future<bool> isXiaomi() async {
+    if (kIsWeb) return false;
+    try {
+      return await _ch.invokeMethod<bool>('isXiaomi') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Opens the phone's settings page where full-screen call alerts are turned on for Dars.
   static Future<void> openFullScreenSettings() async {
     if (kIsWeb) return;
