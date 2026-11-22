@@ -110,7 +110,59 @@ object DarsNotify {
         val n = b.build()
         n.flags = n.flags or Notification.FLAG_INSISTENT
         prefs(c).edit().putString("ringing_room", call["room"] ?: "").apply()
-        manager(c).notify(RING_ID, n)
+        // Android 12+: the system's own incoming-call card (caller name, big Answer / Decline, shown first and
+        // expanded on the lock screen). Falls back to the plain card if the phone refuses it.
+        val styled = if (declineLabel.isNotEmpty() && (call["room"] ?: "").isNotEmpty()) callStyle(c, b, title, body, call) else null
+        try {
+            manager(c).notify(RING_ID, styled ?: n)
+        } catch (e: Exception) {
+            manager(c).notify(RING_ID, n)
+        }
+        wakeScreen(c)
+    }
+
+    /** The call as Android's CallStyle notification (API 31+), or null. Same Answer / Decline actions as [ring]. */
+    private fun callStyle(c: Context, b: Notification.Builder, title: String, body: String, call: Map<String, String>): Notification? {
+        if (Build.VERSION.SDK_INT < 31) return null
+        return try {
+            val who = (call["name"] ?: "").ifEmpty { title }
+            val person = android.app.Person.Builder().setName(who).setImportant(true).build()
+            val d = Intent(c, CallActionReceiver::class.java).setAction(CallActionReceiver.DECLINE)
+            for ((k, v) in call) d.putExtra(k, v)
+            val decline = PendingIntent.getBroadcast(c, 4, d, flags())
+            val answer = openApp(c, 2, true, call + ("dars_action" to "join"))
+            // CallStyle brings its own Answer / Decline buttons: the plain actions would show twice.
+            val styled = Notification.Builder.recoverBuilder(c, b.build())
+            styled.setActions()
+            styled.setContentText(body)
+            styled.setStyle(Notification.CallStyle.forIncomingCall(person, decline, answer))
+            val n = styled.build()
+            n.flags = n.flags or Notification.FLAG_INSISTENT
+            n
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private var wake: android.os.PowerManager.WakeLock? = null
+
+    /**
+     * Turns the screen on while the call rings (at most 30 s), so the call card shows on the lock screen even
+     * where full-screen calls are not allowed (Xiaomi, Android 14 — phone test, 19 Nov 2026). Needs no special
+     * permission; does nothing when the screen is already on.
+     */
+    @Suppress("DEPRECATION")
+    private fun wakeScreen(c: Context) {
+        try {
+            val pm = c.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            if (pm.isInteractive) return
+            wake?.let { if (it.isHeld) it.release() }
+            wake = pm.newWakeLock(
+                android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "dars:incoming-call",
+            ).apply { acquire(30_000L) }
+        } catch (e: Exception) {
+        }
     }
 
     fun stopRing(c: Context, room: String = "") {
@@ -118,6 +170,11 @@ object DarsNotify {
         if (room.isEmpty() || room == ringing) {
             manager(c).cancel(RING_ID)
             prefs(c).edit().remove("ringing_room").apply()
+            try {
+                wake?.let { if (it.isHeld) it.release() }
+            } catch (e: Exception) {
+            }
+            wake = null
         }
     }
 
