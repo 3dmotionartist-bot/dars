@@ -2002,6 +2002,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   void _incomingCall(String who, String room, bool video, {String conversationId = ''}) {
     if (_ringing != null || _inCall) return; // already ringing / already in a call
     if (_endedRooms.contains(room)) return; // declined / cancelled / missed already
+    if (!mayRingCall(callsOn: notifyCalls, foreground: _foreground)) return; // "Calls" off, Dars not on screen
     _ringing = (room: room, video: video, who: who);
     _ringingConv = conversationId;
     Ringer.ring(
@@ -2153,6 +2154,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     CallNative.listen();
     if (!live || kIsWeb || _b.uid == null) return;
     _syncPushAccount();
+    loadNotificationPrefs(); // the "Calls" switch also applies to calls the app hears itself
     await Push.setBackend(url: DarsConfig.supabaseUrl, key: DarsConfig.supabaseAnonKey, lang: locale.languageCode);
     final token = await Push.token();
     if (token == null) return;

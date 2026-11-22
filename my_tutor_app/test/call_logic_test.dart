@@ -140,4 +140,15 @@ void main() {
       expect(pushAccount(loggedIn: false, hasSavedSession: true, uid: null), isNull);
     });
   });
+
+  group('"Calls" switched off (phone test 22 Nov 2026)', () {
+    test('calls on: rings in the background and on screen', () {
+      expect(mayRingCall(callsOn: true, foreground: false), isTrue);
+      expect(mayRingCall(callsOn: true, foreground: true), isTrue);
+    });
+    test('calls off: silent in the background, still shown while Dars is open', () {
+      expect(mayRingCall(callsOn: false, foreground: false), isFalse);
+      expect(mayRingCall(callsOn: false, foreground: true), isTrue);
+    });
+  });
 }
