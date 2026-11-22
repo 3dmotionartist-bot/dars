@@ -188,3 +188,9 @@ String? pushAccount({required bool loggedIn, required bool hasSavedSession, Stri
   if (!loggedIn && !hasSavedSession) return '';
   return null;
 }
+
+/// Whether a call heard by the app itself (live updates, not a push) may ring. With "Calls" switched off in
+/// Notification settings, only while Dars is open on screen; in the background it stays silent, like the
+/// push path already does on the server (phone test 22 Nov 2026: a swiped-away Dars still rang through its
+/// live connection with "Calls" off).
+bool mayRingCall({required bool callsOn, required bool foreground}) => callsOn || foreground;
