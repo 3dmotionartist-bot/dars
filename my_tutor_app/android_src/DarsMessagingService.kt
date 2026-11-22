@@ -23,7 +23,11 @@ class DarsMessagingService : FirebaseMessagingService() {
         val ar = (DarsNotify.prefs(this).getString("lang", "ar") ?: "ar") != "en"
         val open = DarsNotify.appVisible(this)
         // One short line per push (no message text), so a phone log shows what arrived and what was done.
-        android.util.Log.i("DarsPush", "type=$type open=$open room=${d["room"] ?: ""} conv=${d["conversation_id"] ?: ""}")
+        val out = DarsNotify.signedOut(this)
+        android.util.Log.i("DarsPush", "type=$type open=$open signedOut=$out room=${d["room"] ?: ""} conv=${d["conversation_id"] ?: ""}")
+        // Signed out here: the server may still have this phone's address (sign-out while offline), but the
+        // old account's calls and messages must not show on it.
+        if (out) return
         when (type) {
             "call" -> {
                 val room = d["room"] ?: return

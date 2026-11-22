@@ -165,6 +165,24 @@ object DarsNotify {
         }
     }
 
+    /**
+     * Signed out on this phone (the app said so): pushes that still arrive for the old account are dropped.
+     * Unknown (an app version from before 22 Nov 2026 never said) counts as signed in, as before.
+     */
+    fun signedOut(c: Context): Boolean = prefs(c).getString("account", null) == ""
+
+    /** Sign-out: no ringing, no chat lines or notices of the old account left in the notification bar. */
+    fun clearAll(c: Context) {
+        stopRing(c)
+        val e = prefs(c).edit()
+        for (k in prefs(c).all.keys) if (k.startsWith("chat_")) e.remove(k)
+        e.remove("declined_room").apply()
+        try {
+            manager(c).cancelAll()
+        } catch (e: Exception) {
+        }
+    }
+
     fun stopRing(c: Context, room: String = "") {
         val ringing = prefs(c).getString("ringing_room", "") ?: ""
         if (room.isEmpty() || room == ringing) {

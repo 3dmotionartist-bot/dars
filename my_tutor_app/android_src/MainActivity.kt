@@ -222,6 +222,13 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     }
                     "pushToken" -> pushToken(result)
+                    "setAccount" -> {
+                        // Which account this phone's pushes are for; '' = signed out: drop them, clear the bar.
+                        val id = call.argument<String>("id") ?: ""
+                        DarsNotify.prefs(this).edit().putString("account", id).apply()
+                        if (id.isEmpty()) DarsNotify.clearAll(this)
+                        result.success(true)
+                    }
                     "setBackend" -> {
                         DarsNotify.prefs(this).edit()
                             .putString("backend_url", call.argument<String>("url") ?: "")
