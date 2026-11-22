@@ -37,6 +37,15 @@ class Push {
     } catch (_) {}
   }
 
+  /// Which account this phone's notifications are for: the user id, or '' when signed out (the phone then
+  /// drops pushes that still arrive and clears Dars' notifications).
+  static Future<void> setAccount(String id) async {
+    if (kIsWeb) return;
+    try {
+      await _ch.invokeMethod('setAccount', {'id': id});
+    } catch (_) {}
+  }
+
   /// The server address and public key, so "Decline" in a ringing notification can tell the caller even
   /// while the app is closed, and whether this phone shows message notices itself.
   static Future<void> setBackend({required String url, required String key, required String lang}) async {

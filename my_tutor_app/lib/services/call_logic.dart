@@ -178,3 +178,13 @@ bool askFullScreenAgain({required int lastAskedMs, required int nowMs, Duration 
 enum LockScreenFix { androidSetting, xiaomiPermissions }
 
 LockScreenFix lockScreenFix({required bool xiaomi}) => xiaomi ? LockScreenFix.xiaomiPermissions : LockScreenFix.androidSetting;
+
+/// Which account this phone's notifications belong to, for the phone's own push code: the user id while
+/// signed in, '' once surely signed out (then a push that still arrives is dropped, not rung), or null when it
+/// is not known yet (offline with a saved sign-in): leave it as it was. Phone test 22 Nov 2026: a signed-out
+/// dual app still rang for the tutor.
+String? pushAccount({required bool loggedIn, required bool hasSavedSession, String? uid}) {
+  if (loggedIn && uid != null && uid.isNotEmpty) return uid;
+  if (!loggedIn && !hasSavedSession) return '';
+  return null;
+}

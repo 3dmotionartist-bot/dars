@@ -244,6 +244,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     }
     booting = false;
     notifyListeners();
+    _syncPushAccount();
     if (loggedIn) {
       Ringer.askPermission();
       Future.delayed(const Duration(seconds: 4), () => checkFullScreen(prompt: true));
@@ -997,6 +998,13 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _stopRealtime();
     try {
       (await SharedPreferences.getInstance()).remove(_profileKey);
+    } catch (_) {}
+    // The phone itself drops this account's pushes from now on, even if the server cannot be told below
+    // (phone test, 22 Nov 2026: a signed-out dual app still rang).
+    await Push.setAccount('');
+    // A sign-in left unused for hours is refreshed first, or the server refuses the token removal below.
+    try {
+      await _b.restore().timeout(const Duration(seconds: 6));
     } catch (_) {}
     // This phone stops getting this account's notifications. Also when this session never saved the token
     // (it started offline, e.g.): ask the phone for it, or the old account keeps ringing here (phone test,
@@ -2144,6 +2152,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     };
     CallNative.listen();
     if (!live || kIsWeb || _b.uid == null) return;
+    _syncPushAccount();
     await Push.setBackend(url: DarsConfig.supabaseUrl, key: DarsConfig.supabaseAnonKey, lang: locale.languageCode);
     final token = await Push.token();
     if (token == null) return;
@@ -2152,6 +2161,13 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       _pushToken = token;
       _pushReady = true;
     } catch (_) {/* offline: tried again on the next start / resume */}
+  }
+
+  /// Tells the phone's push code which account it is for ('' when signed out: pushes are dropped).
+  void _syncPushAccount() {
+    if (!live || kIsWeb) return;
+    final a = pushAccount(loggedIn: loggedIn, hasSavedSession: _b.hasSavedSession, uid: _b.uid);
+    if (a != null) Push.setAccount(a);
   }
 
   /// Opened by tapping a notification: show that chat (or the notifications list).
