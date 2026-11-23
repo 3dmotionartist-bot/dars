@@ -54,7 +54,7 @@ export const legal: Record<Lang, Record<LegalKey, LegalDoc>> = {
           'تبذل درس جهدها لتشغيل المنصة بشكل مستمر وآمن، لكنها لا تضمن خلوها من الأعطال. في حدود ما يسمح به القانون، لا تتجاوز مسؤولية درس تجاه أي مستخدم المبلغ الذي دفعه مقابل الدرس أو الخدمة المعنية، ولا تُسأل عن الأضرار غير المباشرة.',
           'قد نعدّل هذه الشروط؛ عند تعديلها نطلب منك الموافقة على النسخة الجديدة داخل التطبيق.',
           'القانون المطبق: قوانين الجمهورية العربية السورية، والمحاكم المختصة هي محاكم دمشق.',
-          'للتواصل: 3dmotionartist@gmail.com أو ‎+963 958 362 877.',
+          'للتواصل مع ماي توتر درس (My Tutor Dars)، دمشق، سوريا: 3dmotionartist@gmail.com أو ‎+963 958 362 877.',
         ] },
       ],
     },
@@ -90,7 +90,7 @@ export const legal: Record<Lang, Record<LegalKey, LegalDoc>> = {
         ] },
         { h: '6. حقوقك', p: [
           'يمكنك الاطلاع على بياناتك وتعديلها من التطبيق، وحذف حسابك من: حسابي ← حذف حسابي.',
-          'يمكنك سحب موافقتك بحذف حسابك. لأي طلب آخر تواصل معنا: 3dmotionartist@gmail.com.',
+          'يمكنك سحب موافقتك بحذف حسابك. لأي طلب آخر تواصل معنا: 3dmotionartist@gmail.com أو ‎+963 958 362 877.',
         ] },
         { h: '7. الحماية والتعديلات', p: [
           'تُحفظ البيانات لدى مزودين موثوقين، ويصل كل مستخدم فقط لما يخصه عبر قواعد حماية في قاعدة البيانات، والوثائق الخاصة في تخزين غير علني.',
@@ -143,7 +143,7 @@ export const legal: Record<Lang, Record<LegalKey, LegalDoc>> = {
           'Dars works to keep the platform running safely, but cannot promise it is free of faults. As far as the law allows, Dars\'s liability to any user is limited to the amount that user paid for the lesson or service concerned, and Dars is not liable for indirect damage.',
           'We may change these terms; when we do, the app asks you to accept the new version.',
           'Governing law: the laws of the Syrian Arab Republic; the competent courts are the courts of Damascus.',
-          'Contact: 3dmotionartist@gmail.com or +963 958 362 877.',
+          'Contact My Tutor Dars (ماي توتر درس), Damascus, Syria: 3dmotionartist@gmail.com or +963 958 362 877.',
         ] },
       ],
     },
@@ -179,7 +179,7 @@ export const legal: Record<Lang, Record<LegalKey, LegalDoc>> = {
         ] },
         { h: '6. Your rights', p: [
           'You can see and correct your data in the app, and delete your account under Account → Delete my account.',
-          'You can withdraw your consent by deleting your account. For any other request contact us: 3dmotionartist@gmail.com.',
+          'You can withdraw your consent by deleting your account. For any other request contact us: 3dmotionartist@gmail.com or +963 958 362 877.',
         ] },
         { h: '7. Security and changes', p: [
           'Data is stored with trusted providers; each user reaches only their own data through database access rules, and private documents are kept in non-public storage.',

@@ -593,3 +593,21 @@ select t_err($$select submit_tutor_application(true)$$, 'Tutors only', 'a blocke
 select t_ok((select count(*) from tutor_documents) = 2, '… but still sees his own documents');
 reset role;
 update profiles set status = 'active' where id in (:'stu2', :'tut2');
+
+\echo '--- Round E fix (phone test 23 Nov 2026): a hidden number first, then the same number in pieces'
+reset role;
+select coalesce(max(id), 0) as m1 from messages \gset
+select t_as(:'tut'); set role authenticated;
+insert into messages (conversation_id, sender_id, body) values (:'conv', auth.uid(), '0 9 4 4 7 6 5 4 3 2');
+insert into messages (conversation_id, sender_id, body) values (:'conv', auth.uid(), 'صفر تسعة أربعة أربعة سبعة ستة خمسة أربعة ثلاثة اثنان');
+insert into messages (conversation_id, sender_id, body) values (:'conv', auth.uid(), '0944');
+select t_ok((select blocked from messages where id > :m1 and body = '0944') = false, 'the first piece alone is not hidden');
+insert into messages (conversation_id, sender_id, body) values (:'conv', auth.uid(), '765432');
+select t_ok((select count(*) from messages where id > :m1 and blocked) = 4,
+  'after a hidden number, the same number sent in two pieces is hidden too (both pieces)');
+insert into messages (conversation_id, sender_id, body) values (:'conv', auth.uid(), 'the lesson is at 10:30 and costs 15000');
+select t_ok((select blocked from messages where id > :m1 order by id desc limit 1) = false,
+  '… and the next ordinary message is still delivered');
+reset role;
+select t_ok((select count(*) from message_flags where message_id > :m1 and kind = 'phone') >= 3,
+  'each hidden attempt is flagged for the admin');
