@@ -1,5 +1,5 @@
 // Terms & Conditions and Privacy Policy (Round E4). DRAFT texts written from how Dars works today —
-// the owner and a lawyer must review them before launch. Items in [square brackets] are for the owner to fill.
+// Owner details filled in on 23 Nov 2026; a lawyer should still review them (liability, courts, records).
 // After changing a text, raise "terms_version" in the admin Settings so every user is asked to accept again.
 import type { Lang } from './i18n';
 
@@ -25,7 +25,7 @@ export const legal: Record<Lang, Record<LegalKey, LegalDoc>> = {
           'يُطلب من المدرس رفع وثيقة هوية وشهادة، ويظهر ملفه للطلاب وعليه علامة "موثّق" بعد مراجعة فريق درس وموافقته فقط.',
           'بعد الاعتماد، تظهر تعديلات الاسم والنبذة والسعر والفيديو بعد مراجعتها.',
           'يلتزم المدرس بقواعد سلوك المدرس التي وافق عليها عند التسجيل، وبمواعيده وسياسة الإلغاء التي حددها.',
-          'المدرس يقدّم دروسه بشكل مستقل، ودرس منصة وسيطة للحجز والدفع والتواصل. [يراجع المحامي طبيعة العلاقة]',
+          'المدرس يقدّم دروسه بشكل مستقل، ودرس منصة وسيطة للحجز والدفع والتواصل، وليست صاحبة عمل للمدرس ولا طرفاً في محتوى الدرس.',
         ] },
         { h: '3. الحجز والدفع والعمولة', p: [
           'تتم جميع الحجوزات والمدفوعات داخل المنصة فقط. يُمنع الاتفاق على دروس أو دفعات خارج درس.',
@@ -51,16 +51,16 @@ export const legal: Record<Lang, Record<LegalKey, LegalDoc>> = {
           'يمكنك حذف حسابك من التطبيق (حسابي ← حذف حسابي). يُحذف بعد 14 يوماً ويمكنك التراجع قبلها بتسجيل الدخول. تبقى سجلات الدروس والمدفوعات بدون بياناتك الشخصية لأغراض المحاسبة.',
         ] },
         { h: '7. المسؤولية والتعديلات', p: [
-          'تبذل درس جهدها لتشغيل المنصة بشكل مستمر وآمن، لكنها لا تضمن خلوها من الأعطال. [حدود المسؤولية يحددها المحامي]',
+          'تبذل درس جهدها لتشغيل المنصة بشكل مستمر وآمن، لكنها لا تضمن خلوها من الأعطال. في حدود ما يسمح به القانون، لا تتجاوز مسؤولية درس تجاه أي مستخدم المبلغ الذي دفعه مقابل الدرس أو الخدمة المعنية، ولا تُسأل عن الأضرار غير المباشرة.',
           'قد نعدّل هذه الشروط؛ عند تعديلها نطلب منك الموافقة على النسخة الجديدة داخل التطبيق.',
-          'القانون المطبق والجهة المختصة: [يحددها المحامي].',
-          'للتواصل: [البريد الإلكتروني / رقم الدعم].',
+          'القانون المطبق: قوانين الجمهورية العربية السورية، والمحاكم المختصة هي محاكم دمشق.',
+          'للتواصل: 3dmotionartist@gmail.com أو ‎+963 958 362 877.',
         ] },
       ],
     },
     privacy: {
       t: 'سياسة الخصوصية',
-      intro: 'توضح هذه السياسة البيانات التي تجمعها درس وكيف تستخدمها وتحميها. الجهة المسؤولة عن البيانات: [اسم المالك / الشركة، العنوان، البريد].',
+      intro: 'توضح هذه السياسة البيانات التي تجمعها درس وكيف تستخدمها وتحميها. الجهة المسؤولة عن البيانات: ماي توتر درس (My Tutor Dars)، دمشق، سوريا — 3dmotionartist@gmail.com.',
       s: [
         { h: '1. البيانات التي نجمعها', p: [
           'الحساب: الاسم، رقم الهاتف أو البريد الإلكتروني، نوع الحساب، سنة الميلاد (للطلاب)، المرحلة الدراسية والمنهج، المدينة، الصورة الشخصية إن أضفتها.',
@@ -81,16 +81,16 @@ export const legal: Record<Lang, Record<LegalKey, LegalDoc>> = {
         ] },
         { h: '4. مع من نشارك البيانات', p: [
           'الطرف الآخر في الدرس أو المحادثة يرى ما يلزم فقط (الاسم والصورة والرسائل الموجهة إليه).',
-          'مزودو خدمات يعملون لصالحنا: الاستضافة وقاعدة البيانات (Supabase)، الإشعارات (Firebase من Google)، خوادم ربط المكالمات (Cloudflare / Metered)، استضافة الموقع (GitHub). [يُكمل المالك القائمة]',
+          'مزودو خدمات يعملون لصالحنا: الاستضافة وقاعدة البيانات (Supabase)، الإشعارات (Firebase من Google)، خوادم ربط المكالمات (Cloudflare / Metered)، استضافة الموقع (GitHub)، وخدمات الدفع والتحويل: سيريتل كاش، MTN كاش، شام كاش، إي كاش (eCash)، الدفع الإلكتروني والتحويل عبر البنوك، وشركة الهرم للحوالات. يتلقى كل منهم فقط ما يلزم لتنفيذ خدمته.',
           'الجهات الرسمية عندما يفرض القانون ذلك.',
         ] },
         { h: '5. مدة الاحتفاظ', p: [
           'نحتفظ ببيانات الحساب طالما الحساب قائم.',
-          'عند حذف الحساب تُزال البيانات الشخصية ونصوص الرسائل خلال 14 يوماً، وتبقى سجلات الدروس والمدفوعات بدون اسمك لأغراض المحاسبة. [مدة الاحتفاظ بالسجلات المالية يحددها المحاسب]',
+          'عند حذف الحساب تُزال البيانات الشخصية ونصوص الرسائل خلال 14 يوماً، وتبقى سجلات الدروس والمدفوعات بدون اسمك لأغراض المحاسبة، وتُحفظ السجلات المالية المدة التي يفرضها القانون.',
         ] },
         { h: '6. حقوقك', p: [
           'يمكنك الاطلاع على بياناتك وتعديلها من التطبيق، وحذف حسابك من: حسابي ← حذف حسابي.',
-          'يمكنك سحب موافقتك بحذف حسابك. لأي طلب آخر تواصل معنا: [البريد].',
+          'يمكنك سحب موافقتك بحذف حسابك. لأي طلب آخر تواصل معنا: 3dmotionartist@gmail.com.',
         ] },
         { h: '7. الحماية والتعديلات', p: [
           'تُحفظ البيانات لدى مزودين موثوقين، ويصل كل مستخدم فقط لما يخصه عبر قواعد حماية في قاعدة البيانات، والوثائق الخاصة في تخزين غير علني.',
@@ -114,7 +114,7 @@ export const legal: Record<Lang, Record<LegalKey, LegalDoc>> = {
           'Tutors upload an ID and a certificate. A tutor\'s profile is shown to students, with the "verified" badge, only after the Dars team reviews and approves it.',
           'After approval, changes to name, about, prices and video go public after review.',
           'Tutors follow the tutor code of conduct they accepted at registration, their own schedule and their cancellation policy.',
-          'Tutors teach independently; Dars is a platform for booking, payment and communication. [lawyer to review the relationship]',
+          'Tutors teach independently; Dars is a platform for booking, payment and communication; it is not the tutor\'s employer and not a party to the lesson content.',
         ] },
         { h: '3. Booking, payment and commission', p: [
           'All bookings and payments happen inside Dars only. Arranging lessons or payments outside Dars is not allowed.',
@@ -140,16 +140,16 @@ export const legal: Record<Lang, Record<LegalKey, LegalDoc>> = {
           'You can delete your account in the app (Account → Delete my account). It is deleted after 14 days; signing in before then lets you keep it. Lesson and payment records stay, without your personal details, for accounting.',
         ] },
         { h: '7. Liability and changes', p: [
-          'Dars works to keep the platform running safely, but cannot promise it is free of faults. [limits of liability: lawyer]',
+          'Dars works to keep the platform running safely, but cannot promise it is free of faults. As far as the law allows, Dars\'s liability to any user is limited to the amount that user paid for the lesson or service concerned, and Dars is not liable for indirect damage.',
           'We may change these terms; when we do, the app asks you to accept the new version.',
-          'Governing law and courts: [lawyer].',
-          'Contact: [e-mail / support number].',
+          'Governing law: the laws of the Syrian Arab Republic; the competent courts are the courts of Damascus.',
+          'Contact: 3dmotionartist@gmail.com or +963 958 362 877.',
         ] },
       ],
     },
     privacy: {
       t: 'Privacy Policy',
-      intro: 'This policy explains what data Dars collects and how it is used and protected. Responsible for the data: [owner / company name, address, e-mail].',
+      intro: 'This policy explains what data Dars collects and how it is used and protected. Responsible for the data: My Tutor Dars (ماي توتر درس), Damascus, Syria — 3dmotionartist@gmail.com.',
       s: [
         { h: '1. Data we collect', p: [
           'Account: name, phone number or e-mail, account type, year of birth (students), study level and curriculum, city, profile photo if you add one.',
@@ -170,16 +170,16 @@ export const legal: Record<Lang, Record<LegalKey, LegalDoc>> = {
         ] },
         { h: '4. Who we share data with', p: [
           'The other person in a lesson or chat sees only what is needed (name, photo and the messages sent to them).',
-          'Service providers working for us: hosting and database (Supabase), notifications (Firebase by Google), call relay servers (Cloudflare / Metered), website hosting (GitHub). [owner to complete the list]',
+          'Service providers working for us: hosting and database (Supabase), notifications (Firebase by Google), call relay servers (Cloudflare / Metered), website hosting (GitHub), and payment and transfer services: Syriatel Cash, MTN Cash, ShamCash, eCash, electronic bank payments and bank transfer, and Al Haram money transfer. Each receives only what it needs to provide its service.',
           'Authorities, when the law requires it.',
         ] },
         { h: '5. How long we keep it', p: [
           'Account data is kept while the account exists.',
-          'When an account is deleted, personal details and message texts are removed within 14 days; lesson and payment records stay without your name for accounting. [retention of financial records: accountant]',
+          'When an account is deleted, personal details and message texts are removed within 14 days; lesson and payment records stay without your name for accounting, and financial records are kept for as long as the law requires.',
         ] },
         { h: '6. Your rights', p: [
           'You can see and correct your data in the app, and delete your account under Account → Delete my account.',
-          'You can withdraw your consent by deleting your account. For any other request contact us: [e-mail].',
+          'You can withdraw your consent by deleting your account. For any other request contact us: 3dmotionartist@gmail.com.',
         ] },
         { h: '7. Security and changes', p: [
           'Data is stored with trusted providers; each user reaches only their own data through database access rules, and private documents are kept in non-public storage.',
