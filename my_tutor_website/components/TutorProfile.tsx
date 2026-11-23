@@ -36,7 +36,6 @@ export default function TutorProfile({ x, lang }: { x: Tutor; lang: Lang }) {
               <div><Stars rating={x.rating} /><span>{x.reviews} {d.reviews}</span></div>
               <div><b>{x.hours.toLocaleString('en-US')}</b><span>{d.hoursTaught}</span></div>
               <div><b>{x.students}</b><span>{d.students}</span></div>
-              <div><b className="green">{x.match}%</b><span>{d.match}</span></div>
             </div>
 
             <div className="card">

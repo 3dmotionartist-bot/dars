@@ -65,9 +65,6 @@ export function TutorCard({ tutor, lang }: { tutor: Tutor; lang: Lang }) {
         ))}
       </div>
       <div className="tc-foot">
-        <span className={`match ${tutor.match >= 85 ? 'match-high' : ''}`}>
-          <Icon name="sparkle" size={15} /> {tutor.match}% {d.match}
-        </span>
         {tutor.instant && (
           <span className="muted small">
             <Icon name="bolt" size={14} style={{ color: 'var(--accent)' }} /> {d.instant}

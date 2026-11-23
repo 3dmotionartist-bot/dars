@@ -104,6 +104,23 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       body: MaxWidth(
         max: 720,
         child: ListView(padding: const EdgeInsets.all(16), children: [
+          if (tutor && app.live && app.tutorVerification == 'approved') ...[
+            AppCard(
+              color: AppColors.accentSoft,
+              borderColor: AppColors.accentSoft,
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Icon(app.pendingTutorChanges != null ? Icons.hourglass_top_rounded : Icons.info_outline_rounded, color: AppColors.accent),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    app.pendingTutorChanges != null ? '${context.tr('pending_changes_t')} — ${context.tr('pending_changes_b')}' : context.tr('changes_reviewed_note'),
+                    style: const TextStyle(color: AppColors.text2, fontSize: 13.5, height: 1.5),
+                  ),
+                ),
+              ]),
+            ),
+            const SizedBox(height: 12),
+          ],
           Center(
             child: GestureDetector(
               onTap: _photoBusy ? null : _pickPhoto,

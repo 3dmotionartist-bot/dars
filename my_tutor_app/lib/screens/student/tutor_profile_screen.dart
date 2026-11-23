@@ -75,7 +75,7 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
           const SizedBox(width: 14),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              VerifiedName(t.name.of(context), size: 20),
+              VerifiedName(t.name.of(context), size: 20, verified: !t.stub),
               const SizedBox(height: 4),
               Text(t.headline.of(context), style: const TextStyle(color: AppColors.text2, height: 1.4)),
               const SizedBox(height: 8),
@@ -92,7 +92,6 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
           _stat(t.rating.toStringAsFixed(1), '${t.reviewCount} ${context.tr('reviews')}', Icons.star_rounded, AppColors.accent),
           _stat('${t.hoursTaught}', context.tr('hours_taught'), Icons.schedule_rounded, AppColors.info),
           _stat('${t.students}', context.tr('students'), Icons.groups_rounded, AppColors.primary),
-          _stat('${t.matchScore}%', context.tr('match'), Icons.auto_awesome_rounded, AppColors.success),
         ]),
       ]),
     );

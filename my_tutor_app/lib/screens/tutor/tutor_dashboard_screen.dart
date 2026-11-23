@@ -11,6 +11,7 @@ import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../shared/notifications_screen.dart';
 import 'my_students_screen.dart';
+import 'tutor_documents_screen.dart';
 import 'tutor_shell.dart';
 
 class TutorDashboardScreen extends StatelessWidget {
@@ -35,7 +36,7 @@ class TutorDashboardScreen extends StatelessWidget {
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(context.tr('tutor_hello'), style: const TextStyle(color: AppColors.text2)),
-                    VerifiedName(me.name.of(context), size: 18),
+                    VerifiedName(me.name.of(context), size: 18, verified: !app.live || app.tutorVerification == 'approved'),
                   ]),
                 ),
                 if (!wide) ...[
@@ -47,6 +48,24 @@ class TutorDashboardScreen extends StatelessWidget {
                 ],
               ]),
               const SizedBox(height: 16),
+              if (app.live && app.tutorVerification == 'approved' && app.pendingTutorChanges != null) ...[
+                AppCard(
+                  color: AppColors.accentSoft,
+                  borderColor: AppColors.accent,
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Icon(Icons.hourglass_top_rounded, color: AppColors.accent),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(context.tr('pending_changes_t'), style: const TextStyle(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 2),
+                        Text(context.tr('pending_changes_b'), style: const TextStyle(color: AppColors.text2, fontSize: 13.5, height: 1.5)),
+                      ]),
+                    ),
+                  ]),
+                ),
+                const SizedBox(height: 12),
+              ],
               if (app.live && app.tutorVerification != null && app.tutorVerification != 'approved') ...[
                 AppCard(
                   color: app.tutorVerification == 'rejected' ? AppColors.dangerSoft : AppColors.accentSoft,
@@ -63,6 +82,13 @@ class TutorDashboardScreen extends StatelessWidget {
                           app.tutorVerification == 'rejected' ? (app.rejectionReason ?? '') : context.tr('profile_pending_b'),
                           style: const TextStyle(color: AppColors.text2, fontSize: 13.5, height: 1.5),
                         ),
+                        if (app.tutorVerification == 'rejected' || !app.hasTutorDoc('id') || !app.hasTutorDoc('certificate'))
+                          TextButton.icon(
+                            key: const Key('fix-docs'),
+                            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TutorDocumentsScreen())),
+                            icon: const Icon(Icons.upload_file_rounded, size: 18),
+                            label: Text(context.tr('fix_and_resend')),
+                          ),
                       ]),
                     ),
                     IconButton(onPressed: app.refresh, icon: const Icon(Icons.refresh_rounded), tooltip: context.tr('refresh')),

@@ -13,6 +13,8 @@ import '../student/tutor_profile_screen.dart';
 import '../tutor/my_students_screen.dart';
 import '../tutor/tutor_settings_screen.dart';
 import 'edit_profile_screen.dart';
+import 'family_screen.dart';
+import 'legal_screens.dart';
 import 'notifications_screen.dart';
 import 'wallet_screen.dart';
 
@@ -78,6 +80,25 @@ class AccountScreen extends StatelessWidget {
           ] else ...[
             MenuRow(icon: Icons.edit_note_rounded, title: context.tr('edit_profile'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfileScreen()))),
             MenuRow(icon: Icons.receipt_long_rounded, title: context.tr('wallet'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WalletScreen()))),
+            if (app.role == UserRole.parent)
+              MenuRow(
+                key: const Key('my-children'),
+                icon: Icons.family_restroom_rounded,
+                title: context.tr('my_children'),
+                trailing: '${app.childAccounts.length + app.childProfiles.length}',
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FamilyScreen())),
+              ),
+            if (app.waitingForParent)
+              MenuRow(
+                key: const Key('parent-approval-row'),
+                icon: Icons.family_restroom_rounded,
+                title: context.tr('parent_approval'),
+                onTap: () => showModalBottomSheet<void>(
+                  context: context,
+                  showDragHandle: true,
+                  builder: (_) => const SafeArea(child: Padding(padding: EdgeInsets.fromLTRB(16, 0, 16, 16), child: ParentApprovalCard())),
+                ),
+              ),
             MenuRow(
               icon: Icons.favorite_border_rounded,
               title: context.tr('favorites'),
@@ -137,7 +158,10 @@ class AccountScreen extends StatelessWidget {
               if (Navigator.canPop(context)) Navigator.popUntil(context, (r) => r.isFirst);
             }),
           MenuRow(icon: Icons.support_agent_rounded, title: context.tr('support'), onTap: () => toast(context, 'wa.me/963000000000', icon: Icons.chat_rounded)),
-          MenuRow(icon: Icons.policy_outlined, title: context.tr('terms'), onTap: () => toast(context, 'dars.app/terms', icon: Icons.link_rounded)),
+          if (app.live && app.phoneSignIn && !app.phone.startsWith('+'))
+            MenuRow(key: const Key('link-phone'), icon: Icons.phone_android_rounded, title: context.tr('link_phone'), onTap: () => _linkPhone(context, app)),
+          MenuRow(key: const Key('open-terms'), icon: Icons.policy_outlined, title: context.tr('terms_title'), onTap: () => openLegal(context, 'terms')),
+          MenuRow(key: const Key('open-privacy'), icon: Icons.privacy_tip_outlined, title: context.tr('privacy'), onTap: () => openLegal(context, 'privacy')),
           MenuRow(icon: Icons.logout_rounded, title: context.tr('logout'), color: AppColors.danger, onTap: () {
             if (Navigator.canPop(context)) Navigator.popUntil(context, (r) => r.isFirst);
             app.logout();
@@ -145,7 +169,30 @@ class AccountScreen extends StatelessWidget {
         ]),
         const SizedBox(height: 16),
         Center(child: Text('${context.tr('app_name')} · ${context.tr('version')} 1.0.0', style: const TextStyle(color: AppColors.text3, fontSize: 12.5))),
-        TextButton(onPressed: () => toast(context, context.tr('delete_account'), icon: Icons.info_outline), child: Text(context.tr('delete_account'), style: const TextStyle(color: AppColors.text3))),
+        TextButton(
+          key: const Key('delete-account'),
+          onPressed: () async {
+            if (!app.live) {
+              toast(context, context.tr('delete_account'), icon: Icons.info_outline);
+              return;
+            }
+            final yes = await showDialog<bool>(
+              context: context,
+              builder: (d) => AlertDialog(
+                title: Text(context.tr('delete_account'), style: const TextStyle(fontWeight: FontWeight.w800)),
+                content: Text(context.tr('delete_account_q'), style: const TextStyle(height: 1.6)),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(d, false), child: Text(context.tr('cancel'))),
+                  TextButton(onPressed: () => Navigator.pop(d, true), child: Text(context.tr('delete_account'), style: const TextStyle(color: AppColors.danger))),
+                ],
+              ),
+            );
+            if (yes != true || !context.mounted) return;
+            if (Navigator.canPop(context)) Navigator.popUntil(context, (r) => r.isFirst);
+            await app.requestAccountDeletion();
+          },
+          child: Text(context.tr('delete_account'), style: const TextStyle(color: AppColors.text3)),
+        ),
       ]),
     );
 
@@ -165,6 +212,43 @@ class AccountScreen extends StatelessWidget {
           ],
         ]),
       );
+
+  /// Round E5: add a phone number to an e-mail account (only while phone sign-in is switched on).
+  Future<void> _linkPhone(BuildContext context, AppState app) async {
+    final phone = TextEditingController(text: '+963');
+    final code = TextEditingController();
+    var sent = false;
+    await showDialog<void>(
+      context: context,
+      builder: (d) => StatefulBuilder(
+        builder: (d, set) => AlertDialog(
+          title: Text(context.tr('link_phone'), style: const TextStyle(fontWeight: FontWeight.w800)),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text(context.tr('link_phone_b'), style: const TextStyle(color: AppColors.text2, height: 1.5)),
+            const SizedBox(height: 10),
+            TextField(controller: phone, enabled: !sent, keyboardType: TextInputType.phone, textDirection: TextDirection.ltr),
+            if (sent) ...[
+              const SizedBox(height: 10),
+              TextField(controller: code, keyboardType: TextInputType.number, textDirection: TextDirection.ltr, decoration: InputDecoration(hintText: context.tr('enter_code'))),
+            ],
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d), child: Text(context.tr('cancel'))),
+            TextButton(
+              onPressed: () async {
+                if (!sent) {
+                  if (await app.linkPhone(phone.text)) set(() => sent = true);
+                } else if (await app.verifyLinkedPhone(phone.text, code.text.trim()) && d.mounted) {
+                  Navigator.pop(d);
+                }
+              },
+              child: Text(context.tr(sent ? 'save' : 'send_code')),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   /// Round D: which push notifications this account gets (all on by default).
   void _notificationSettings(BuildContext context, AppState app) {

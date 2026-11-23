@@ -108,11 +108,26 @@ class Backend {
   // ------------------------------------------------------------------ auth
   static String e164(String phone) => phone.replaceAll(RegExp(r'[^0-9+]'), '');
 
+  /// Round E5: how phone sign-in codes are sent, from the admin setting "phone_signin":
+  /// 'off' (email + password only — the default until the owner picks a provider), 'sms' or 'whatsapp'.
+  static String phoneChannel = 'off';
+
+  OtpChannel get _otpChannel => (phoneChannel == 'whatsapp' || (phoneChannel == 'off' && DarsConfig.otpChannel == 'whatsapp'))
+      ? OtpChannel.whatsapp
+      : OtpChannel.sms;
+
   Future<void> sendPhoneCode(String phone, UserRole role) => db.auth.signInWithOtp(
         phone: e164(phone),
-        channel: DarsConfig.otpChannel == 'whatsapp' ? OtpChannel.whatsapp : OtpChannel.sms,
+        channel: _otpChannel,
         data: {'role': role.name},
       );
+
+  /// Round E5: add a phone number to the signed-in account (a code is sent to it; then [verifyLinkedPhone]).
+  Future<void> linkPhone(String phone) => db.auth.updateUser(UserAttributes(phone: e164(phone)));
+
+  Future<void> verifyLinkedPhone(String phone, String code) async {
+    await db.auth.verifyOTP(phone: e164(phone), token: code, type: OtpType.phoneChange);
+  }
 
   Future<void> verifyPhoneCode(String phone, String code) async {
     await db.auth.verifyOTP(phone: e164(phone), token: code, type: OtpType.sms);
@@ -314,6 +329,63 @@ class Backend {
     } catch (_) {}
     return list;
   }
+
+  // ---- Round E ----
+  /// Uploads a verification document (ID, certificate, CV) to the private tutor-docs bucket and records it.
+  Future<void> addTutorDocument(String kind, Uint8List bytes, String ext, String mime) async {
+    final path = '$uid/$kind-${DateTime.now().millisecondsSinceEpoch}.$ext';
+    await db.storage.from('tutor-docs').uploadBinary(path, bytes, fileOptions: FileOptions(contentType: mime, upsert: false));
+    await db.rpc('add_tutor_document', params: {'p_kind': kind, 'p_path': 'tutor-docs/$path'});
+  }
+
+  /// My verification documents: [{id, kind, file_path, created_at}].
+  Future<List<Map<String, dynamic>>> myTutorDocuments() async =>
+      List<Map<String, dynamic>>.from(await db.from('tutor_documents').select('id, kind, file_path, created_at').eq('tutor_id', uid!).order('created_at'));
+
+  Future<void> removeTutorDocument(String id) => db.rpc('remove_tutor_document', params: {'p_id': id});
+
+  /// Sends the application for review (after a rejection too); the code of conduct must be accepted.
+  Future<void> submitTutorApplication() => db.rpc('submit_tutor_application', params: {'p_accept_conduct': true});
+
+  /// Changes of an approved tutor that wait for the Dars team (null = none).
+  Future<Map<String, dynamic>?> myPendingTutorChanges() async {
+    final r = await db.rpc('my_pending_tutor_changes');
+    return r is Map ? Map<String, dynamic>.from(r) : null;
+  }
+
+  /// Round E3: a student under 18 gets a code for his parent (needed: false once approved or 18+).
+  Future<Map<String, dynamic>> myParentCode() async => Map<String, dynamic>.from(await db.rpc('my_parent_code') as Map);
+  Future<Map<String, dynamic>> linkChildAccount(String code) async =>
+      Map<String, dynamic>.from(await db.rpc('link_child_account', params: {'p_code': code}) as Map);
+  Future<void> unlinkChildAccount(String studentId) => db.rpc('unlink_child_account', params: {'p_student': studentId});
+  Future<Map<String, dynamic>> myChildren() async => Map<String, dynamic>.from(await db.rpc('my_children') as Map);
+  Future<void> saveChildProfile({String? id, required String name, String? level, int? birthYear}) =>
+      db.rpc('save_child_profile', params: {'p_id': id, 'p_name': name, 'p_level': level, 'p_birth_year': birthYear});
+  Future<void> removeChildProfile(String id) => db.rpc('remove_child_profile', params: {'p_id': id});
+  Future<Map<String, dynamic>> childActivity(String id) async =>
+      Map<String, dynamic>.from(await db.rpc('child_activity', params: {'p_child': id}) as Map);
+  Future<List<Map<String, dynamic>>> childChatMessages(String conversationId, {DateTime? before}) async {
+    final r = await db.rpc('child_chat_messages', params: {'p_conversation': conversationId, 'p_before': before?.toUtc().toIso8601String()});
+    return [for (final x in (r as List? ?? const [])) Map<String, dynamic>.from(x as Map)];
+  }
+
+  Future<List<String>> myBlockedUsers() async =>
+      [for (final r in await db.from('user_blocks').select('blocked_id').eq('blocker_id', uid!)) '${r['blocked_id']}'];
+  Future<void> blockUser(String userId) => db.rpc('block_user', params: {'p_user': userId});
+  Future<void> unblockUser(String userId) => db.rpc('unblock_user', params: {'p_user': userId});
+
+  /// Join / leave of a lesson's video room (kept for the Dars team, e.g. no-show disputes).
+  Future<void> logAttendance(String lessonId, String event) => db.rpc('log_lesson_attendance', params: {'p_lesson': lessonId, 'p_event': event});
+
+  /// Round E4: the Terms version to accept and a deletion waiting ({version, accepted, deletion}).
+  Future<Map<String, dynamic>?> termsStatus() async {
+    final r = await db.rpc('terms_status');
+    return r is Map ? Map<String, dynamic>.from(r) : null;
+  }
+
+  Future<void> acceptTerms(int version) => db.rpc('accept_terms', params: {'p_version': version});
+  Future<Map<String, dynamic>> requestAccountDeletion() async => Map<String, dynamic>.from(await db.rpc('request_account_deletion') as Map);
+  Future<void> cancelAccountDeletion() => db.rpc('cancel_account_deletion');
 
   // ---- Round D ----
   /// The call I started ended before the other person joined: they get one "missed call" (which also stops
@@ -639,10 +711,13 @@ class Backend {
   static Lesson lessonFromRow(Map<String, dynamic> r, {required Tutor tutor, required L studentName, bool reviewed = false}) {
     final subject = MockData.subject((r['subject_id'] as String?) ?? tutor.subjectIds.first).name;
     final status = '${r['status']}';
+    final child = '${r['child_name'] ?? ''}'.trim();
     return Lesson(
       id: r['id'] as String,
       tutor: tutor,
-      studentName: studentName,
+      // A lesson a parent booked for a child shows the child first: "Tala (Ahmad)".
+      studentName: child.isEmpty ? studentName : L('$child (${studentName.ar})', '$child (${studentName.en})'),
+      childName: child,
       subject: subject,
       start: time(r['starts_at']),
       minutes: _int(r['duration_min']),
