@@ -180,6 +180,9 @@ class Message {
   final bool failed; // could not reach the server (tap to retry)
   final DateTime? readAt; // when the other person read it (my messages)
   final bool blocked; // hidden by the contact filter (only the sender sees it)
+  /// The other person's message that the contact filter hid: never shown here, however it arrived
+  /// (phone test 23 Nov 2026: hidden messages reached the other side through the live connection).
+  bool get hiddenFromMe => blocked && !mine;
   final String? clientId; // made once per message, sent on every attempt (no duplicates on retry)
   const Message({
     required this.mine,

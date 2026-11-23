@@ -1,6 +1,7 @@
 // Round E: what can be checked without a server — the verified badge (E2) and the age rule (E3).
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:my_tutor_app/data/models.dart';
 import 'package:my_tutor_app/state/app_state.dart';
 import 'package:my_tutor_app/widgets/common.dart';
 
@@ -28,6 +29,19 @@ void main() {
       expect(AppState.minorYear(year - 19), isFalse);
       expect(AppState.minorYear(year - 40), isFalse);
       expect(AppState.minorYear(null), isFalse);
+    });
+  });
+
+  group("E1 — the other person's hidden messages are never shown (phone test 23 Nov 2026)", () {
+    final t = DateTime(2026, 11, 23, 14, 20);
+    test('a message the filter hid is hidden from the other person', () {
+      expect(Message(mine: false, text: '0 9 4 4 7 6 5 4 3 2', time: t, blocked: true).hiddenFromMe, isTrue);
+    });
+    test('… but the sender still sees it (marked "not sent")', () {
+      expect(Message(mine: true, text: '0 9 4 4 7 6 5 4 3 2', time: t, blocked: true).hiddenFromMe, isFalse);
+    });
+    test('ordinary messages are shown', () {
+      expect(Message(mine: false, text: 'the lesson is at 10:30', time: t).hiddenFromMe, isFalse);
     });
   });
 }

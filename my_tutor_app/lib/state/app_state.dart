@@ -712,8 +712,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       final iAmStudent = r['student_id'] == uid;
       final tutor = iAmStudent ? (tutorById(other) ?? Backend.stubTutor(other, names[other] ?? '')) : null;
       final mrows = byConv[id] ?? const [];
-      final messages = [for (final m in mrows) Backend.messageFromRow(m, uid)];
-      final unread = mrows.where((m) => m['sender_id'] != null && m['sender_id'] != uid && m['read_at'] == null).length;
+      final messages = [for (final m in mrows) Backend.messageFromRow(m, uid)]..removeWhere((m) => m.hiddenFromMe);
+      final unread = mrows.where((m) => m['sender_id'] != null && m['sender_id'] != uid && m['read_at'] == null && m['blocked'] != true).length;
       // Re-use the object an open chat screen is holding, so new messages appear there.
       Conversation? c;
       for (final x in conversations) {
@@ -926,6 +926,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
     final m = Backend.messageFromRow(r, _b.uid);
+    if (m.hiddenFromMe) return; // hidden by the contact filter: never shown to the other person
     if (c.messages.any((x) => x.remoteId == m.remoteId)) return;
     if (m.mine) {
       // My own message coming back from the server: swap it in for the local copy, keeping its place.
@@ -958,7 +959,12 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       if (c.id != '${r['conversation_id']}') continue;
       final i = c.messages.indexWhere((x) => x.remoteId == id);
       if (i < 0) return;
-      c.messages[i] = Backend.messageFromRow(r, _b.uid).withPreviewOf(c.messages[i]);
+      final m = Backend.messageFromRow(r, _b.uid);
+      if (m.hiddenFromMe) {
+        c.messages.removeAt(i); // a piece of a split number, hidden after it was shown
+      } else {
+        c.messages[i] = m.withPreviewOf(c.messages[i]);
+      }
       notifyListeners();
       return;
     }
@@ -1460,7 +1466,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       final more = [
         for (final r in rows)
           if (!have.contains(Backend.messageFromRow(r, uid).remoteId)) Backend.messageFromRow(r, uid),
-      ];
+      ]..removeWhere((m) => m.hiddenFromMe);
       c.messages.insertAll(0, more);
       c.hasOlder = rows.length >= Backend.pageSize;
     } catch (e) {
