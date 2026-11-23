@@ -19,6 +19,43 @@ class Ringer {
     } catch (_) {}
   }
 
+  /// Android 14+: can an incoming call fill the locked screen? (Phones and Xiaomi dual apps can switch this
+  /// off; then calls only show a small banner.) Always true elsewhere.
+  static Future<bool> fullScreenOk() async {
+    if (kIsWeb) return true;
+    try {
+      return await _ch.invokeMethod<bool>('fullScreenOk') ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Xiaomi / Redmi / POCO phone: calls on the lock screen need Xiaomi's own "Show on lock screen" permission.
+  static Future<bool> isXiaomi() async {
+    if (kIsWeb) return false;
+    try {
+      return await _ch.invokeMethod<bool>('isXiaomi') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Opens the phone's settings page where full-screen call alerts are turned on for Dars.
+  static Future<void> openFullScreenSettings() async {
+    if (kIsWeb) return;
+    try {
+      await _ch.invokeMethod('openFullScreenSettings');
+    } catch (_) {}
+  }
+
+  /// A "Missed call" in the phone's notification bar (Android; same notification as the missed-call push).
+  static Future<void> missedCall({required String title, required String body, required String conversationId}) async {
+    if (kIsWeb) return;
+    try {
+      await _ch.invokeMethod('missedCall', {'title': title, 'body': body, 'conversation_id': conversationId});
+    } catch (_) {}
+  }
+
   /// [room] / [video] / [conversationId] go into the Android notification, so "Join" / "Decline" there work
   /// even after the app was put away (Round D).
   static Future<void> ring({

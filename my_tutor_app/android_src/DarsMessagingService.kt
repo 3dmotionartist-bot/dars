@@ -21,7 +21,13 @@ class DarsMessagingService : FirebaseMessagingService() {
         val title = d["title"] ?: "Dars"
         val body = d["body"] ?: ""
         val ar = (DarsNotify.prefs(this).getString("lang", "ar") ?: "ar") != "en"
-        val open = MainActivity.foreground
+        val open = DarsNotify.appVisible(this)
+        // One short line per push (no message text), so a phone log shows what arrived and what was done.
+        val out = DarsNotify.signedOut(this)
+        android.util.Log.i("DarsPush", "type=$type open=$open signedOut=$out room=${d["room"] ?: ""} conv=${d["conversation_id"] ?: ""}")
+        // Signed out here: the server may still have this phone's address (sign-out while offline), but the
+        // old account's calls and messages must not show on it.
+        if (out) return
         when (type) {
             "call" -> {
                 val room = d["room"] ?: return
@@ -39,7 +45,8 @@ class DarsMessagingService : FirebaseMessagingService() {
             }
             "missed_call" -> {
                 DarsNotify.stopRing(this, d["room"] ?: "")
-                if (!open) DarsNotify.missedCall(this, title, body, d["conversation_id"] ?: "")
+                // Always in the notification bar: the in-app notice can be hidden (behind the lock screen).
+                DarsNotify.missedCall(this, title, body, d["conversation_id"] ?: "")
             }
             "message" -> if (!open) DarsNotify.message(this, d["conversation_id"] ?: "", title, body)
             "reminder" -> DarsNotify.notice(

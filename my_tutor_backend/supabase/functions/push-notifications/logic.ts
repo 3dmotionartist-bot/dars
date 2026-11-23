@@ -182,12 +182,26 @@ export function allowed(kind: Kind, p: Prefs): boolean {
   }
 }
 
+/**
+ * Firebase refuses a whole message whose data uses one of its reserved keys ("from", "notification",
+ * "message_type", "collapse_key", or anything starting with "google" / "gcm"). The missed-call row carries
+ * "from" (the caller's id), so missed calls never reached the phone (phone test, 19 Nov 2026). Such keys are
+ * sent as "x_<key>" instead; the app does not read them.
+ */
+export function safeData(data: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(data)) {
+    out[/^(from|notification|message_type|collapse_key)$|^(google|gcm)/i.test(k) ? `x_${k}` : k] = v;
+  }
+  return out;
+}
+
 /** Firebase Cloud Messaging HTTP v1 body: a data-only Android message (the app's own code shows it). */
 export function fcmMessage(token: string, p: Push): Record<string, unknown> {
   return {
     message: {
       token,
-      data: { ...p.data, type: p.kind, title: p.title, body: p.body },
+      data: safeData({ ...p.data, type: p.kind, title: p.title, body: p.body }),
       android: {
         priority: p.urgent ? "HIGH" : "NORMAL",
         ...(p.ttlSeconds ? { ttl: `${p.ttlSeconds}s` } : {}),
@@ -273,6 +287,8 @@ export async function handle(req: Request, d: Deps): Promise<Response> {
     const r = await d.send(fcmMessage(tk.token, p));
     if (r.status >= 200 && r.status < 300) sent++;
     else if (deadToken(r.status, r.body)) await d.dropToken(tk.token);
+    // Visible in Supabase → Edge Functions → push-notifications → Logs (no message text, no token).
+    else console.warn(`FCM refused a ${p.kind} push: ${r.status} ${JSON.stringify(r.body).slice(0, 300)}`);
   }
   return Response.json({ sent, devices: tokens.length });
 }

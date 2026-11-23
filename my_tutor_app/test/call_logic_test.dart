@@ -103,4 +103,52 @@ void main() {
       expect(sendMissedCall(outgoing: false, everConnected: false, declined: false), isFalse, reason: 'meetings / lessons');
     });
   });
+
+  group('Round D fixes — phone test of 19 Nov', () {
+    test('a chat call ends on both sides when one person hangs up', () {
+      expect(afterBye(direct: true), AfterBye.endCall);
+    });
+    test('meetings and lessons keep waiting for the other person to come back', () {
+      expect(afterBye(direct: false), AfterBye.waitForReturn);
+    });
+    test('switched-off full-screen alerts: asked at most once a week', () {
+      const day = 24 * 3600 * 1000;
+      expect(askFullScreenAgain(lastAskedMs: 0, nowMs: 100 * day), isTrue); // never asked
+      expect(askFullScreenAgain(lastAskedMs: 10 * day, nowMs: 16 * day), isFalse);
+      expect(askFullScreenAgain(lastAskedMs: 10 * day, nowMs: 17 * day), isTrue);
+    });
+  });
+
+  group('Calls on the lock screen — Xiaomi (phone test 19 Nov 2026)', () {
+    test('Xiaomi phones are sent to Xiaomi\'s own permissions page', () {
+      expect(lockScreenFix(xiaomi: true), LockScreenFix.xiaomiPermissions);
+    });
+    test('other phones are sent to Android\'s full-screen setting', () {
+      expect(lockScreenFix(xiaomi: false), LockScreenFix.androidSetting);
+    });
+  });
+
+  group('Signed-out phones stay silent (phone test 22 Nov 2026)', () {
+    test('signed in: notifications belong to that account', () {
+      expect(pushAccount(loggedIn: true, hasSavedSession: true, uid: 'u1'), 'u1');
+    });
+    test('signed out: pushes that still arrive are dropped', () {
+      expect(pushAccount(loggedIn: false, hasSavedSession: false, uid: null), '');
+    });
+    test('saved sign-in not restored yet (offline): leave it as it was', () {
+      expect(pushAccount(loggedIn: true, hasSavedSession: true, uid: null), isNull);
+      expect(pushAccount(loggedIn: false, hasSavedSession: true, uid: null), isNull);
+    });
+  });
+
+  group('"Calls" switched off (phone test 22 Nov 2026)', () {
+    test('calls on: rings in the background and on screen', () {
+      expect(mayRingCall(callsOn: true, foreground: false), isTrue);
+      expect(mayRingCall(callsOn: true, foreground: true), isTrue);
+    });
+    test('calls off: silent in the background, still shown while Dars is open', () {
+      expect(mayRingCall(callsOn: false, foreground: false), isFalse);
+      expect(mayRingCall(callsOn: false, foreground: true), isTrue);
+    });
+  });
 }

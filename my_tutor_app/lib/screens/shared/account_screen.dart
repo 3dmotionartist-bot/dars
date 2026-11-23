@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../data/mock_data.dart';
 import '../../data/models.dart';
 import '../../l10n.dart';
+import '../../services/ringer.dart';
 import '../../state/app_state.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
@@ -252,6 +253,7 @@ class AccountScreen extends StatelessWidget {
   /// Round D: which push notifications this account gets (all on by default).
   void _notificationSettings(BuildContext context, AppState app) {
     app.loadNotificationPrefs();
+    app.checkFullScreen();
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -278,6 +280,14 @@ class AccountScreen extends StatelessWidget {
                 title: Text(ar ? 'المكالمات' : 'Calls'),
                 subtitle: Text(ar ? 'رنين المكالمات الواردة والمكالمات الفائتة' : 'Ringing for incoming calls, and missed calls'),
               ),
+              if (a.fullScreenBlocked)
+                ListTile(
+                  key: const Key('full-screen-warning'),
+                  leading: const Icon(Icons.warning_amber_rounded, color: Color(0xFFE5484D)),
+                  title: Text(ar ? 'المكالمات لا تظهر بملء الشاشة' : 'Calls can\'t fill the screen'),
+                  subtitle: Text(a.lockScreenSteps),
+                  trailing: TextButton(onPressed: Ringer.openFullScreenSettings, child: Text(ar ? 'فتح' : 'Open')),
+                ),
               SwitchListTile(
                 key: const Key('notify-reminders'),
                 value: a.notifyReminders,

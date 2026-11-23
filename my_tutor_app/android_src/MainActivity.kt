@@ -27,6 +27,9 @@ class MainActivity : FlutterActivity() {
     companion object {
         /** True while the app is on screen (push messages for chats / calls are then shown by the app itself). */
         @Volatile var foreground = false
+
+        /** The Dars window has the screen focus: false while it sits behind the lock screen or another app. */
+        @Volatile var focused = false
         private var instance: MainActivity? = null
 
         /** A push said "incoming call" while the app is open: let the app ring (false if it can't). */
@@ -66,14 +69,21 @@ class MainActivity : FlutterActivity() {
         foreground = true
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        focused = hasFocus
+    }
+
     override fun onPause() {
         foreground = false
+        focused = false
         super.onPause()
     }
 
     override fun onDestroy() {
         if (instance === this) instance = null
         foreground = false
+        focused = false
         releaseProximity()
         super.onDestroy()
     }
@@ -148,6 +158,16 @@ class MainActivity : FlutterActivity() {
                         DarsNotify.stopRing(this)
                         result.success(true)
                     }
+                    "missedCall" -> {
+                        // The app heard the caller hang up: always in the notification bar (a missed call must
+                        // not depend on guessing whether Dars is on screen). Same id as the "missed_call" push,
+                        // so the two never show twice.
+                        DarsNotify.missedCall(
+                            this, call.argument<String>("title") ?: "Dars", call.argument<String>("body") ?: "",
+                            call.argument<String>("conversation_id") ?: "",
+                        )
+                        result.success(true)
+                    }
                     "abis" -> {
                         // Which app file fits this phone (arm64 / arm32 / other), for the update download.
                         result.success(Build.SUPPORTED_ABIS.toList())
@@ -174,6 +194,12 @@ class MainActivity : FlutterActivity() {
                         askPermission()
                         result.success(true)
                     }
+                    "fullScreenOk" -> result.success(fullScreenOk())
+                    "isXiaomi" -> result.success(isXiaomi())
+                    "openFullScreenSettings" -> {
+                        openFullScreenSettings()
+                        result.success(true)
+                    }
                     "takeAction" -> {
                         val a = pendingAction
                         pendingAction = null
@@ -196,6 +222,13 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     }
                     "pushToken" -> pushToken(result)
+                    "setAccount" -> {
+                        // Which account this phone's pushes are for; '' = signed out: drop them, clear the bar.
+                        val id = call.argument<String>("id") ?: ""
+                        DarsNotify.prefs(this).edit().putString("account", id).apply()
+                        if (id.isEmpty()) DarsNotify.clearAll(this)
+                        result.success(true)
+                    }
                     "setBackend" -> {
                         DarsNotify.prefs(this).edit()
                             .putString("backend_url", call.argument<String>("url") ?: "")
@@ -374,6 +407,68 @@ class MainActivity : FlutterActivity() {
             checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED
         ) {
             requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 7002)
+        }
+    }
+
+    /**
+     * May an incoming call fill the locked screen? Android 14+ has its own switch, and Xiaomi (MIUI / HyperOS)
+     * adds "Show on lock screen", off for newly installed apps (phone test, 19 Nov 2026). Both must be on.
+     */
+    private fun fullScreenOk(): Boolean = androidFullScreenOk() && miuiLockScreenOk()
+
+    private fun androidFullScreenOk(): Boolean {
+        if (Build.VERSION.SDK_INT < 34) return true
+        return try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            nm.javaClass.getMethod("canUseFullScreenIntent").invoke(nm) as Boolean
+        } catch (e: Exception) {
+            true
+        }
+    }
+
+    private fun isXiaomi(): Boolean {
+        val m = (Build.MANUFACTURER ?: "").lowercase()
+        val b = (Build.BRAND ?: "").lowercase()
+        return m.contains("xiaomi") || b == "xiaomi" || b == "redmi" || b == "poco"
+    }
+
+    /** Xiaomi's "Show on lock screen" (its own app-op 10020). Unknown → treated as on, so nobody is nagged by mistake. */
+    private fun miuiLockScreenOk(): Boolean {
+        if (!isXiaomi()) return true
+        return try {
+            val ops = getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
+            val check = ops.javaClass.getMethod(
+                "checkOpNoThrow", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, String::class.java,
+            )
+            (check.invoke(ops, 10020, applicationInfo.uid, packageName) as Int) == android.app.AppOpsManager.MODE_ALLOWED
+        } catch (e: Exception) {
+            true
+        }
+    }
+
+    /** Opens the page where calls can be allowed on the lock screen: Xiaomi's own Dars permissions first. */
+    private fun openFullScreenSettings() {
+        val pkg = Uri.parse("package:$packageName")
+        val tries = mutableListOf<Intent>()
+        if (isXiaomi() && !miuiLockScreenOk()) {
+            tries.add(
+                Intent("miui.intent.action.APP_PERM_EDITOR")
+                    .setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity")
+                    .putExtra("extra_pkgname", packageName),
+            )
+            tries.add(Intent("miui.intent.action.APP_PERM_EDITOR").putExtra("extra_pkgname", packageName))
+        }
+        tries += listOf(
+            Intent("android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT", pkg),
+            Intent("android.settings.APP_NOTIFICATION_SETTINGS").putExtra("android.provider.extra.APP_PACKAGE", packageName),
+            Intent("android.settings.APPLICATION_DETAILS_SETTINGS", pkg),
+        )
+        for (i in tries) {
+            try {
+                startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                return
+            } catch (ignored: Exception) {
+            }
         }
     }
 

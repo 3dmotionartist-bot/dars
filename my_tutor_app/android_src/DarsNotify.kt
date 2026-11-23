@@ -110,7 +110,77 @@ object DarsNotify {
         val n = b.build()
         n.flags = n.flags or Notification.FLAG_INSISTENT
         prefs(c).edit().putString("ringing_room", call["room"] ?: "").apply()
-        manager(c).notify(RING_ID, n)
+        // Android 12+: the system's own incoming-call card (caller name, big Answer / Decline, shown first and
+        // expanded on the lock screen). Falls back to the plain card if the phone refuses it.
+        val styled = if (declineLabel.isNotEmpty() && (call["room"] ?: "").isNotEmpty()) callStyle(c, b, title, body, call) else null
+        try {
+            manager(c).notify(RING_ID, styled ?: n)
+        } catch (e: Exception) {
+            manager(c).notify(RING_ID, n)
+        }
+        wakeScreen(c)
+    }
+
+    /** The call as Android's CallStyle notification (API 31+), or null. Same Answer / Decline actions as [ring]. */
+    private fun callStyle(c: Context, b: Notification.Builder, title: String, body: String, call: Map<String, String>): Notification? {
+        if (Build.VERSION.SDK_INT < 31) return null
+        return try {
+            val who = (call["name"] ?: "").ifEmpty { title }
+            val person = android.app.Person.Builder().setName(who).setImportant(true).build()
+            val d = Intent(c, CallActionReceiver::class.java).setAction(CallActionReceiver.DECLINE)
+            for ((k, v) in call) d.putExtra(k, v)
+            val decline = PendingIntent.getBroadcast(c, 4, d, flags())
+            val answer = openApp(c, 2, true, call + ("dars_action" to "join"))
+            // CallStyle brings its own Answer / Decline buttons: the plain actions would show twice.
+            val styled = Notification.Builder.recoverBuilder(c, b.build())
+            styled.setActions()
+            styled.setContentText(body)
+            styled.setStyle(Notification.CallStyle.forIncomingCall(person, decline, answer))
+            val n = styled.build()
+            n.flags = n.flags or Notification.FLAG_INSISTENT
+            n
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private var wake: android.os.PowerManager.WakeLock? = null
+
+    /**
+     * Turns the screen on while the call rings (at most 30 s), so the call card shows on the lock screen even
+     * where full-screen calls are not allowed (Xiaomi, Android 14 — phone test, 19 Nov 2026). Needs no special
+     * permission; does nothing when the screen is already on.
+     */
+    @Suppress("DEPRECATION")
+    private fun wakeScreen(c: Context) {
+        try {
+            val pm = c.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            if (pm.isInteractive) return
+            wake?.let { if (it.isHeld) it.release() }
+            wake = pm.newWakeLock(
+                android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "dars:incoming-call",
+            ).apply { acquire(30_000L) }
+        } catch (e: Exception) {
+        }
+    }
+
+    /**
+     * Signed out on this phone (the app said so): pushes that still arrive for the old account are dropped.
+     * Unknown (an app version from before 22 Nov 2026 never said) counts as signed in, as before.
+     */
+    fun signedOut(c: Context): Boolean = prefs(c).getString("account", null) == ""
+
+    /** Sign-out: no ringing, no chat lines or notices of the old account left in the notification bar. */
+    fun clearAll(c: Context) {
+        stopRing(c)
+        val e = prefs(c).edit()
+        for (k in prefs(c).all.keys) if (k.startsWith("chat_")) e.remove(k)
+        e.remove("declined_room").apply()
+        try {
+            manager(c).cancelAll()
+        } catch (e: Exception) {
+        }
     }
 
     fun stopRing(c: Context, room: String = "") {
@@ -118,6 +188,29 @@ object DarsNotify {
         if (room.isEmpty() || room == ringing) {
             manager(c).cancel(RING_ID)
             prefs(c).edit().remove("ringing_room").apply()
+            try {
+                wake?.let { if (it.isHeld) it.release() }
+            } catch (e: Exception) {
+            }
+            wake = null
+        }
+    }
+
+    /**
+     * Is Dars really in front of the person: resumed, screen on and phone unlocked? An incoming call can start
+     * Dars behind the lock screen (resumed but invisible, e.g. when "show on lock screen" is not allowed);
+     * that must not count as "open", or missed calls and messages would never show (phone test, 19 Nov 2026).
+     */
+    fun appVisible(c: Context): Boolean {
+        // Window focus too: on Xiaomi a dual app (second Android user) cannot see the main user's lock screen,
+        // so the lock check alone said "open" while Dars sat behind it (retest, 19 Nov 2026).
+        if (!MainActivity.foreground || !MainActivity.focused) return false
+        return try {
+            val pm = c.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            val km = c.getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+            pm.isInteractive && !km.isKeyguardLocked
+        } catch (e: Exception) {
+            true
         }
     }
 
@@ -160,21 +253,39 @@ object DarsNotify {
             .setAutoCancel(true)
         if (Build.VERSION.SDK_INT < 26) b.setDefaults(Notification.DEFAULT_ALL)
         manager(c).notify(chatId(conversationId), b.build())
-        if (Build.VERSION.SDK_INT >= 24) {
-            val summary = builder(c, MESSAGES)
-                .setSmallIcon(android.R.drawable.sym_action_chat)
-                .setContentTitle("Dars")
-                .setGroup(GROUP)
-                .setGroupSummary(true)
-                .setAutoCancel(true)
-                .build()
-            manager(c).notify(19999, summary)
+        updateSummary(c)
+    }
+
+    private const val SUMMARY_ID = 19999
+
+    /** Chats that have a message notification now (their lines are kept in prefs until opened). */
+    private fun openChats(c: Context): Int =
+        prefs(c).all.count { (k, v) -> k.startsWith("chat_") && v is String && v != "[]" }
+
+    /**
+     * The "Dars" group header only when two or more chats have notifications. With one chat some phones
+     * (Xiaomi) show the empty header as a second notification.
+     */
+    private fun updateSummary(c: Context) {
+        if (Build.VERSION.SDK_INT < 24) return
+        if (openChats(c) < 2) {
+            manager(c).cancel(SUMMARY_ID)
+            return
         }
+        val summary = builder(c, MESSAGES)
+            .setSmallIcon(android.R.drawable.sym_action_chat)
+            .setContentTitle("Dars")
+            .setGroup(GROUP)
+            .setGroupSummary(true)
+            .setAutoCancel(true)
+            .build()
+        manager(c).notify(SUMMARY_ID, summary)
     }
 
     fun clearChat(c: Context, conversationId: String) {
         prefs(c).edit().remove("chat_$conversationId").apply()
         manager(c).cancel(chatId(conversationId))
+        updateSummary(c)
     }
 
     // ------------------------------------------------------------ reminders and other notices

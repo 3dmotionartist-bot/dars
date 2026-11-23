@@ -1,7 +1,7 @@
 // Tests for the push-notifications edge function's decisions (Round D, D1), with fake database / Firebase.
 // Run: node --experimental-strip-types tests/push_notifications.test.mjs   (Node 22.6+; part of tests/run.sh)
 import {
-  handle, messagePush, notificationPush, allowed, fcmMessage, deadToken, preview, startsIn, arMinutes, CALL_TTL,
+  handle, messagePush, notificationPush, allowed, fcmMessage, safeData, deadToken, preview, startsIn, arMinutes, CALL_TTL,
 } from "../supabase/functions/push-notifications/logic.ts";
 
 let failed = 0;
@@ -139,6 +139,26 @@ const msg = (over = {}) => ({ id: 7, conversation_id: CONV, sender_id: STU, kind
   ok(r.sent === 1 && calls.dropped.length === 1 && calls.dropped[0] === "tok-tutor-en", "a phone that removed the app is forgotten; the others still get it");
   const { d: d2 } = deps({ tokens: async () => [] });
   ok((await (await handle(hook("messages", msg()), d2)).json()).skipped === "no device", "no phone saved (old app / web) → nothing sent");
+}
+
+// Phone test 19 Nov 2026: the real missed-call row (call_not_answered) also carries "from" = the caller's id.
+// Firebase refuses any message with that data key, so missed calls never arrived. Reserved keys are renamed.
+{
+  const row = { id: 9, user_id: TUT, title: "Missed call", body: "ليان", data: { type: "missed_call", room: ROOM, conversation_id: CONV, video: true, from: STU } };
+  const p = notificationPush(row, "ar", NOW);
+  const data = fcmMessage("t", p).message.data;
+  ok(!("from" in data) && data.x_from === STU && data.type === "missed_call" && data.room === ROOM && data.conversation_id === CONV,
+    "missed call: Firebase-reserved key \"from\" is sent as x_from, everything the phone reads is unchanged");
+  const s = safeData({ from: "a", notification: "b", message_type: "c", collapse_key: "d", "google.x": "e", gcm_y: "f", Google: "g", room: "r", fromage: "h" });
+  ok(Object.keys(s).sort().join(",") === "fromage,room,x_Google,x_collapse_key,x_from,x_gcm_y,x_google.x,x_message_type,x_notification",
+    "every Firebase-reserved key is renamed; other keys (even ones starting with \"from\") stay");
+  const strict = async (m) => {
+    const bad = Object.keys(m.message.data).find((k) => /^(from|notification|message_type|collapse_key)$|^(google|gcm)/i.test(k));
+    return bad ? { status: 400, body: { error: { message: `Invalid data payload key: ${bad}`, details: [{ errorCode: "INVALID_ARGUMENT" }] } } } : { status: 200, body: {} };
+  };
+  const { d, calls } = deps({ send: async (m) => { calls.sent.push(m.message); return strict(m); } });
+  const r = await (await handle(hook("notifications", row), d)).json();
+  ok(r.sent === 2 && calls.dropped.length === 0, "a missed call passes a Firebase that rejects reserved keys (both phones)");
 }
 
 if (failed) { console.log(failed + " FAILED"); process.exit(1); }

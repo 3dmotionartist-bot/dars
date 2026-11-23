@@ -161,3 +161,36 @@ bool callStillRinging({
 /// tell the other phone ("missed call", which also stops its ringing).
 bool sendMissedCall({required bool outgoing, required bool everConnected, required bool declined}) =>
     outgoing && !everConnected && !declined;
+
+/// What the screen does when the other person says "bye" (hung up).
+enum AfterBye { endCall, waitForReturn }
+
+/// Round D fix: a one-to-one call from a chat ends on both sides when one person hangs up. Meetings and
+/// lessons keep waiting, so people can leave and come back.
+AfterBye afterBye({required bool direct}) => direct ? AfterBye.endCall : AfterBye.waitForReturn;
+
+/// Round D fix: ask about switched-off full-screen call alerts at most once a week.
+bool askFullScreenAgain({required int lastAskedMs, required int nowMs, Duration every = const Duration(days: 7)}) =>
+    nowMs - lastAskedMs >= every.inMilliseconds;
+
+/// Where a person turns on calls over the lock screen: Xiaomi phones need Xiaomi's own permissions page
+/// ("Other permissions" → "Show on lock screen" + background pop-ups); other phones Android's setting.
+enum LockScreenFix { androidSetting, xiaomiPermissions }
+
+LockScreenFix lockScreenFix({required bool xiaomi}) => xiaomi ? LockScreenFix.xiaomiPermissions : LockScreenFix.androidSetting;
+
+/// Which account this phone's notifications belong to, for the phone's own push code: the user id while
+/// signed in, '' once surely signed out (then a push that still arrives is dropped, not rung), or null when it
+/// is not known yet (offline with a saved sign-in): leave it as it was. Phone test 22 Nov 2026: a signed-out
+/// dual app still rang for the tutor.
+String? pushAccount({required bool loggedIn, required bool hasSavedSession, String? uid}) {
+  if (loggedIn && uid != null && uid.isNotEmpty) return uid;
+  if (!loggedIn && !hasSavedSession) return '';
+  return null;
+}
+
+/// Whether a call heard by the app itself (live updates, not a push) may ring. With "Calls" switched off in
+/// Notification settings, only while Dars is open on screen; in the background it stays silent, like the
+/// push path already does on the server (phone test 22 Nov 2026: a swiped-away Dars still rang through its
+/// live connection with "Calls" off).
+bool mayRingCall({required bool callsOn, required bool foreground}) => callsOn || foreground;
