@@ -120,6 +120,8 @@ class Lesson {
   final String studentId; // backend student id ('' in demo)
   final String subjectId; // the subject booked ('' in demo) — used by "Book again"
   final String childName; // Round E3: booked by a parent for this child ('' = for the account holder)
+  /// Round F: the server status when it says more than [status]: 'no_show' or 'disputed' ('' otherwise).
+  final String state;
 
   Lesson({
     required this.id,
@@ -138,6 +140,7 @@ class Lesson {
     this.studentId = '',
     this.subjectId = '',
     this.childName = '',
+    this.state = '',
   });
 }
 

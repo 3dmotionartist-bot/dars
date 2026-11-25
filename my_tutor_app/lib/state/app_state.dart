@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -26,6 +25,7 @@ import '../services/push.dart';
 import '../services/ringer.dart';
 import 'poll_policy.dart';
 import 'tutor_lookup.dart';
+import '../widgets/common.dart' show Money;
 
 /// Lets the state show short messages (errors, confirmations) from anywhere.
 final messengerKey = GlobalKey<ScaffoldMessengerState>();
@@ -144,7 +144,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   String realtimeMode = 'any'; // any | working
   double tutorPending = DarsConfig.live ? 0 : 180;
   double tutorConfirmed = DarsConfig.live ? 0 : 420;
-  final Map<int, int> packageDiscounts = {4: 5, 8: 10, 12: 15, 20: 20};
+  /// Earnings in their hold (48 h after the lesson) or frozen by a dispute: not yet withdrawable.
+  double tutorHeld = 0;
+  int earningsHoldHours = 48;
+  /// The tutor's package discounts by size (hours → %). New tutors start at 0 % (Round F).
+  final Map<int, int> packageDiscounts = DarsConfig.live ? {4: 0, 8: 0, 12: 0, 20: 0} : {4: 5, 8: 10, 12: 15, 20: 20};
   /// The signed-in tutor's weekly working hours (their own local time). Empty = not set yet.
   List<WorkPeriod> workHours = const [
     WorkPeriod(6, 16 * 60, 22 * 60), WorkPeriod(0, 16 * 60, 22 * 60), WorkPeriod(1, 16 * 60, 22 * 60),
@@ -359,6 +363,16 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     tutorAvailable = tp['available_now'] == true && (dnd == null || dnd.isBefore(DateTime.now()));
     instantBooking = tp['instant_booking'] != false;
     packagesEnabled = ((tp['max_package_discount'] as num?) ?? 0) > 0;
+    final pd = tp['package_discounts'];
+    if (pd is Map) {
+      for (final h in const [4, 8, 12, 20]) {
+        packageDiscounts[h] = ((pd['$h'] as num?) ?? 0).toInt();
+      }
+    } else if (packagesEnabled) {
+      // saved before Round F: the server charged a share of the largest discount
+      final mx = ((tp['max_package_discount'] as num?) ?? 0).toInt();
+      packageDiscounts..[4] = (mx * .25).round().clamp(1, 50).toInt()..[8] = (mx * .5).round()..[12] = (mx * .75).round()..[20] = mx;
+    }
     realtimeMode = tp['realtime_any_time'] == false ? 'working' : 'any';
     try {
       workHours = [
@@ -481,7 +495,18 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     final bal = await _b.walletBalance();
     final tx = await _b.walletTx();
     walletBalance = bal;
-    if (role == UserRole.tutor) tutorConfirmed = bal;
+    if (role == UserRole.tutor) {
+      tutorConfirmed = bal;
+      tutorHeld = 0;
+      try {
+        final w = await _b.myWallet(); // server with Round F: only the available part can be paid out
+        if (w != null) {
+          tutorConfirmed = ((w['available'] as num?) ?? bal).toDouble();
+          tutorHeld = ((w['held'] as num?) ?? 0).toDouble();
+          earningsHoldHours = ((w['hold_hours'] as num?) ?? 48).toInt();
+        }
+      } catch (_) {/* older server */}
+    }
     transactions
       ..clear()
       ..addAll(tx.map(Backend.txFromRow));
@@ -541,8 +566,31 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// Round F: Syrian pounds for display (rate and display currency from admin Settings).
+  Future<void> loadCurrency() async {
+    if (!live) return;
+    try {
+      final r = await _b.setting('usd_to_syp');
+      final c = await _b.setting('display_currency');
+      final rate = r is num ? r.toDouble() : double.tryParse('${r ?? 0}') ?? 0;
+      final show = '${c ?? 'SYP'}' != 'USD';
+      if (rate != Money.sypPerUsd || show != Money.showSyp) {
+        Money.sypPerUsd = rate > 0 ? rate : 0;
+        Money.showSyp = show;
+        notifyListeners();
+      }
+    } catch (_) {/* older server or offline: dollars */}
+  }
+
+  @override
+  void notifyListeners() {
+    Money.arabic = locale.languageCode == 'ar';
+    super.notifyListeners();
+  }
+
   Future<void> checkAppVersion() async {
     unawaited(loadPhoneSetting());
+    unawaited(loadCurrency());
     if (!live || DarsConfig.build <= 0) return;
     try {
       final v = await _b.setting('min_app_build');
@@ -1321,7 +1369,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         'teaches_online': online,
         'teaches_in_person': inPerson,
         'hourly_price': double.parse((fees['high'] ?? fees.values.first).toStringAsFixed(2)),
-        'max_package_discount': 20,
+        'max_package_discount': 0, // Round F: no package discount until the tutor sets one
         if (linkedin.trim().isNotEmpty) 'linkedin_url': linkedin.trim(),
       },
       subjects: subjects,
@@ -2603,20 +2651,27 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       _run(
         () => _b.updateTutor({
           if (instant != null) 'instant_booking': instant,
-          if (packages != null) 'max_package_discount': packages ? math.max(5, _maxDiscount).clamp(0, 50) : 0,
           if (rtMode != null) 'realtime_any_time': rtMode == 'any',
         }),
         reload: false,
       );
+      if (packages != null) {
+        if (packages && _maxDiscount == 0) packageDiscounts..[4] = 5..[8] = 10..[12] = 15..[20] = 20; // a starting point he can change
+        _savePackageDiscounts();
+      }
     }
   }
 
-  void setPackageDiscount(int hours, int value) {
-    packageDiscounts[hours] = value;
+  void setPackageDiscount(int hours, int value, {bool save = true}) {
+    packageDiscounts[hours] = value.clamp(0, 50).toInt();
     notifyListeners();
-    if (live && packagesEnabled) {
-      _run(() => _b.updateTutor({'max_package_discount': _maxDiscount.clamp(0, 50)}), reload: false);
-    }
+    if (save && live && packagesEnabled) _savePackageDiscounts();
+  }
+
+  /// Saves the four numbers the students are charged (Round F); packages off = all 0.
+  void _savePackageDiscounts() {
+    final d = packagesEnabled ? Map<int, int>.from(packageDiscounts) : {4: 0, 8: 0, 12: 0, 20: 0};
+    _run(() => _b.setPackageDiscounts(d), reload: false);
   }
 
   int get _maxDiscount => packageDiscounts.values.fold(0, (a, b) => a > b ? a : b);

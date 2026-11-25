@@ -219,6 +219,16 @@ class Backend {
       db.from('lessons').select().eq(asTutor ? 'tutor_id' : 'student_id', uid!).order('starts_at').limit(500);
   Future<List<Map<String, dynamic>>> myPackages() => db.from('packages').select().eq('student_id', uid!).order('created_at', ascending: false);
   Future<List<Map<String, dynamic>>> walletTx() => db.from('wallet_transactions').select().eq('user_id', uid!).order('created_at', ascending: false).limit(100);
+  /// Round F: total, held (earnings in their 48-hour hold or in dispute) and available.
+  Future<Map<String, dynamic>?> myWallet() async {
+    final r = await db.rpc('my_wallet');
+    return r is Map ? Map<String, dynamic>.from(r) : null;
+  }
+
+  /// Round F: the tutor's four package discounts (4 / 8 / 12 / 20 hours, whole % 0–50).
+  Future<void> setPackageDiscounts(Map<int, int> d) =>
+      db.rpc('set_package_discounts', params: {'p_discounts': {for (final e in d.entries) '${e.key}': e.value}});
+
   Future<double> walletBalance() async {
     final r = await db.from('wallet_balances').select('balance').eq('user_id', uid!).maybeSingle();
     return _num(r?['balance']);
@@ -730,6 +740,7 @@ class Backend {
       commission: _num(r['commission']),
       studentId: '${r['student_id'] ?? ''}',
       subjectId: '${r['subject_id'] ?? ''}',
+      state: status == 'no_show' || status == 'disputed' ? status : '',
     );
   }
 
