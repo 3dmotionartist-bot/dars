@@ -4,7 +4,38 @@ import '../data/mock_data.dart';
 import '../l10n.dart';
 import '../theme.dart';
 
-String money(num v) => '\$${v % 1 == 0 ? v.toInt() : v.toStringAsFixed(2)}';
+/// Round F: amounts are kept in dollars on the server and shown in Syrian pounds (dollars small) once the admin
+/// has set the exchange rate (Settings → usd_to_syp). Rate 0 / display "USD" = dollars as before.
+class Money {
+  static double sypPerUsd = 0;
+  static bool showSyp = true;
+  static bool arabic = true;
+  static bool get syp => showSyp && sypPerUsd > 0;
+}
+
+String usd(num v) => '\$${v % 1 == 0 ? v.toInt() : v.toStringAsFixed(2)}';
+
+String _grouped(int n) {
+  final s = n.abs().toString();
+  final b = StringBuffer(n < 0 ? '-' : '');
+  for (var i = 0; i < s.length; i++) {
+    if (i > 0 && (s.length - i) % 3 == 0) b.write(',');
+    b.write(s[i]);
+  }
+  return b.toString();
+}
+
+/// Pounds for a dollar amount ("125,000 ل.س"), or dollars when no rate is set.
+String moneyMain(num v) => Money.syp ? '${_grouped((v * Money.sypPerUsd).round())} ${Money.arabic ? 'ل.س' : 'SYP'}' : usd(v);
+
+/// The price as shown everywhere: pounds with the dollar amount small after it ("125,000 ل.س ($10)").
+String money(num v) => Money.syp ? '${moneyMain(v)} (${usd(v)})' : usd(v);
+
+/// An amount the user typed (pounds when pounds are shown) → dollars for the server.
+double toUsd(num typed) => Money.syp ? typed / Money.sypPerUsd : typed.toDouble();
+
+/// A dollar amount → what the user types (pounds when pounds are shown).
+double fromUsd(num dollars) => Money.syp ? (dollars * Money.sypPerUsd).roundToDouble() : dollars.toDouble();
 
 String two(int n) => n.toString().padLeft(2, '0');
 

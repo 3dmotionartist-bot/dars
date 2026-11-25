@@ -7,6 +7,9 @@ grant anon, authenticated, service_role to authenticator;
 create schema auth;
 create table auth.users (id uuid primary key default gen_random_uuid(), email text, phone text,
   raw_user_meta_data jsonb default '{}', encrypted_password text, created_at timestamptz default now(), updated_at timestamptz);
+-- Round F: sessions, so an admin password reset can sign the user out everywhere
+create table auth.sessions (id uuid primary key default gen_random_uuid(), user_id uuid not null, created_at timestamptz default now());
+create table auth.refresh_tokens (id bigserial primary key, token text, user_id varchar(255), session_id uuid, revoked boolean default false);
 create function auth.uid() returns uuid language sql stable as
   $$ select nullif(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub', '')::uuid $$;
 grant usage on schema auth to anon, authenticated, service_role;

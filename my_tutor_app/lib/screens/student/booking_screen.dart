@@ -39,9 +39,6 @@ class _BookingScreenState extends State<BookingScreen> {
   bool _processing = false;
   final _notes = TextEditingController();
 
-  // Used only when the tutor has not set working hours yet.
-  static const _defaultHours = [9, 10, 13, 16, 17, 18, 19, 20, 21];
-
   // The price the server will charge (per 60 minutes at my level + real package discounts).
   ({double hourly, Map<int, int> discounts})? _quote;
   // Server quote first; otherwise the price passed in, re-based on the freshly loaded tutor.
@@ -55,7 +52,8 @@ class _BookingScreenState extends State<BookingScreen> {
   late bool _loadingTutor = context.read<AppState>().live;
   bool _unavailable = false;
 
-  String get _subjectId => bookingSubject(widget.subjectId, _t.subjectIds);
+  String? _pickedSubject; // chosen on the time step when the tutor teaches several subjects
+  String get _subjectId => _pickedSubject ?? bookingSubject(widget.subjectId, _t.subjectIds);
   static double _r2(num v) => (v * 100).round() / 100;
   /// Same rule as the server: hourly price × minutes / 60, rounded to cents.
   double _lessonPrice(int minutes) => _r2(_hourly * minutes / 60);
@@ -99,40 +97,12 @@ class _BookingScreenState extends State<BookingScreen> {
 
   /// Start times on day [i] (from today), in my local time, with whether each one is already taken.
   List<({DateTime time, bool taken})> _timesFor(int i) {
-    final day = _dayDate(i);
-    final now = DateTime.now();
     final s = _schedule;
-    final len = Duration(minutes: _lessonMinutes);
-    final starts = <DateTime>[];
-    if (s == null || s.periods.isEmpty) {
-      for (final h in _defaultHours) {
-        starts.add(day.add(Duration(hours: h)));
-      }
-    } else {
-      // The tutor's hours are in their own time zone; check the tutor days around mine.
-      for (var k = -1; k <= 1; k++) {
-        final td = DateTime.utc(day.year, day.month, day.day + k);
-        final dow = td.weekday % 7; // 0 = Sunday
-        for (final p in s.periods.where((p) => p.weekday == dow)) {
-          for (var m = p.start; m + _lessonMinutes <= p.end; m += 60) {
-            final local = td.add(Duration(minutes: m - s.tzOffset)).toLocal();
-            if (local.year == day.year && local.month == day.month && local.day == day.day) starts.add(local);
-          }
-        }
-      }
-      starts.sort();
-    }
-    final out = <({DateTime time, bool taken})>[];
-    for (final t in starts) {
-      final end = t.add(len);
-      var taken = t.isBefore(now.add(const Duration(minutes: 30)));
-      for (final b in s?.busy ?? const <({DateTime start, DateTime end})>[]) {
-        if (t.isBefore(b.end) && end.isAfter(b.start)) taken = true;
-      }
-      if (!taken && !context.read<AppState>().live) taken = (i * 3 + t.hour) % 5 == 0; // demo: some taken
-      if (out.every((x) => x.time != t)) out.add((time: t, taken: taken));
-    }
-    return out;
+    final out = freeStartsOn(s, _dayDate(i), _lessonMinutes);
+    final live = context.read<AppState>().live;
+    if (live && s != null && s.periods.isEmpty) return const []; // Round F: no working hours saved = not bookable yet
+    if (live) return out;
+    return [for (final x in out) (time: x.time, taken: x.taken || (i * 3 + x.time.hour) % 5 == 0)]; // demo: some taken
   }
 
   List<String> get _steps => _package ? ['step_type', 'step_summary', 'step_pay'] : ['step_type', 'step_time', 'step_summary', 'step_pay'];
@@ -276,13 +246,32 @@ class _BookingScreenState extends State<BookingScreen> {
             ),
           ),
           const SizedBox(height: 18),
+          if (_t.subjectIds.length > 1) ...[
+            // Round F: the student picks the subject when the tutor teaches several
+            _label(context.isAr ? 'المادة' : 'Subject'),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              for (final id in _t.subjectIds)
+                ChoiceChip(
+                  label: Text(MockData.subject(id).name.of(context)),
+                  selected: _subjectId == id,
+                  showCheckmark: false,
+                  selectedColor: AppColors.primarySoft,
+                  onSelected: (_) => setState(() => _pickedSubject = id),
+                ),
+            ]),
+            const SizedBox(height: 18),
+          ],
           _label(context.tr('time')),
           if (_schedule == null)
             const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator(strokeWidth: 2.4)))
           else if (_timesFor(_day).isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Text(context.tr('no_times_day'), style: const TextStyle(color: AppColors.text3, fontWeight: FontWeight.w700)),
+              child: Text(
+                  _schedule!.periods.isEmpty && app.live
+                      ? (context.isAr ? 'هذا المدرس لم يحدد ساعات عمله بعد، لذلك لا يمكن الحجز معه الآن.' : 'This tutor has not set working hours yet, so lessons cannot be booked now.')
+                      : context.tr('no_times_day'),
+                  style: const TextStyle(color: AppColors.text3, fontWeight: FontWeight.w700)),
             )
           else
           Wrap(spacing: 8, runSpacing: 8, children: [
@@ -672,4 +661,42 @@ class BookingSuccessScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The lesson start times on [day] (my local time) inside the tutor's working hours, each with whether it is
+/// already taken (booked, or less than 30 minutes away). Used by booking and by booking from a package.
+/// No schedule loaded (demo) → a few default hours.
+List<({DateTime time, bool taken})> freeStartsOn(TutorSchedule? s, DateTime day, int minutes) {
+  const defaultHours = [9, 10, 13, 16, 17, 18, 19, 20, 21];
+  final now = DateTime.now();
+  final len = Duration(minutes: minutes);
+  final starts = <DateTime>[];
+  if (s == null || s.periods.isEmpty) {
+    for (final h in defaultHours) {
+      starts.add(day.add(Duration(hours: h)));
+    }
+  } else {
+    // The tutor's hours are in their own time zone; check the tutor days around mine.
+    for (var k = -1; k <= 1; k++) {
+      final td = DateTime.utc(day.year, day.month, day.day + k);
+      final dow = td.weekday % 7; // 0 = Sunday
+      for (final p in s.periods.where((p) => p.weekday == dow)) {
+        for (var m = p.start; m + minutes <= p.end; m += 60) {
+          final local = td.add(Duration(minutes: m - s.tzOffset)).toLocal();
+          if (local.year == day.year && local.month == day.month && local.day == day.day) starts.add(local);
+        }
+      }
+    }
+    starts.sort();
+  }
+  final out = <({DateTime time, bool taken})>[];
+  for (final t in starts) {
+    final end = t.add(len);
+    var taken = t.isBefore(now.add(const Duration(minutes: 30)));
+    for (final b in s?.busy ?? const <({DateTime start, DateTime end})>[]) {
+      if (t.isBefore(b.end) && end.isAfter(b.start)) taken = true;
+    }
+    if (out.every((x) => x.time != t)) out.add((time: t, taken: taken));
+  }
+  return out;
 }

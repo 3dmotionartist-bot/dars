@@ -221,7 +221,7 @@ select t_ok((select encrypted_password = crypt('NewPass#2026', encrypted_passwor
 select t_ok((select encrypted_password not like '%NewPass%' from auth.users where id = :'tut'), 'password is never stored in plain text');
 select t_ok(not exists (select 1 from audit_log where data::text like '%NewPass%'), 'password is not written to the audit log');
 select t_as(:'admin'); set role authenticated;
-select t_err($$select admin_set_user_password(auth.uid(), '123')$$, 'at least 6', 'short passwords are refused');
+select t_err($$select admin_set_user_password(auth.uid(), '123')$$, 'at least 10', 'short passwords are refused');
 reset role;
 select t_as(:'stu'); set role authenticated;
 select t_err($$select admin_set_user_password('00000000-0000-0000-0000-0000000000a1', 'hijack123')$$, 'Admins only', 'non-admin cannot change passwords');

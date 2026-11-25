@@ -9,6 +9,9 @@ psql -q -v ON_ERROR_STOP=1 -d "$DB" -c "do \$\$ begin if not exists (select from
   create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls; end if; end \$\$;"
 sed '/^create role/d;/^grant anon, authenticated, service_role to authenticator/d' "$HERE/tests/supabase_stub.sql" | psql -q -v ON_ERROR_STOP=1 -d "$DB"
 for f in "$HERE"/supabase/migrations/*.sql "$HERE/supabase/seed.sql"; do psql -q -v ON_ERROR_STOP=1 -d "$DB" -f "$f"; done
+# The older test files were written before Round F: they book tutors that never saved working hours and pay out
+# earnings at once. They run with those two rules relaxed; tests/round_f.sql switches them back and tests them.
+psql -q -v ON_ERROR_STOP=1 -d "$DB" -c "update app_settings set value = 'true' where key = 'bookable_without_hours'; update app_settings set value = '0' where key = 'earnings_hold_hours';"
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/flows.sql"
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/week_fixes.sql"
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/retest_fixes.sql"
@@ -18,6 +21,7 @@ psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/capacity.sql"
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/round_b.sql"
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/round_d.sql"
 psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/round_e.sql"
+psql -v ON_ERROR_STOP=1 -d "$DB" -f "$HERE/tests/round_f.sql"
 # Edge functions turn-credentials and push-notifications (fakes for Cloudflare / Firebase / Supabase; Node 22+)
 if command -v node >/dev/null 2>&1 && node -e 'process.exit(Number(process.versions.node.split(".")[0]) < 22 ? 1 : 0)'; then
   node --experimental-strip-types --no-warnings "$HERE/tests/turn_credentials.test.mjs" \

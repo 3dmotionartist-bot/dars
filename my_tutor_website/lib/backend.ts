@@ -79,11 +79,22 @@ function toTutor(r: Row): Tutor {
 }
 
 /** Approved tutors from the database, or null when the site isn't connected. */
+/** Round F: Syrian pounds per dollar (0 = show dollars: no rate set, or display currency USD). */
+async function sypRate(): Promise<number> {
+  try {
+    const rows = await get<Row[]>('app_settings?select=key,value&key=in.(usd_to_syp,display_currency)');
+    const v = Object.fromEntries(rows.map((r) => [String(r.key), r.value]));
+    return v.display_currency === 'USD' ? 0 : num(v.usd_to_syp);
+  } catch {
+    return 0;
+  }
+}
+
 export async function fetchLiveTutors(): Promise<Tutor[] | null> {
   if (!LIVE) return null;
   // First page only: 30 tutors, best first, sorted on the server (Stage 3 B3 — was up to 500).
-  const rows = await get<Row[]>('rpc/search_tutors?p_limit=30');
-  return rows.map(toTutor);
+  const [rows, rate] = await Promise.all([get<Row[]>('rpc/search_tutors?p_limit=30'), sypRate()]);
+  return rows.map((r) => ({ ...toTutor(r), sypRate: rate }));
 }
 
 /** One approved tutor with their visible reviews. */
@@ -95,6 +106,7 @@ export async function fetchLiveTutor(id: string): Promise<Tutor | null> {
   ]);
   if (!rows.length) return null;
   const x = toTutor(rows[0]);
+  x.sypRate = await sypRate();
   x.reviewList = reviews.map((r) => ({
     by: { ar: 'طالب في درس', en: 'Dars student' },
     stars: num(r.stars),

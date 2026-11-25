@@ -36,7 +36,8 @@
       purpose: "النوع", p_booking: "حجز", p_top_up: "شحن رصيد", reference: "المرجع", fail_reason: "سبب الرفض (يراه المستخدم)",
       s_top_up_min: "أقل مبلغ شحن", s_top_up_max: "أعلى مبلغ شحن", s_pay_sham: "حساب الاستلام — شام كاش", s_pay_syriatel: "حساب الاستلام — سيريتل كاش",
       s_pay_mtn: "حساب الاستلام — MTN كاش", s_pay_bank: "حساب الاستلام — البنك (IBAN)", s_pay_h: "اتركه فارغاً لإخفاء هذه الطريقة من التطبيق",
-      s_terms_version: "نسخة الشروط والخصوصية", s_terms_version_h: "ارفعها (2، 3…) بعد تعديل النصوص على الموقع ليُطلب من الجميع الموافقة من جديد", s_phone_signin: "الدخول برقم الهاتف", s_phone_signin_h: "off = البريد فقط · sms أو whatsapp بعد إعداد مزود الرموز في Supabase", s_min_build: "أقل رقم إصدار مسموح للتطبيق", s_min_build_h: "الإصدارات الأقدم تُطلب منها التحديث (رقم البناء من GitHub). 0 = بلا إلزام", paypal: "PayPal", western_union: "ويسترن يونيون",
+      s_terms_version: "نسخة الشروط والخصوصية", s_terms_version_h: "ارفعها (2، 3…) بعد تعديل النصوص على الموقع ليُطلب من الجميع الموافقة من جديد", s_phone_signin: "الدخول برقم الهاتف", s_phone_signin_h: "off = البريد فقط · sms أو whatsapp بعد إعداد مزود الرموز في Supabase", s_rate: "سعر الدولار بالليرة السورية", s_rate_h: "تُعرض الأسعار بالليرة (والدولار صغيراً بجانبها) بهذا السعر. 0 = تُعرض بالدولار", s_currency: "عملة العرض", s_currency_h: "SYP = الليرة السورية والدولار صغيراً · USD = الدولار فقط", s_hold: "حجز أرباح المدرس (ساعة)", s_hold_h: "تصبح أرباح الدرس قابلة للسحب بعد هذه المدة؛ الدروس المُبلّغ عنها تبقى محجوزة حتى قرارك", s_no_hours: "حجز مدرس بلا ساعات عمل", s_no_hours_h: "✗ = المدرس الذي لم يحدد ساعات عمله لا يمكن حجزه",
+      s_min_build: "أقل رقم إصدار مسموح للتطبيق", s_min_build_h: "الإصدارات الأقدم تُطلب منها التحديث (رقم البناء من GitHub). 0 = بلا إلزام", paypal: "PayPal", western_union: "ويسترن يونيون",
       paid: "مدفوع", under_review: "إيصال للمراجعة", failed: "فشل", refunded: "مسترد", receipt: "إيصال", view_receipt: "عرض الإيصال",
       confirm_payment: "تأكيد الدفع", fail_payment: "رفض الإيصال", requested: "مطلوب", mark_paid: "تم التحويل", payout_note: "ملاحظة للمدرس",
       details: "بيانات الاستلام", tutor_balance: "رصيد المدرس",
@@ -60,7 +61,7 @@
       saved: "تم الحفظ", done: "تم", error: "حدث خطأ", login_t: "دخول الإدارة", email: "البريد الإلكتروني", password: "كلمة المرور", signin: "دخول",
       not_admin: "هذا الحساب ليس حساب مدير", menu: "القائمة", ago_now: "الآن", ago_m: "د", ago_h: "س", ago_d: "يوم",
       wallet_hint: "يظهر في محفظة المستخدم مع السبب", lessons_count: "دروس", open_tutor: "فتح الملف",
-      set_password: "تغيير كلمة المرور", new_password: "كلمة المرور الجديدة (6 أحرف على الأقل)", pw_hint: "كلمات المرور محفوظة مشفّرة ولا يمكن لأحد عرضها — اكتب كلمة جديدة وأرسلها للمستخدم.", pw_saved: "تم تغيير كلمة المرور", email: "البريد الإلكتروني",
+      set_password: "تغيير كلمة المرور", new_password: "كلمة المرور الجديدة (10 أحرف على الأقل، ويُسجَّل خروج المستخدم من كل الأجهزة)", pw_hint: "كلمات المرور محفوظة مشفّرة ولا يمكن لأحد عرضها — اكتب كلمة جديدة وأرسلها للمستخدم.", pw_saved: "تم تغيير كلمة المرور", email: "البريد الإلكتروني",
       g_safety: "الأمان والمراقبة", chats: "مراقبة المحادثات", alerts: "إنذارات الأمان", a_alerts: "إنذارات أمان جديدة",
       k_phone: "رقم هاتف", k_email: "بريد إلكتروني", k_link: "رابط تواصل خارجي", k_contact_request: "طلب رقم / تواصل خارجي", k_handle: "حساب تواصل (@)", k_possible: "رقم محتمل (لم يُخفَ)", src_tutor_profile: "ملف مدرس", src_review: "تقييم", src_lesson_link: "رابط درس", sender: "المرسل",
       reviewed: "تمت المراجعة", mark_reviewed: "تمت المراجعة", open_chat: "فتح المحادثة", messages_n: "رسالة", flags_n: "تنبيه",
@@ -100,7 +101,8 @@
       purpose: "Type", p_booking: "Booking", p_top_up: "Credit top-up", reference: "Reference", fail_reason: "Reason (the user sees it)",
       s_top_up_min: "Minimum top-up", s_top_up_max: "Maximum top-up", s_pay_sham: "Pay-to account — Sham Cash", s_pay_syriatel: "Pay-to account — Syriatel Cash",
       s_pay_mtn: "Pay-to account — MTN Cash", s_pay_bank: "Pay-to account — Bank (IBAN)", s_pay_h: "Leave empty to hide this method in the app",
-      s_terms_version: "Terms & Privacy version", s_terms_version_h: "Raise it (2, 3…) after changing the texts on the website so everyone is asked to accept again", s_phone_signin: "Phone sign-in", s_phone_signin_h: "off = e-mail only · sms or whatsapp after setting up the code provider in Supabase", s_min_build: "Minimum app build", s_min_build_h: "Older builds are asked to update (build number from GitHub). 0 = no requirement", paypal: "PayPal", western_union: "Western Union",
+      s_terms_version: "Terms & Privacy version", s_terms_version_h: "Raise it (2, 3…) after changing the texts on the website so everyone is asked to accept again", s_phone_signin: "Phone sign-in", s_phone_signin_h: "off = e-mail only · sms or whatsapp after setting up the code provider in Supabase", s_rate: "Dollar rate in Syrian pounds", s_rate_h: "Prices are shown in pounds (dollars small next to them) at this rate. 0 = shown in dollars", s_currency: "Display currency", s_currency_h: "SYP = Syrian pounds with dollars small · USD = dollars only", s_hold: "Tutor earnings hold (hours)", s_hold_h: "Lesson earnings become withdrawable after this; reported lessons stay held until you decide", s_no_hours: "Book tutors without working hours", s_no_hours_h: "✗ = a tutor who has not set working hours cannot be booked",
+      s_min_build: "Minimum app build", s_min_build_h: "Older builds are asked to update (build number from GitHub). 0 = no requirement", paypal: "PayPal", western_union: "Western Union",
       paid: "Paid", under_review: "Receipt to check", failed: "Failed", refunded: "Refunded", receipt: "Receipt", view_receipt: "View receipt",
       confirm_payment: "Confirm payment", fail_payment: "Reject receipt", requested: "Requested", mark_paid: "Mark paid", payout_note: "Note to the tutor",
       details: "Payout details", tutor_balance: "Tutor balance",
@@ -124,7 +126,7 @@
       saved: "Saved", done: "Done", error: "Something went wrong", login_t: "Admin sign in", email: "Email", password: "Password", signin: "Sign in",
       not_admin: "This account is not an admin", menu: "Menu", ago_now: "now", ago_m: "m", ago_h: "h", ago_d: "d",
       wallet_hint: "Shows in the user's wallet with the reason", lessons_count: "lessons", open_tutor: "Open profile",
-      set_password: "Change password", new_password: "New password (at least 6 characters)", pw_hint: "Passwords are stored encrypted and can't be viewed by anyone — type a new one and send it to the user.", pw_saved: "Password changed", email: "Email",
+      set_password: "Change password", new_password: "New password (at least 10 characters; the user is signed out everywhere)", pw_hint: "Passwords are stored encrypted and can't be viewed by anyone — type a new one and send it to the user.", pw_saved: "Password changed", email: "Email",
       g_safety: "Safety & monitoring", chats: "Chat monitor", alerts: "Security alerts", a_alerts: "New security alerts",
       k_phone: "Phone number", k_email: "Email address", k_link: "Outside contact link", k_contact_request: "Asked for contact outside Dars", k_handle: "Social handle (@)", k_possible: "Possible number (not hidden)", src_tutor_profile: "Tutor profile", src_review: "Review", src_lesson_link: "Lesson link", sender: "Sender",
       reviewed: "Reviewed", mark_reviewed: "Mark reviewed", open_chat: "Open chat", messages_n: "messages", flags_n: "alerts",
@@ -152,7 +154,13 @@
 
   // ------------------------------------------------------------------ utils
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const money = (v) => "$" + Number(v || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const usd = (v) => "$" + Number(v || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Round F: amounts are kept in dollars; with a rate set, the admin also sees Syrian pounds (to check receipts).
+  const sypRate = () => Number((S.data.settings || {}).usd_to_syp) || 0;
+  const money = (v) => sypRate() > 0
+    ? `${Math.round(Number(v || 0) * sypRate()).toLocaleString("en-US")} ${S.lang === "ar" ? "ل.س" : "SYP"} <span class="muted small">(${usd(v)})</span>`
+    : usd(v);
+  const moneyText = (v) => sypRate() > 0 ? `${Math.round(Number(v || 0) * sypRate()).toLocaleString("en-US")} ${S.lang === "ar" ? "ل.س" : "SYP"} (${usd(v)})` : usd(v);
   const money0 = (v) => "$" + Math.round(Number(v || 0)).toLocaleString("en-US");
   const locale = () => (S.lang === "ar" ? "ar-SY-u-nu-latn" : "en-GB");
   const fmtDate = (d) => d ? new Intl.DateTimeFormat(locale(), { day: "numeric", month: "short" }).format(new Date(d)) : "—";
@@ -351,8 +359,8 @@
 
   // ------------------------------------------------------------------ loading
   const NEEDS = {
-    overview: ["stats", "subjects"], tutors: ["tutors", "subjects"], students: ["students", "levels", "deletions"], lessons: ["lessons", "subjects"],
-    live: ["live_requests", "subjects"], payments: ["payments"], payouts: ["payouts"], reviews: ["reviews"], reports: ["reports"],
+    overview: ["stats", "subjects"], tutors: ["tutors", "subjects", "settings"], students: ["students", "levels", "deletions"], lessons: ["lessons", "subjects", "settings"],
+    live: ["live_requests", "subjects"], payments: ["payments", "settings"], payouts: ["payouts", "settings"], reviews: ["reviews"], reports: ["reports"],
     leads: ["leads", "subjects", "levels"], catalog: ["subjects", "levels"], config: ["settings"],
     chats: ["conversations", "flags"], alerts: ["flags"],
   };
@@ -400,7 +408,7 @@
     const short = (d) => { const x = new Date(d); return x.getUTCDate() + "/" + (x.getUTCMonth() + 1); };
     const chart = `<svg viewBox="0 0 ${W} ${Hh + 24}" direction="ltr" role="img" aria-label="${esc(t("revenue14"))}">
       ${ticks.map((v) => { const y = Hh - (v / max) * (Hh - 10); return `<line class="grid" x1="${pad}" x2="${W}" y1="${y}" y2="${y}"/><text x="${pad - 6}" y="${y + 4}" text-anchor="end">$${v}</text>`; }).join("")}
-      ${days.map((d, i) => { const h = (Number(d.amount) / max) * (Hh - 10); const x = pad + i * bw + 3; return `<rect class="bar ${i === days.length - 1 ? "today" : ""}" x="${x}" y="${Hh - h}" width="${bw - 6}" height="${Math.max(h, 1)}" rx="3"><title>${esc(d.day)}: ${money(d.amount)}</title></rect>${i % 2 === 1 ? `<text x="${x + (bw - 6) / 2}" y="${Hh + 16}" text-anchor="middle">${esc(short(d.day))}</text>` : ""}`; }).join("")}
+      ${days.map((d, i) => { const h = (Number(d.amount) / max) * (Hh - 10); const x = pad + i * bw + 3; return `<rect class="bar ${i === days.length - 1 ? "today" : ""}" x="${x}" y="${Hh - h}" width="${bw - 6}" height="${Math.max(h, 1)}" rx="3"><title>${esc(d.day)}: ${moneyText(d.amount)}</title></rect>${i % 2 === 1 ? `<text x="${x + (bw - 6) / 2}" y="${Hh + 16}" text-anchor="middle">${esc(short(d.day))}</text>` : ""}`; }).join("")}
     </svg>`;
     const att = [
       ["tutors", "a_tutors", s.tutors_pending, "pending"], ["payments", "a_receipts", s.receipts_to_review, "under_review"],
@@ -652,6 +660,8 @@
     ["top_up_min", "s_top_up_min", "num"], ["top_up_max", "s_top_up_max", "num"],
     ["pay_to_sham_cash", "s_pay_sham", "text", "s_pay_h"], ["pay_to_syriatel_cash", "s_pay_syriatel", "text", "s_pay_h"],
     ["pay_to_mtn_cash", "s_pay_mtn", "text", "s_pay_h"], ["pay_to_bank", "s_pay_bank", "text", "s_pay_h"],
+    ["usd_to_syp", "s_rate", "num", "s_rate_h"], ["display_currency", "s_currency", "text", "s_currency_h"],
+    ["earnings_hold_hours", "s_hold", "int", "s_hold_h"], ["bookable_without_hours", "s_no_hours", "bool", "s_no_hours_h"],
     ["min_app_build", "s_min_build", "int"],
     ["terms_version", "s_terms_version", "int"], ["phone_signin", "s_phone_signin", "text"],
   ];
@@ -893,7 +903,7 @@
       ${d.info || ""}
       ${d.amount ? `<label class="field"><span>${esc(d.amountLabel || t("adjust_amount"))}</span><input class="input" id="dlg-amount" type="number" step="0.01" required${d.amountValue != null ? ` value="${esc(d.amountValue)}"` : ""}></label>` : ""}
       ${d.noText ? "" : `<label class="field"><span>${esc(d.label)}</span>${d.pw
-        ? `<input class="input" id="dlg-text" type="text" minlength="6" required autocomplete="new-password" dir="ltr" spellcheck="false">`
+        ? `<input class="input" id="dlg-text" type="text" minlength="10" required autocomplete="new-password" dir="ltr" spellcheck="false">`
         : `<textarea class="input" id="dlg-text" rows="3" ${d.required ? "required" : ""}></textarea>`}${d.hint ? `<small class="muted">${esc(d.hint)}</small>` : ""}</label>`}
       <div class="row" style="justify-content:flex-end"><button class="btn" type="button" data-act="dialog-cancel">${t("cancel")}</button><button class="btn ${d.danger ? "bad" : "primary"}" type="submit">${esc(d.confirm)}</button></div>
     </form>`;
@@ -974,8 +984,14 @@
             <div style="font-size:30px;font-weight:800;margin-top:4px">${money(r.amount)}</div>
             <div class="small muted">${esc(r.user_name || "")} · ${t(r.method || "")}</div></div>
             <div class="pill bad" style="white-space:normal;line-height:1.5;padding:8px 10px">${t("check_wallet")}</div>`,
-          amount: topUp, amountLabel: t("confirmed_amount"), amountValue: r.amount,
-          run: (v, amt) => act(() => api.confirmPayment(id, topUp && amt != null && amt !== Number(r.amount) ? amt : undefined), ["payments", "lessons"]),
+          // Round F: with a rate set, the admin types the pounds that arrived; the server keeps dollars
+          amount: topUp, amountLabel: t("confirmed_amount") + (sypRate() > 0 ? (S.lang === "ar" ? " (ل.س)" : " (SYP)") : ""),
+          amountValue: sypRate() > 0 ? Math.round(Number(r.amount) * sypRate()) : r.amount,
+          run: (v, amt) => {
+            const got = amt == null ? null : sypRate() > 0 ? Math.round((amt / sypRate()) * 100) / 100 : amt;
+            const same = got == null || (sypRate() > 0 ? Math.round(Number(r.amount) * sypRate()) === amt : got === Number(r.amount));
+            return act(() => api.confirmPayment(id, topUp && !same ? got : undefined), ["payments", "lessons"]);
+          },
         });
         break;
       }

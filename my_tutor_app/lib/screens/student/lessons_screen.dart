@@ -124,12 +124,10 @@ class LessonsScreen extends StatelessWidget {
                         toast(context, '${context.tr('success_t')} · ${p.tutor.name.of(context)}');
                         return;
                       }
-                      final now = DateTime.now();
-                      final d = await showDatePicker(context: context, firstDate: now, lastDate: now.add(const Duration(days: 60)), initialDate: now.add(const Duration(days: 1)));
-                      if (d == null || !context.mounted) return;
-                      final tm = await showTimePicker(context: context, initialTime: const TimeOfDay(hour: 18, minute: 0));
-                      if (tm == null) return;
-                      app.usePackageHour(p, 1, start: DateTime(d.year, d.month, d.day, tm.hour, tm.minute));
+                      // Round F: only the tutor's free times, like a normal booking
+                      final start = await pickPackageTime(context, app, p.tutor);
+                      if (start == null) return;
+                      app.usePackageHour(p, 1, start: start);
                     },
                     icon: const Icon(Icons.event_available_rounded),
                     label: Text(context.tr('pkg_book_from')),
@@ -158,6 +156,12 @@ class LessonCard extends StatelessWidget {
       LessonStatus.delivered => (context.tr('status_delivered'), AppColors.success, AppColors.successSoft),
       LessonStatus.cancelled => (context.tr('status_cancelled'), AppColors.danger, AppColors.dangerSoft),
     };
+    // Round F: no-show and disputed lessons have their own labels
+    final (String st, Color sfg, Color sbg) = switch (l.state) {
+      'no_show' => (context.isAr ? 'غياب' : 'No-show', AppColors.danger, AppColors.dangerSoft),
+      'disputed' => (context.isAr ? 'قيد المراجعة' : 'Under review', const Color(0xFFB7791F), AppColors.accentSoft),
+      _ => (statusText, fg, bg),
+    };
     final soon = l.status == LessonStatus.upcoming && l.start.difference(DateTime.now()).inMinutes < 60 * 6;
     final who = tutorView ? l.studentName : l.tutor.name;
 
@@ -180,7 +184,7 @@ class LessonCard extends StatelessWidget {
               Text('${context.tr('with')} ${who.of(context)}', style: const TextStyle(color: AppColors.text2, fontSize: 13)),
               const SizedBox(height: 4),
               Wrap(spacing: 6, runSpacing: 4, children: [
-                Pill(statusText, bg: bg, fg: fg),
+                Pill(st, bg: sbg, fg: sfg),
                 Pill('${l.minutes} ${context.tr('min')}', bg: AppColors.surface, fg: AppColors.text2, icon: Icons.timer_outlined),
                 Pill(l.online ? context.tr('online') : context.tr('in_person'), bg: AppColors.surface, fg: AppColors.text2, icon: l.online ? Icons.videocam_outlined : Icons.home_outlined),
                 if (l.childName.isNotEmpty) Pill('${context.tr('for_child')} ${l.childName}', bg: AppColors.accentSoft, fg: AppColors.accent, icon: Icons.child_care_rounded),
@@ -230,6 +234,20 @@ class LessonCard extends StatelessWidget {
         ];
       case LessonStatus.delivered:
         if (tutorView) return [];
+        if (l.state == 'disputed') {
+          return [Pill(context.isAr ? 'أبلغت عن هذا الدرس، وسيراجعه فريق درس' : 'You reported this lesson; Dars will review it',
+              icon: Icons.hourglass_top_rounded, bg: AppColors.accentSoft, fg: const Color(0xFFB7791F))];
+        }
+        if (l.state == 'no_show') {
+          // Round F: the student may dispute a no-show within 48 hours
+          return [
+            btn(context.isAr ? 'كنت حاضراً — أبلغ' : 'I was there — report', Icons.flag_outlined, () {
+              app.disputeLesson(l, 'Marked as no-show, but the student says they attended');
+              toast(context, context.tr('report_sent'));
+            }),
+            btn(context.tr('book_again'), Icons.replay_rounded, () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookingScreen(tutor: l.tutor, hourPrice: l.tutor.pricePerHour.toDouble(), subjectId: l.subjectId)))),
+          ];
+        }
         return [
           l.reviewed
               ? Pill(context.tr('rated'), icon: Icons.check_rounded, bg: AppColors.successSoft, fg: AppColors.success)
@@ -311,4 +329,49 @@ class LessonCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The next two weeks of the tutor's free one-hour times; returns the chosen start (null = closed).
+Future<DateTime?> pickPackageTime(BuildContext context, AppState app, Tutor tutor) async {
+  final ar = context.isAr;
+  final schedule = await app.scheduleFor(tutor);
+  if (!context.mounted) return null;
+  final now = DateTime.now();
+  final days = [
+    for (var i = 0; i < 14; i++)
+      (day: DateTime(now.year, now.month, now.day + i), times: freeStartsOn(schedule, DateTime(now.year, now.month, now.day + i), 60).where((x) => !x.taken).toList()),
+  ].where((d) => d.times.isNotEmpty).toList();
+  return showModalBottomSheet<DateTime>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (sheet) => SafeArea(
+      child: SizedBox(
+        height: MediaQuery.of(sheet).size.height * .7,
+        child: schedule.periods.isEmpty || days.isEmpty
+            ? Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                    schedule.periods.isEmpty
+                        ? (ar ? 'هذا المدرس لم يحدد ساعات عمله بعد.' : 'This tutor has not set working hours yet.')
+                        : (ar ? 'لا توجد أوقات متاحة خلال الأسبوعين القادمين.' : 'No free times in the next two weeks.'),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: AppColors.text2, fontWeight: FontWeight.w700)),
+              )
+            : ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), children: [
+                Text(ar ? 'اختر وقت الدرس' : 'Choose the lesson time', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                const SizedBox(height: 8),
+                for (final d in days) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12, bottom: 6),
+                    child: Text(dayOf(sheet, d.day), style: const TextStyle(color: AppColors.text2, fontWeight: FontWeight.w700)),
+                  ),
+                  Wrap(spacing: 8, runSpacing: 8, children: [
+                    for (final x in d.times) ActionChip(label: Text(timeOf(sheet, x.time)), onPressed: () => Navigator.pop(sheet, x.time)),
+                  ]),
+                ],
+              ]),
+      ),
+    ),
+  );
 }

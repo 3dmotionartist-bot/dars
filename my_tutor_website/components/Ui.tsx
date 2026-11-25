@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { Lang } from '@/lib/i18n';
 import { getDict } from '@/lib/i18n';
-import { initialOf, subjectById, t, type Tutor } from '@/lib/data';
+import { fmtPrice, initialOf, subjectById, t, type Tutor } from '@/lib/data';
 import Icon from './Icon';
 
 export function Logo({ lang, light = false }: { lang: Lang; light?: boolean }) {
@@ -71,7 +71,7 @@ export function TutorCard({ tutor, lang }: { tutor: Tutor; lang: Lang }) {
           </span>
         )}
         <span className="tc-price">
-          <small>{d.from}</small> <b>${tutor.price}</b>
+          <small>{d.from}</small> <b>{fmtPrice(tutor.price, tutor.sypRate, lang)}</b>
           <small>{d.perHour}</small>
           {tutor.maxDiscount > 0 && (
             <em>

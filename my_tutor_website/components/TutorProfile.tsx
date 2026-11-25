@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import Icon from '@/components/Icon';
 import { Avatar, Stars } from '@/components/Ui';
-import { APP_URL, discountFor, levels, subjectById, t, type Tutor } from '@/lib/data';
+import { APP_URL, discountFor, fmtPrice, levels, subjectById, t, type Tutor } from '@/lib/data';
 import { getDict, type Lang } from '@/lib/i18n';
 
 /** Full tutor profile — used by the static pages and by live (database) tutors. */
@@ -91,7 +91,7 @@ export default function TutorProfile({ x, lang }: { x: Tutor; lang: Lang }) {
                   {levels.map((l) => (
                     <tr key={l.id}>
                       <td>{t(l.name, lang)}</td>
-                      <td><b>${Math.round(x.price * l.factor)}</b><small>{d.perHour}</small></td>
+                      <td><b>{fmtPrice(Math.round(x.price * l.factor), x.sypRate, lang)}</b><small>{d.perHour}</small></td>
                     </tr>
                   ))}
                 </tbody>

@@ -58,6 +58,8 @@ export type Tutor = {
   students: number;
   price: number;
   maxDiscount: number;
+  /** Round F: Syrian pounds per dollar from the admin settings (0 / absent = show dollars). */
+  sypRate?: number;
   available: boolean;
   instant: boolean;
   isNew: boolean;
@@ -166,3 +168,10 @@ export const discountFor = (tutor: Tutor, hours: number) => {
 export const BASE = process.env.NEXT_PUBLIC_BASE_PATH || '';
 export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://app.dars.app';
 export const WHATSAPP = 'https://wa.me/963000000000';
+
+/** Round F: a dollar price as shown on the site — Syrian pounds with the dollars small, or dollars when no rate. */
+export function fmtPrice(usd: number, rate: number | undefined, lang: 'ar' | 'en'): string {
+  if (!rate || rate <= 0) return `$${usd}`;
+  const syp = Math.round(usd * rate).toLocaleString('en-US');
+  return `${syp} ${lang === 'ar' ? 'ل.س' : 'SYP'} ($${usd})`;
+}

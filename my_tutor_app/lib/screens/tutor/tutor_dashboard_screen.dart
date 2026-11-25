@@ -343,6 +343,15 @@ class _EarningsScreenState extends State<EarningsScreen> {
             const SizedBox(width: 10),
             Expanded(child: _box(context.tr('confirmed_amount'), app.tutorConfirmed, AppColors.success)),
           ]),
+          if (app.tutorHeld > 0) ...[
+            const SizedBox(height: 8),
+            Text(
+              context.isAr
+                  ? 'قيد الانتظار ${money(double.parse(app.tutorHeld.toStringAsFixed(2)))}: تصبح أرباح الدرس قابلة للسحب بعد ${app.earningsHoldHours} ساعة، أو بعد قرار الإدارة إذا أبلغ الطالب عن مشكلة.'
+                  : 'On hold ${money(double.parse(app.tutorHeld.toStringAsFixed(2)))}: lesson earnings can be withdrawn ${app.earningsHoldHours} hours after the lesson, or after Dars decides if the student reported a problem.',
+              style: const TextStyle(color: AppColors.text2, fontSize: 12.5, height: 1.5),
+            ),
+          ],
           const SizedBox(height: 12),
           AppCard(
             child: Column(children: [

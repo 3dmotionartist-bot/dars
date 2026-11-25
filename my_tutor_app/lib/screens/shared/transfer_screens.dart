@@ -72,7 +72,8 @@ class _TopUpScreenState extends State<TopUpScreen> {
   void initState() {
     super.initState();
     final s = widget.suggested;
-    _amount = TextEditingController(text: s == null ? '' : (s % 1 == 0 ? s.toInt().toString() : s.toStringAsFixed(2)));
+    final shown = s == null ? null : fromUsd(s); // pounds when pounds are shown
+    _amount = TextEditingController(text: shown == null ? '' : (shown % 1 == 0 ? shown.toInt().toString() : shown.toStringAsFixed(2)));
   }
 
   @override
@@ -88,7 +89,7 @@ class _TopUpScreenState extends State<TopUpScreen> {
     final m = _method;
     if (v == null || v <= 0 || m == null) return;
     setState(() => _busy = true);
-    final info = await app.requestTopUp(v, m);
+    final info = await app.requestTopUp(double.parse(toUsd(v).toStringAsFixed(2)), m);
     if (!mounted) return;
     setState(() => _busy = false);
     if (info != null) {
@@ -118,7 +119,11 @@ class _TopUpScreenState extends State<TopUpScreen> {
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
             onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(prefixText: '\$ ', hintText: ar ? 'مثلاً 20' : 'e.g. 20'),
+            decoration: InputDecoration(
+              prefixText: Money.syp ? null : '\$ ',
+              suffixText: Money.syp ? (ar ? 'ل.س' : 'SYP') : null,
+              hintText: Money.syp ? (ar ? 'مثلاً 250000' : 'e.g. 250000') : (ar ? 'مثلاً 20' : 'e.g. 20'),
+            ),
           ),
           const SizedBox(height: 10),
           Wrap(spacing: 8, children: [
