@@ -64,6 +64,17 @@ class MainActivity : FlutterActivity() {
         readIntent(intent)
     }
 
+    // A volume button silences an incoming call's ring and vibration (the call keeps ringing on screen).
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        if ((keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP || keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN) &&
+            DarsNotify.Ringing.active
+        ) {
+            DarsNotify.Ringing.silence(this)
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
     override fun onResume() {
         super.onResume()
         foreground = true
