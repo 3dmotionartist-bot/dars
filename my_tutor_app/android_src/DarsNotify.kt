@@ -319,8 +319,10 @@ object DarsNotify {
     /**
      * The incoming call's sound and vibration, like a phone call: the phone's ringtone in a loop and a repeating
      * vibration until the call is answered, declined or cancelled, or 45 s pass. Follows the ringer switch
-     * (Normal: ring + vibrate, Vibrate: vibrate only, Silent / Do not disturb: nothing). The power button
-     * silences it, as on a normal phone call; the call card stays.
+     * (Normal: ring + vibrate, Vibrate: vibrate only, Silent / Do not disturb: nothing). A volume button
+     * silences it while the call screen is in front, as on a normal phone call; the call card stays.
+     * (Build 42 silenced it on "screen off" to copy the power button, but the screen also goes off in a pocket
+     * or when the phone's own timer turns it off: phone test 26 Nov 2026, the ring stopped after 7 s.)
      */
     object Ringing {
         private var player: android.media.MediaPlayer? = null
@@ -328,7 +330,6 @@ object DarsNotify {
         private val handler = android.os.Handler(android.os.Looper.getMainLooper())
         private val timeout = Runnable { app?.let { stop(it) } }
         private var app: Context? = null
-        private var screenOff: android.content.BroadcastReceiver? = null
         private val pattern = longArrayOf(0, 1000, 800)
 
         val active: Boolean get() = room != null
@@ -352,7 +353,6 @@ object DarsNotify {
             if (mode == AudioManager.RINGER_MODE_SILENT) return
             if (mode == AudioManager.RINGER_MODE_NORMAL) playTone(ctx)
             vibrate(ctx)
-            listenScreenOff(ctx)
         }
 
         private fun attrs(): AudioAttributes = AudioAttributes.Builder()
@@ -392,26 +392,23 @@ object DarsNotify {
             null
         }
 
+        // Vibrates as an alarm: Xiaomi ignores app vibrations marked "ringtone" or "notification"
+        // (ignored_ringtone_or_notify_miui, phone tests 26 Nov 2026). Silent mode / Do not disturb are already
+        // respected in [start], before this is reached.
+        private fun vibeAttrs(): AudioAttributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_ALARM)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+
         @Suppress("DEPRECATION")
         private fun vibrate(c: Context) {
             val v = vibrator(c) ?: return
             try {
                 if (Build.VERSION.SDK_INT >= 26) {
-                    v.vibrate(android.os.VibrationEffect.createWaveform(pattern, 0), attrs())
+                    v.vibrate(android.os.VibrationEffect.createWaveform(pattern, 0), vibeAttrs())
                 } else {
-                    v.vibrate(pattern, 0, attrs())
+                    v.vibrate(pattern, 0, vibeAttrs())
                 }
-            } catch (e: Exception) {
-            }
-        }
-
-        private fun listenScreenOff(c: Context) {
-            val r = object : android.content.BroadcastReceiver() {
-                override fun onReceive(context: Context, intent: Intent) = silence(context)
-            }
-            try {
-                c.registerReceiver(r, android.content.IntentFilter(Intent.ACTION_SCREEN_OFF))
-                screenOff = r
             } catch (e: Exception) {
             }
         }
@@ -431,13 +428,6 @@ object DarsNotify {
                 vibrator(c.applicationContext)?.cancel()
             } catch (e: Exception) {
             }
-            screenOff?.let {
-                try {
-                    c.applicationContext.unregisterReceiver(it)
-                } catch (e: Exception) {
-                }
-            }
-            screenOff = null
         }
 
         fun stop(c: Context) {
