@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 
+import 'call_logic.dart' show CallSetup;
 import 'ringer_web_stub.dart' if (dart.library.js_interop) 'ringer_web.dart' as web;
 
 /// Rings the phone for incoming calls and shows message notifications.
@@ -45,6 +46,25 @@ class Ringer {
     if (kIsWeb) return;
     try {
       await _ch.invokeMethod('openFullScreenSettings');
+    } catch (_) {}
+  }
+
+  /// What this phone still needs so calls ring while it sleeps (Android only; null elsewhere or unknown).
+  static Future<CallSetup?> callSetup() async {
+    if (kIsWeb) return null;
+    try {
+      final m = await _ch.invokeMapMethod<String, dynamic>('callSetup');
+      return m == null ? null : CallSetup.fromMap(m);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Opens the phone's settings page for one step of [CallSetup].
+  static Future<void> openSetup(String step) async {
+    if (kIsWeb) return;
+    try {
+      await _ch.invokeMethod('openSetup', {'step': step});
     } catch (_) {}
   }
 

@@ -18,7 +18,11 @@ import org.json.JSONArray
  * Uses only the Android SDK.
  */
 object DarsNotify {
-    const val CALLS = "dars_calls_v1"
+    // v2 (26 Nov 2026): a silent channel. The ringtone and vibration are played by [Ringing] instead, in a loop
+    // until answered / declined / 45 s: the channel's own sound was cut to a blip as "recently noisy" and MIUI
+    // ignored its vibration (phone test, 26 Nov 2026). Android channels can't be changed once made, hence v2.
+    const val CALLS = "dars_calls_v2"
+    private const val OLD_CALLS = "dars_calls_v1"
     const val MESSAGES = "dars_messages_v1"
     const val REMINDERS = "dars_reminders_v1"
     const val GENERAL = "dars_general_v1"
@@ -34,18 +38,14 @@ object DarsNotify {
     fun createChannels(c: Context) {
         if (Build.VERSION.SDK_INT < 26) return
         val m = manager(c)
-        val ringtone = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+        try {
+            m.deleteNotificationChannel(OLD_CALLS)
+        } catch (e: Exception) {
+        }
         val calls = NotificationChannel(CALLS, "Calls", NotificationManager.IMPORTANCE_HIGH)
         calls.description = "Incoming voice and video calls"
-        calls.setSound(
-            ringtone,
-            AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build()
-        )
-        calls.enableVibration(true)
-        calls.vibrationPattern = longArrayOf(0, 1000, 800, 1000, 800)
+        calls.setSound(null, null)
+        calls.enableVibration(false)
         calls.lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         val messages = NotificationChannel(MESSAGES, "Messages", NotificationManager.IMPORTANCE_HIGH)
         messages.description = "New chat messages and missed calls"
@@ -101,12 +101,7 @@ object DarsNotify {
             b.addAction(android.R.drawable.ic_menu_close_clear_cancel, declineLabel, PendingIntent.getBroadcast(c, 4, d, flags()))
         }
         b.addAction(android.R.drawable.sym_action_call, joinLabel, openApp(c, 2, true, call + ("dars_action" to "join")))
-        if (Build.VERSION.SDK_INT >= 26) {
-            b.setTimeoutAfter(45000)
-        } else {
-            b.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE), AudioManager.STREAM_RING)
-            b.setVibrate(longArrayOf(0, 1000, 800, 1000, 800))
-        }
+        if (Build.VERSION.SDK_INT >= 26) b.setTimeoutAfter(45000)
         val n = b.build()
         n.flags = n.flags or Notification.FLAG_INSISTENT
         prefs(c).edit().putString("ringing_room", call["room"] ?: "").apply()
@@ -119,6 +114,7 @@ object DarsNotify {
             manager(c).notify(RING_ID, n)
         }
         wakeScreen(c)
+        Ringing.start(c, call["room"] ?: "")
     }
 
     /** The call as Android's CallStyle notification (API 31+), or null. Same Answer / Decline actions as [ring]. */
@@ -186,6 +182,7 @@ object DarsNotify {
     fun stopRing(c: Context, room: String = "") {
         val ringing = prefs(c).getString("ringing_room", "") ?: ""
         if (room.isEmpty() || room == ringing) {
+            Ringing.stop(c)
             manager(c).cancel(RING_ID)
             prefs(c).edit().remove("ringing_room").apply()
             try {
@@ -317,5 +314,136 @@ object DarsNotify {
             .setAutoCancel(true)
         if (Build.VERSION.SDK_INT < 26) b.setDefaults(Notification.DEFAULT_ALL)
         manager(c).notify((System.currentTimeMillis() % 100000).toInt() + 100, b.build())
+    }
+
+    /**
+     * The incoming call's sound and vibration, like a phone call: the phone's ringtone in a loop and a repeating
+     * vibration until the call is answered, declined or cancelled, or 45 s pass. Follows the ringer switch
+     * (Normal: ring + vibrate, Vibrate: vibrate only, Silent / Do not disturb: nothing). The power button
+     * silences it, as on a normal phone call; the call card stays.
+     */
+    object Ringing {
+        private var player: android.media.MediaPlayer? = null
+        private var room: String? = null
+        private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        private val timeout = Runnable { app?.let { stop(it) } }
+        private var app: Context? = null
+        private var screenOff: android.content.BroadcastReceiver? = null
+        private val pattern = longArrayOf(0, 1000, 800)
+
+        val active: Boolean get() = room != null
+
+        fun start(c: Context, r: String) {
+            val ctx = c.applicationContext
+            if (room != null && room == r) return // the same call announced twice (push + open app)
+            stop(ctx)
+            room = r
+            app = ctx
+            handler.postDelayed(timeout, 45_000L)
+            val audio = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val quiet = try {
+                Build.VERSION.SDK_INT >= 23 &&
+                    manager(ctx).currentInterruptionFilter > NotificationManager.INTERRUPTION_FILTER_ALL
+            } catch (e: Exception) {
+                false
+            }
+            if (quiet) return
+            val mode = audio.ringerMode
+            if (mode == AudioManager.RINGER_MODE_SILENT) return
+            if (mode == AudioManager.RINGER_MODE_NORMAL) playTone(ctx)
+            vibrate(ctx)
+            listenScreenOff(ctx)
+        }
+
+        private fun attrs(): AudioAttributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+
+        private fun playTone(c: Context) {
+            try {
+                val uri = RingtoneManager.getActualDefaultRingtoneUri(c, RingtoneManager.TYPE_RINGTONE)
+                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                player = android.media.MediaPlayer().apply {
+                    setAudioAttributes(attrs())
+                    setDataSource(c, uri)
+                    isLooping = true
+                    prepare()
+                    start()
+                }
+            } catch (e: Exception) {
+                try {
+                    player?.release()
+                } catch (ignored: Exception) {
+                }
+                player = null
+            }
+        }
+
+        @Suppress("DEPRECATION")
+        private fun vibrator(c: Context): android.os.Vibrator? = try {
+            if (Build.VERSION.SDK_INT >= 31) {
+                (c.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager).defaultVibrator
+            } else {
+                c.getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
+            }
+        } catch (e: Exception) {
+            null
+        }
+
+        @Suppress("DEPRECATION")
+        private fun vibrate(c: Context) {
+            val v = vibrator(c) ?: return
+            try {
+                if (Build.VERSION.SDK_INT >= 26) {
+                    v.vibrate(android.os.VibrationEffect.createWaveform(pattern, 0), attrs())
+                } else {
+                    v.vibrate(pattern, 0, attrs())
+                }
+            } catch (e: Exception) {
+            }
+        }
+
+        private fun listenScreenOff(c: Context) {
+            val r = object : android.content.BroadcastReceiver() {
+                override fun onReceive(context: Context, intent: Intent) = silence(context)
+            }
+            try {
+                c.registerReceiver(r, android.content.IntentFilter(Intent.ACTION_SCREEN_OFF))
+                screenOff = r
+            } catch (e: Exception) {
+            }
+        }
+
+        /** Sound and vibration off; the call itself keeps ringing on screen. */
+        fun silence(c: Context) {
+            try {
+                player?.stop()
+            } catch (e: Exception) {
+            }
+            try {
+                player?.release()
+            } catch (e: Exception) {
+            }
+            player = null
+            try {
+                vibrator(c.applicationContext)?.cancel()
+            } catch (e: Exception) {
+            }
+            screenOff?.let {
+                try {
+                    c.applicationContext.unregisterReceiver(it)
+                } catch (e: Exception) {
+                }
+            }
+            screenOff = null
+        }
+
+        fun stop(c: Context) {
+            handler.removeCallbacks(timeout)
+            silence(c)
+            room = null
+        }
     }
 }

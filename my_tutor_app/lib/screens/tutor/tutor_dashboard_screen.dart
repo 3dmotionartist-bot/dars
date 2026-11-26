@@ -9,6 +9,7 @@ import '../../l10n.dart';
 import '../../state/app_state.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../shared/call_setup_screen.dart';
 import '../shared/notifications_screen.dart';
 import 'my_students_screen.dart';
 import 'tutor_documents_screen.dart';
@@ -48,6 +49,45 @@ class TutorDashboardScreen extends StatelessWidget {
                 ],
               ]),
               const SizedBox(height: 16),
+              if (app.tutorProfileMissing) ...[
+                AppCard(
+                  key: const Key('profile-missing'),
+                  color: AppColors.dangerSoft,
+                  borderColor: AppColors.danger,
+                  child: Row(children: [
+                    const Icon(Icons.wifi_off_rounded, color: AppColors.danger),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        context.isAr ? 'تعذّر تحميل ملفك. تحقق من الإنترنت.' : 'Couldn\'t load your profile. Check your internet.',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    TextButton(onPressed: app.retryProfile, child: Text(context.isAr ? 'إعادة المحاولة' : 'Try again')),
+                  ]),
+                ),
+                const SizedBox(height: 16),
+              ],
+              if (!app.callSetup.done) ...[
+                AppCard(
+                  key: const Key('call-setup-card'),
+                  color: AppColors.accentSoft,
+                  borderColor: AppColors.accent,
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CallSetupScreen())),
+                  child: Row(children: [
+                    const Icon(Icons.ring_volume_rounded, color: AppColors.accent),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        context.isAr ? 'أكمل إعدادات "استقبال المكالمات" حتى يرن هاتفك عند اتصال الطلاب.' : 'Finish "Receive calls" so your phone rings when students call.',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right_rounded),
+                  ]),
+                ),
+                const SizedBox(height: 16),
+              ],
               if (app.live && app.tutorVerification == 'approved' && app.pendingTutorChanges != null) ...[
                 AppCard(
                   color: AppColors.accentSoft,

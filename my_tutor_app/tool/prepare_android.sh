@@ -19,7 +19,8 @@ perm INTERNET
 grep -q 'android:scheme="https"' "$M" || \
   sed -i 's#<queries>#<queries>\n        <intent><action android:name="android.intent.action.VIEW"/><data android:scheme="https"/></intent>#' "$M"
 # Ringing phone, notifications, the call service (Round D: microphone + camera + screen capture, Android 14 rules)
-for p in POST_NOTIFICATIONS USE_FULL_SCREEN_INTENT VIBRATE WAKE_LOCK FOREGROUND_SERVICE \
+# REQUEST_IGNORE_BATTERY_OPTIMIZATIONS: the "Receive calls" setup asks to keep Dars out of battery saving (26 Nov 2026)
+for p in POST_NOTIFICATIONS USE_FULL_SCREEN_INTENT VIBRATE WAKE_LOCK FOREGROUND_SERVICE REQUEST_IGNORE_BATTERY_OPTIMIZATIONS \
          FOREGROUND_SERVICE_MEDIA_PROJECTION FOREGROUND_SERVICE_MICROPHONE FOREGROUND_SERVICE_CAMERA; do
   perm "$p"
 done

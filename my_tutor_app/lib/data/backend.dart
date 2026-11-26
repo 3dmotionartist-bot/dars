@@ -431,8 +431,12 @@ class Backend {
   /// Realtime room the two sides of a call use to exchange connection details.
   RealtimeChannel callChannel(String room) => db.channel('dars-call-$room', opts: const RealtimeChannelConfig(self: false));
 
+  /// Removing a channel is always put off to after the current realtime message: called from a realtime
+  /// callback, it changed the client's channel list while the client was walking it ("Concurrent modification
+  /// during iteration", phone tests 25–26 Nov 2026).
   Future<void> closeChannel(RealtimeChannel ch) async {
     try {
+      await Future<void>.delayed(Duration.zero);
       await db.removeChannel(ch);
     } catch (_) {}
   }
@@ -644,7 +648,10 @@ class Backend {
     });
   }
 
-  Future<void> unlisten(RealtimeChannel ch) => db.removeChannel(ch);
+  Future<void> unlisten(RealtimeChannel ch) async {
+    await Future<void>.delayed(Duration.zero); // see [closeChannel]
+    await db.removeChannel(ch);
+  }
 
   // ------------------------------------------------------------------ mapping helpers
   static double _num(dynamic v) => v == null ? 0 : (v is num ? v.toDouble() : double.tryParse('$v') ?? 0);
