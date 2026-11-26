@@ -196,6 +196,11 @@ class MainActivity : FlutterActivity() {
                     }
                     "fullScreenOk" -> result.success(fullScreenOk())
                     "isXiaomi" -> result.success(isXiaomi())
+                    "callSetup" -> result.success(callSetup())
+                    "openSetup" -> {
+                        openSetup(call.argument<String>("step") ?: "")
+                        result.success(null)
+                    }
                     "openFullScreenSettings" -> {
                         openFullScreenSettings()
                         result.success(true)
@@ -463,6 +468,125 @@ class MainActivity : FlutterActivity() {
             Intent("android.settings.APP_NOTIFICATION_SETTINGS").putExtra("android.provider.extra.APP_PACKAGE", packageName),
             Intent("android.settings.APPLICATION_DETAILS_SETTINGS", pkg),
         )
+        for (i in tries) {
+            try {
+                startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                return
+            } catch (ignored: Exception) {
+            }
+        }
+    }
+
+    // ------------------------------------------------------------ "Receive calls" setup (26 Nov 2026)
+    /**
+     * What this phone needs so calls ring while it sleeps (phone test, 25–26 Nov 2026: with Xiaomi's Autostart
+     * off and Dars not exempt from battery saving, calls to a sleeping phone did not ring).
+     * autostart: "on" / "off" (Xiaomi can tell), "unknown" (a brand with its own Autostart page that can't be
+     * read), "none" (no such page on this phone).
+     */
+    private fun callSetup(): Map<String, Any> {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        val notifications = try {
+            val on = Build.VERSION.SDK_INT < 24 || nm.areNotificationsEnabled()
+            val ch = if (Build.VERSION.SDK_INT >= 26) nm.getNotificationChannel(DarsNotify.CALLS) else null
+            on && (ch == null || ch.importance != android.app.NotificationManager.IMPORTANCE_NONE)
+        } catch (e: Exception) {
+            true
+        }
+        val battery = try {
+            val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            pm.isIgnoringBatteryOptimizations(packageName)
+        } catch (e: Exception) {
+            true
+        }
+        return mapOf(
+            "notifications" to notifications,
+            "fullScreen" to fullScreenOk(),
+            "battery" to battery,
+            "autostart" to autostartState(),
+            "brand" to brand(),
+        )
+    }
+
+    private fun brand(): String {
+        val m = "${Build.MANUFACTURER ?: ""} ${Build.BRAND ?: ""}".lowercase()
+        return when {
+            isXiaomi() -> "xiaomi"
+            m.contains("oppo") || m.contains("realme") || m.contains("oneplus") -> "oppo"
+            m.contains("vivo") || m.contains("iqoo") -> "vivo"
+            m.contains("huawei") || m.contains("honor") -> "huawei"
+            m.contains("asus") -> "asus"
+            else -> "other"
+        }
+    }
+
+    private fun autostartState(): String {
+        val b = brand()
+        if (b == "other") return "none"
+        if (b != "xiaomi") return "unknown"
+        return try {
+            val ops = getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
+            val check = ops.javaClass.getMethod(
+                "checkOpNoThrow", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, String::class.java,
+            )
+            // Xiaomi's Autostart is its own app-op 10008: "ignore" while off (phone test, 26 Nov 2026).
+            val mode = check.invoke(ops, 10008, applicationInfo.uid, packageName) as Int
+            if (mode == android.app.AppOpsManager.MODE_IGNORED) "off" else "on"
+        } catch (e: Exception) {
+            "unknown"
+        }
+    }
+
+    private fun autostartPages(): List<Intent> {
+        fun page(pkg: String, cls: String) = Intent().setComponent(android.content.ComponentName(pkg, cls))
+        return when (brand()) {
+            "xiaomi" -> listOf(page("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"))
+            "oppo" -> listOf(
+                page("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"),
+                page("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity"),
+                page("com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity"),
+            )
+            "vivo" -> listOf(
+                page("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"),
+                page("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity"),
+            )
+            "huawei" -> listOf(
+                page("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
+                page("com.huawei.systemmanager", "com.huawei.systemmanager.optimize.process.ProtectActivity"),
+                page("com.hihonor.systemmanager", "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
+            )
+            "asus" -> listOf(page("com.asus.mobilemanager", "com.asus.mobilemanager.autostart.AutoStartActivity"))
+            else -> emptyList()
+        }
+    }
+
+    /** Opens the phone's page for one step: notifications, fullScreen, battery or autostart. */
+    @android.annotation.SuppressLint("BatteryLife")
+    private fun openSetup(step: String) {
+        if (step == "fullScreen") {
+            openFullScreenSettings()
+            return
+        }
+        val pkg = Uri.parse("package:$packageName")
+        val tries = mutableListOf<Intent>()
+        when (step) {
+            "notifications" -> {
+                if (Build.VERSION.SDK_INT >= 33 &&
+                    checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED &&
+                    shouldShowRequestPermissionRationale("android.permission.POST_NOTIFICATIONS")
+                ) {
+                    askPermission()
+                    return
+                }
+                tries.add(Intent("android.settings.APP_NOTIFICATION_SETTINGS").putExtra("android.provider.extra.APP_PACKAGE", packageName))
+            }
+            "battery" -> {
+                tries.add(Intent("android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS", pkg))
+                tries.add(Intent("android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS"))
+            }
+            "autostart" -> tries.addAll(autostartPages())
+        }
+        tries.add(Intent("android.settings.APPLICATION_DETAILS_SETTINGS", pkg))
         for (i in tries) {
             try {
                 startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

@@ -194,3 +194,53 @@ String? pushAccount({required bool loggedIn, required bool hasSavedSession, Stri
 /// push path already does on the server (phone test 22 Nov 2026: a swiped-away Dars still rang through its
 /// live connection with "Calls" off).
 bool mayRingCall({required bool callsOn, required bool foreground}) => callsOn || foreground;
+
+/// "Receive calls" setup (26 Nov 2026): what an Android phone needs so calls ring while it sleeps. Phone test
+/// 25–26 Nov: with Xiaomi's Autostart off and Dars held back by battery saving, a call to a sleeping phone did
+/// not ring; with them on, it rang in the background, with the app swiped away and in deep sleep.
+class CallSetup {
+  final bool notifications;
+  final bool fullScreen;
+  final bool battery;
+
+  /// 'on' / 'off' (Xiaomi can tell), 'unknown' (a brand with its own Autostart page that can't be read),
+  /// 'none' (no such page on this phone).
+  final String autostart;
+  final String brand;
+
+  /// The person said they switched Autostart on (where the phone can't tell).
+  final bool autostartConfirmed;
+
+  const CallSetup({
+    this.notifications = true,
+    this.fullScreen = true,
+    this.battery = true,
+    this.autostart = 'none',
+    this.brand = 'other',
+    this.autostartConfirmed = false,
+  });
+
+  factory CallSetup.fromMap(Map<String, dynamic> m) => CallSetup(
+        notifications: m['notifications'] != false,
+        fullScreen: m['fullScreen'] != false,
+        battery: m['battery'] != false,
+        autostart: '${m['autostart'] ?? 'none'}',
+        brand: '${m['brand'] ?? 'other'}',
+      );
+
+  CallSetup withConfirmed(bool v) => CallSetup(
+      notifications: notifications, fullScreen: fullScreen, battery: battery, autostart: autostart, brand: brand, autostartConfirmed: v);
+
+  bool get showAutostart => autostart != 'none';
+  bool get autostartOk => autostart == 'on' || (autostart == 'unknown' && autostartConfirmed);
+
+  /// The steps still to do, in the order shown.
+  List<String> get missing => [
+        if (!notifications) 'notifications',
+        if (!fullScreen) 'fullScreen',
+        if (!battery) 'battery',
+        if (showAutostart && !autostartOk) 'autostart',
+      ];
+
+  bool get done => missing.isEmpty;
+}

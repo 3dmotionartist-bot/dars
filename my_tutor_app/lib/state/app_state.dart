@@ -13,6 +13,7 @@ import '../data/backend.dart';
 import '../data/mock_data.dart';
 import '../data/models.dart';
 import '../l10n.dart';
+import '../screens/shared/call_setup_screen.dart';
 import '../screens/shared/incoming_call_screen.dart';
 import '../screens/shared/live_call_screen.dart';
 import '../screens/shared/notifications_screen.dart';
@@ -163,7 +164,22 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Tutor? _me;
 
   /// The signed-in tutor's public card.
-  Tutor get me => _me ?? MockData.tutors.first;
+  /// The signed-in tutor. Live: never the built-in sample tutor — when the profile could not be loaded (no
+  /// internet, the phone's VPN reconnecting) a blank placeholder with the account name, and the dashboard says
+  /// so (phone test 26 Nov 2026: the sample "م. سامر الحلبي" with 612 students showed instead).
+  Tutor get me => _me ?? (live ? Backend.stubTutor(_b.uid ?? 'me', name) : MockData.tutors.first);
+
+  /// Live tutor whose own profile did not load: the dashboard shows "couldn't load" with Try again.
+  bool get tutorProfileMissing => live && loggedIn && role == UserRole.tutor && _me == null;
+
+  Future<void> retryProfile() async {
+    try {
+      if (await _loadProfile()) await _saveProfileCache();
+    } catch (e) {
+      _error(e);
+    }
+    await refresh();
+  }
 
   double get tutorGross => tutorLessons.where((l) => l.status == LessonStatus.delivered).fold(0.0, (s, l) => s + l.price);
   double get tutorCommission => live
@@ -950,7 +966,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _realtimeDropped = false;
     final ch = _channel;
     _channel = null;
-    if (ch != null) _b.unlisten(ch).catchError((_) => '');
+    if (ch != null) _b.unlisten(ch).catchError((_) {});
   }
 
   /// Same message, local copy vs. the server's row (files by their stored path, others by text + kind).
@@ -2415,6 +2431,12 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   void _watchRinging(String room) {
     if (!live || _b.uid == null) return;
+    // Not inside the realtime callback that announced the call: adding a channel while the realtime client
+    // walks its channel list threw "Concurrent modification during iteration" (phone tests 25–26 Nov 2026).
+    Future<void>(() => _openRingWatch(room));
+  }
+
+  void _openRingWatch(String room) {
     final old = _ringWatch;
     if (old != null) _b.closeChannel(old);
     try {
@@ -2548,40 +2570,43 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       fullScreenBlocked = !ok;
       notifyListeners();
     }
-    if (ok || !prompt || !loggedIn) return;
+    await checkCallSetup();
+    if (callSetup.done || !prompt || !loggedIn) return;
     try {
       final p = await SharedPreferences.getInstance();
       final last = p.getInt(_fullScreenAskedKey) ?? 0;
       final now = DateTime.now().millisecondsSinceEpoch;
-      if (!askFullScreenAgain(lastAskedMs: last, nowMs: now)) return;
-      final ctx = navigatorKey.currentContext;
-      if (ctx == null) return;
+      // Tutors at every start until it is done (they must not miss calls); students at most once a week.
+      if (role != UserRole.tutor && !askFullScreenAgain(lastAskedMs: last, nowMs: now)) return;
+      final nav = navigatorKey.currentState;
+      if (nav == null) return;
       await p.setInt(_fullScreenAskedKey, now);
-      if (!ctx.mounted) return;
-      showDialog<void>(
-        context: ctx,
-        builder: (d) => AlertDialog(
-          icon: const Icon(Icons.ring_volume_rounded, color: Color(0xFF0E8F7E), size: 44),
-          title: Text(_t('اسمح بظهور المكالمات على الشاشة', 'Let calls show on your screen'), textAlign: TextAlign.center),
-          content: Text(
-            '${_t('المكالمات الواردة تظهر الآن كإشعار صغير فقط وقد لا تظهر والهاتف مقفل.', 'Incoming calls now show only as a small banner and may not show while the phone is locked.')} $lockScreenSteps',
-            textAlign: TextAlign.center,
-          ),
-          actionsAlignment: MainAxisAlignment.spaceEvenly,
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(d), child: Text(_t('ليس الآن', 'Not now'))),
-            FilledButton(
-              key: const Key('full-screen-open'),
-              onPressed: () {
-                Navigator.pop(d);
-                Ringer.openFullScreenSettings();
-              },
-              child: Text(_t('فتح الإعدادات', 'Open settings')),
-            ),
-          ],
-        ),
-      );
+      nav.push(MaterialPageRoute(builder: (_) => const CallSetupScreen()));
     } catch (_) {}
+  }
+
+  // "Receive calls" setup (26 Nov 2026): what this phone still needs so calls ring while it sleeps.
+  CallSetup callSetup = const CallSetup();
+  static const _autostartKey = 'dars.autostart_confirmed';
+
+  Future<CallSetup> checkCallSetup() async {
+    var next = await Ringer.callSetup() ?? const CallSetup();
+    try {
+      final p = await SharedPreferences.getInstance();
+      next = next.withConfirmed(p.getBool(_autostartKey) ?? false);
+    } catch (_) {}
+    callSetup = next;
+    notifyListeners();
+    return next;
+  }
+
+  /// "I turned it on" — for phones that can't tell whether Autostart is on.
+  Future<void> confirmAutostart() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool(_autostartKey, true);
+    } catch (_) {}
+    await checkCallSetup();
   }
 
   // Notification switches (messages / calls / reminders), shown in Account → Notification settings.
@@ -2629,6 +2654,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   // tutor actions
   // =====================================================================
   void setAvailable(bool v) {
+    // A tutor whose phone can't ring while asleep would miss students' calls: finish "Receive calls" first.
+    if (v && role == UserRole.tutor && !callSetup.done) {
+      navigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const CallSetupScreen(thenAvailable: true)));
+      return;
+    }
     tutorAvailable = v;
     if (v) dndHours = 0;
     notifyListeners();
@@ -2636,6 +2666,10 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void setDnd(int hours) {
+    if (hours == 0 && role == UserRole.tutor && !callSetup.done && !tutorAvailable) {
+      setAvailable(true); // opens "Receive calls" first
+      return;
+    }
     dndHours = hours;
     tutorAvailable = hours == 0;
     notifyListeners();

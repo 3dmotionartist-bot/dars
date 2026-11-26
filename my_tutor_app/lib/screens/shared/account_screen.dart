@@ -12,6 +12,7 @@ import '../../widgets/common.dart';
 import '../student/tutor_profile_screen.dart';
 import '../tutor/my_students_screen.dart';
 import '../tutor/tutor_settings_screen.dart';
+import 'call_setup_screen.dart';
 import 'edit_profile_screen.dart';
 import 'family_screen.dart';
 import 'legal_screens.dart';
@@ -280,7 +281,18 @@ class AccountScreen extends StatelessWidget {
                 title: Text(ar ? 'المكالمات' : 'Calls'),
                 subtitle: Text(ar ? 'رنين المكالمات الواردة والمكالمات الفائتة' : 'Ringing for incoming calls, and missed calls'),
               ),
-              if (a.fullScreenBlocked)
+              if (!a.callSetup.done)
+                ListTile(
+                  key: const Key('call-setup-warning'),
+                  leading: const Icon(Icons.warning_amber_rounded, color: Color(0xFFE5484D)),
+                  title: Text(ar ? 'قد لا يرن هاتفك وهو في وضع السكون' : 'Your phone may not ring while asleep'),
+                  subtitle: Text(ar ? 'أكمل إعدادات "استقبال المكالمات"' : 'Finish the "Receive calls" settings'),
+                  trailing: TextButton(
+                    onPressed: () => Navigator.push(ctx, MaterialPageRoute(builder: (_) => const CallSetupScreen())),
+                    child: Text(ar ? 'فتح' : 'Open'),
+                  ),
+                )
+              else if (a.fullScreenBlocked)
                 ListTile(
                   key: const Key('full-screen-warning'),
                   leading: const Icon(Icons.warning_amber_rounded, color: Color(0xFFE5484D)),
