@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Lang } from '@/lib/i18n';
 import { getDict } from '@/lib/i18n';
-import { subjects, t, WHATSAPP } from '@/lib/data';
+import { fmtPrice, subjects, t, WHATSAPP } from '@/lib/data';
 import Icon from './Icon';
 import { useTutors } from './LiveTutors';
 import { TutorCard } from './Ui';
@@ -69,7 +69,7 @@ export default function TutorBrowser({ lang, initialSubject = '' }: { lang: Lang
         </label>
         <label className="field">
           <span>
-            {d.maxPrice}: <b>${maxPrice}</b>
+            {d.maxPrice}: <b>{fmtPrice(maxPrice, allTutors.find((x) => x.sypRate)?.sypRate, lang === 'ar' ? 'ar' : 'en')}</b>
           </span>
           <input type="range" min={8} max={40} value={maxPrice} onChange={(e) => setMaxPrice(Number(e.target.value))} />
         </label>

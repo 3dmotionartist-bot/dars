@@ -112,7 +112,8 @@ class _TopUpScreenState extends State<TopUpScreen> {
       body: MaxWidth(
         max: 640,
         child: ListView(padding: const EdgeInsets.all(20), children: [
-          Text(ar ? 'المبلغ (دولار)' : 'Amount (USD)', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+          Text(Money.syp ? (ar ? 'المبلغ (ليرة سورية)' : 'Amount (SYP)') : (ar ? 'المبلغ (دولار)' : 'Amount (USD)'),
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
           const SizedBox(height: 10),
           TextField(
             controller: _amount,
@@ -122,7 +123,7 @@ class _TopUpScreenState extends State<TopUpScreen> {
             decoration: InputDecoration(
               prefixText: Money.syp ? null : '\$ ',
               suffixText: Money.syp ? (ar ? 'ل.س' : 'SYP') : null,
-              hintText: Money.syp ? (ar ? 'مثلاً 250000' : 'e.g. 250000') : (ar ? 'مثلاً 20' : 'e.g. 20'),
+              hintText: Money.syp ? '${ar ? 'مثلاً' : 'e.g.'} ${fromUsd(20).round()}' : (ar ? 'مثلاً 20' : 'e.g. 20'),
             ),
           ),
           const SizedBox(height: 10),
@@ -130,7 +131,8 @@ class _TopUpScreenState extends State<TopUpScreen> {
             for (final q in const [10, 20, 50, 100])
               ActionChip(
                 label: Text(money(q)),
-                onPressed: () => setState(() => _amount.text = '$q'),
+                // The field is in pounds when pounds are shown: the 10 $ chip fills 1500, not 10 (phone test 26 Nov 2026).
+                onPressed: () => setState(() => _amount.text = '${fromUsd(q).round()}'),
               ),
           ]),
           const SizedBox(height: 22),
