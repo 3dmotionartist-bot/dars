@@ -118,7 +118,7 @@ class TutorSettingsScreen extends StatelessWidget {
                     ),
                 ]),
               ),
-              Text(context.isAr ? 'أقل خصم 1% وأعلى خصم 50%' : 'Minimum discount 1%, maximum 50%', style: const TextStyle(color: AppColors.text3, fontSize: 12.5)),
+              Text(context.isAr ? 'من 0% (بلا خصم) حتى 50%' : 'From 0% (no discount) to 50%', style: const TextStyle(color: AppColors.text3, fontSize: 12.5)),
             ]),
           ),
         ]),

@@ -25,6 +25,7 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
 
   // Live app: the full "about" text and the reviews load when the profile opens (Stage 3 B3).
   Tutor? _full;
+  TutorSchedule? _schedule; // live: the tutor's real working hours
   List<Review>? _reviews;
   bool _moreReviews = false;
   bool _loadingReviews = false;
@@ -38,6 +39,11 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
         if (mounted && t != null) setState(() => _full = t);
       });
       WidgetsBinding.instance.addPostFrameCallback((_) => _loadReviews());
+    }
+    if (app.live) {
+      app.scheduleFor(widget.tutor).then((s) {
+        if (mounted) setState(() => _schedule = s);
+      });
     }
   }
 
@@ -191,7 +197,36 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
       ],
     ]));
 
-    final availability = _section(context.tr('availability'), Column(children: [
+    // Live: the tutor's own working hours (the sample times below showed for a tutor with none: test 26 Nov 2026).
+    const dayKeys = ['day_sun', 'day_mon', 'day_tue', 'day_wed', 'day_thu', 'day_fri', 'day_sat'];
+    final sched = _schedule;
+    final availability = app.live
+        ? _section(context.tr('availability'), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (sched == null)
+              const Padding(padding: EdgeInsets.all(8), child: LinearProgressIndicator())
+            else if (sched.periods.isEmpty)
+              Text(context.isAr ? 'لم يحدّد المدرس أوقات عمله بعد.' : 'This tutor has not set working hours yet.',
+                  key: const Key('profile-no-hours'), style: const TextStyle(color: AppColors.text2))
+            else ...[
+              for (final day in [6, 0, 1, 2, 3, 4, 5])
+                if (sched.periods.any((p) => p.weekday == day))
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(children: [
+                      SizedBox(width: 80, child: Text(context.tr(dayKeys[day]), style: const TextStyle(fontWeight: FontWeight.w600))),
+                      Expanded(
+                        child: Wrap(spacing: 6, runSpacing: 4, children: [
+                          for (final p in sched.periods.where((p) => p.weekday == day))
+                            Pill('${WorkPeriod.hm(p.start)}–${WorkPeriod.hm(p.end)}', bg: AppColors.surface, fg: AppColors.ink),
+                        ]),
+                      ),
+                    ]),
+                  ),
+              const SizedBox(height: 4),
+              Text(context.isAr ? 'بتوقيت المدرس' : "In the tutor's time zone", style: const TextStyle(color: AppColors.text3, fontSize: 12.5)),
+            ],
+          ]))
+        : _section(context.tr('availability'), Column(children: [
       for (final d in ['day_sat', 'day_sun', 'day_mon', 'day_tue', 'day_wed'])
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
