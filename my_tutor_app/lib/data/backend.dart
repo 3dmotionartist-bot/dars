@@ -209,7 +209,7 @@ class Backend {
   /// A tutor's visible reviews, newest first, [limit] at a time (loaded when the profile opens).
   Future<List<Map<String, dynamic>>> tutorReviews(String tutorId, {int offset = 0, int limit = 20}) => db
       .from('reviews')
-      .select('stars, comment, created_at')
+      .select('id, stars, comment, created_at, reply, student_lessons')
       .eq('tutor_id', tutorId)
       .eq('status', 'visible')
       .order('created_at', ascending: false)
@@ -698,6 +698,7 @@ class Backend {
       students: _int(r['students']),
       pricePerHour: _int(r['hourly_price']).clamp(1, 100000).toInt(),
       maxDiscount: _int(r['max_package_discount']),
+      trialPrice: r['trial_price'] == null ? null : _num(r['trial_price']),
       available: r['available_now'] == true,
       instantBooking: r['instant_booking'] != false,
       isNew: r['is_new'] == true,
@@ -749,6 +750,9 @@ class Backend {
       studentId: '${r['student_id'] ?? ''}',
       subjectId: '${r['subject_id'] ?? ''}',
       state: status == 'no_show' || status == 'disputed' ? status : '',
+      isTrial: r['is_trial'] == true,
+      summary: '${r['summary'] ?? ''}',
+      firstRefunded: r['first_refund_at'] != null,
     );
   }
 
@@ -845,6 +849,21 @@ class Backend {
     final s = '$e';
     return ServerText.show(s.startsWith('Exception: ') ? s.substring(11) : s);
   }
+
+  // Round H part 2: review replies, trial lesson, first-lesson refund, lesson summary.
+  Future<void> replyToReview(String reviewId, String text) => db.rpc('reply_to_review', params: {'p_review': reviewId, 'p_text': text});
+  Future<void> setTrialPrice(double? price) => db.rpc('set_trial_price', params: {'p_price': price});
+  Future<Map<String, dynamic>> bookTrialLesson({required String tutorId, required DateTime start, String? subject, bool online = true, bool useWallet = true, String method = 'card'}) async =>
+      Map<String, dynamic>.from(await db.rpc('book_trial_lesson', params: {
+        'p_tutor': tutorId,
+        'p_starts_at': start.toUtc().toIso8601String(),
+        'p_subject': subject,
+        'p_mode': online ? 'online' : 'in_person',
+        'p_use_wallet': useWallet,
+        'p_method': method,
+      }) as Map);
+  Future<num> firstLessonRefund(String lessonId) async => (await db.rpc('first_lesson_refund', params: {'p_lesson': lessonId})) as num;
+  Future<void> saveLessonSummary(String lessonId, String text) => db.rpc('save_lesson_summary', params: {'p_lesson': lessonId, 'p_text': text});
 
   /// Round H1: the English → Arabic list of server texts (anyone may read it).
   Future<List<Map<String, dynamic>>> serverTexts() async =>

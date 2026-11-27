@@ -81,7 +81,23 @@ class TutorLessonsScreen extends StatelessWidget {
                           ),
                       ]),
                 ListView(padding: const EdgeInsets.all(16), children: [
-                  for (final l in past) Padding(padding: const EdgeInsets.only(bottom: 12), child: LessonCard(lesson: l, tutorView: true)),
+                  for (final l in past)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        LessonCard(lesson: l, tutorView: true),
+                        // Round H5: a short summary for the student (and the parent).
+                        if (app.live && l.status == LessonStatus.delivered && l.state.isEmpty)
+                          TextButton.icon(
+                            key: Key('summary-btn-${l.id}'),
+                            onPressed: () => _summary(context, app, l),
+                            icon: const Icon(Icons.edit_note_rounded, size: 18),
+                            label: Text(l.summary.isEmpty
+                                ? (context.isAr ? 'اكتب ملخص الدرس' : 'Write a lesson summary')
+                                : (context.isAr ? 'تعديل الملخص' : 'Edit the summary')),
+                          ),
+                      ]),
+                    ),
                 ]),
               ]),
             ),
@@ -89,6 +105,28 @@ class TutorLessonsScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _summary(BuildContext context, AppState app, Lesson l) async {
+    final ar = context.isAr;
+    final ctl = TextEditingController(text: l.summary);
+    final text = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(ar ? 'ملخص الدرس' : 'Lesson summary'),
+        content: TextField(
+          controller: ctl,
+          maxLines: 6,
+          maxLength: 2000,
+          decoration: InputDecoration(hintText: ar ? 'ماذا درستم؟ ما الواجب؟ ما الخطوة القادمة؟' : 'What did you cover? Homework? Next step?'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c), child: Text(ar ? 'إلغاء' : 'Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(c, ctl.text), child: Text(ar ? 'إرسال للطالب' : 'Send to the student')),
+        ],
+      ),
+    );
+    if (text != null && text.trim().isNotEmpty) await app.saveLessonSummary(l, text);
   }
 
   void _addLink(BuildContext context, AppState app, Lesson l) {

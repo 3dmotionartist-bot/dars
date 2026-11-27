@@ -188,7 +188,20 @@ class LessonCard extends StatelessWidget {
                 Pill('${l.minutes} ${context.tr('min')}', bg: AppColors.surface, fg: AppColors.text2, icon: Icons.timer_outlined),
                 Pill(l.online ? context.tr('online') : context.tr('in_person'), bg: AppColors.surface, fg: AppColors.text2, icon: l.online ? Icons.videocam_outlined : Icons.home_outlined),
                 if (l.childName.isNotEmpty) Pill('${context.tr('for_child')} ${l.childName}', bg: AppColors.accentSoft, fg: AppColors.accent, icon: Icons.child_care_rounded),
+                if (l.isTrial) Pill(context.isAr ? 'درس تجريبي' : 'Trial', bg: AppColors.accentSoft, fg: AppColors.accent, icon: Icons.emoji_objects_rounded),
               ]),
+              // Round H5: the tutor's short summary of the lesson.
+              if (l.summary.isNotEmpty)
+                Container(
+                  key: Key('summary-${l.id}'),
+                  margin: const EdgeInsets.only(top: 8),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(10)),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(context.isAr ? 'ملخص الدرس' : 'Lesson summary', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5)),
+                    Text(l.summary, style: const TextStyle(color: AppColors.text2, height: 1.4)),
+                  ]),
+                ),
             ]),
           ),
           Text(money(l.price), style: const TextStyle(fontWeight: FontWeight.w800)),
@@ -253,6 +266,10 @@ class LessonCard extends StatelessWidget {
               ? Pill(context.tr('rated'), icon: Icons.check_rounded, bg: AppColors.successSoft, fg: AppColors.success)
               : btn(context.tr('rate_lesson'), Icons.star_outline_rounded, () => _review(context, app), primary: true),
           btn(context.tr('book_again'), Icons.replay_rounded, () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookingScreen(tutor: l.tutor, hourPrice: l.tutor.pricePerHour.toDouble(), subjectId: l.subjectId)))),
+          // Round H4: "first lesson not right" — the whole amount back, within 24 h, once per tutor.
+          if (app.canAskFirstRefund(l))
+            btn(context.isAr ? 'الدرس الأول لم يناسبني — استرداد' : 'First lesson not right — refund', Icons.undo_rounded,
+                () => _confirmFirstRefund(context, app), color: AppColors.danger),
           if (!l.reviewed || !app.live) ...[
             btn(context.tr('not_satisfied'), Icons.sentiment_dissatisfied_outlined, () {
               app.disputeLesson(l, 'Student not satisfied with the lesson (first-hour guarantee)');
@@ -267,6 +284,30 @@ class LessonCard extends StatelessWidget {
       case LessonStatus.cancelled:
         return [btn(context.tr('book_again'), Icons.replay_rounded, () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookingScreen(tutor: l.tutor, hourPrice: l.tutor.pricePerHour.toDouble(), subjectId: l.subjectId))))];
     }
+  }
+
+  void _confirmFirstRefund(BuildContext context, AppState app) {
+    final ar = context.isAr;
+    showDialog(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text(ar ? 'استرداد الدرس الأول' : 'First-lesson refund'),
+        content: Text(ar
+            ? 'سيُعاد كامل مبلغ هذا الدرس إلى رصيدك في درس. يمكنك طلب ذلك مرة واحدة فقط مع هذا المدرس.'
+            : 'The whole amount of this lesson goes back to your Dars balance. You can ask for it once with this tutor.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d), child: Text(ar ? 'تراجع' : 'Back')),
+          FilledButton(
+            key: const Key('first-refund-ok'),
+            onPressed: () {
+              Navigator.pop(d);
+              app.firstLessonRefund(lesson);
+            },
+            child: Text(ar ? 'استرداد' : 'Refund'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _confirmCancel(BuildContext context, AppState app) {

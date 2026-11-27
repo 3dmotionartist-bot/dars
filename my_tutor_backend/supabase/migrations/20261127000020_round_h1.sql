@@ -179,7 +179,7 @@ insert into server_texts (id, pattern, ar) values
   (158, 'You can now book lessons and chat with tutors\.', 'يمكنك الآن حجز الدروس ومراسلة المدرسين.'),
   (159, 'Lesson reminder', 'تذكير بالدرس')
 on conflict (id) do update set pattern = excluded.pattern, ar = excluded.ar;
-delete from server_texts where id > 159;  -- only list entries (no user data)
+delete from server_texts where id > 159 and id < 1000;  -- only list entries (no user data); later rounds use 1000+
 
 -- The Arabic for one English server text (null when it is not on the list).
 create or replace function server_text_ar(p text) returns text

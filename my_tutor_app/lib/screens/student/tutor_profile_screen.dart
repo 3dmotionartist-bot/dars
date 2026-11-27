@@ -38,12 +38,48 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
       app.tutorDetails(widget.tutor.id).then((t) {
         if (mounted && t != null) setState(() => _full = t);
       });
-      WidgetsBinding.instance.addPostFrameCallback((_) => _loadReviews());
     }
+    // Round H3: the tutor opening his own profile sees his reviews too, to answer them.
+    if (app.live) WidgetsBinding.instance.addPostFrameCallback((_) => _loadReviews());
     if (app.live) {
       app.scheduleFor(widget.tutor).then((s) {
         if (mounted) setState(() => _schedule = s);
       });
+    }
+  }
+
+  bool get _mine {
+    final app = context.read<AppState>();
+    return app.live && app.role == UserRole.tutor && widget.tutor.id == app.me.id;
+  }
+
+  /// Round H3: one answer per review, from the tutor's own profile.
+  Future<void> _reply(Review r) async {
+    final ctl = TextEditingController();
+    final ar = context.isAr;
+    final text = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(ar ? 'ردّ على التقييم' : 'Reply to the review'),
+        content: TextField(
+          controller: ctl,
+          maxLines: 4,
+          maxLength: 1000,
+          decoration: InputDecoration(hintText: ar ? 'شكراً على رأيك…' : 'Thanks for your feedback…'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c), child: Text(ar ? 'إلغاء' : 'Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(c, ctl.text), child: Text(ar ? 'نشر (مرة واحدة)' : 'Publish (once)')),
+        ],
+      ),
+    );
+    if (text == null || text.trim().isEmpty || !mounted) return;
+    if (await context.read<AppState>().replyToReview(r, text) && mounted) {
+      setState(() {
+        _reviews = null;
+        _moreReviews = false;
+      });
+      await _loadReviews();
     }
   }
 
@@ -267,7 +303,30 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
                   for (int i = 0; i < 5; i++) Icon(Icons.star_rounded, size: 15, color: i < r.stars ? AppColors.accent : AppColors.line),
                 ]),
                 Text(r.text.of(context), style: const TextStyle(color: AppColors.text2, height: 1.5)),
-                Text(r.date, style: const TextStyle(color: AppColors.text3, fontSize: 12)),
+                Text(
+                  r.lessons > 0 ? '${r.date} · ${r.lessons} ${context.isAr ? (r.lessons == 1 ? 'درس' : 'دروس') : (r.lessons == 1 ? 'lesson' : 'lessons')}' : r.date,
+                  style: const TextStyle(color: AppColors.text3, fontSize: 12),
+                ),
+                if (r.reply.isNotEmpty)
+                  Container(
+                    margin: const EdgeInsets.only(top: 6),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(10)),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(context.isAr ? 'ردّ المدرس' : "Tutor's reply", style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5)),
+                      Text(r.reply, style: const TextStyle(color: AppColors.text2, height: 1.4)),
+                    ]),
+                  )
+                else if (_mine && r.id.isNotEmpty)
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: TextButton.icon(
+                      key: Key('reply-${r.id}'),
+                      onPressed: () => _reply(r),
+                      icon: const Icon(Icons.reply_rounded, size: 18),
+                      label: Text(context.isAr ? 'ردّ' : 'Reply'),
+                    ),
+                  ),
               ]),
             ),
           ]),
@@ -285,7 +344,35 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
       _kv(Icons.workspace_premium_rounded, context.tr('guarantee_t'), context.tr('guarantee_b')),
     ]));
 
-    final left = [header, const SizedBox(height: 12), about, subjects, availability, reviews];
+    // Round H4: the tutor's 20-minute trial, offered before the first lesson with him.
+    final firstTime = !app.lessons.any((l) => l.tutor.id == t.id && l.status != LessonStatus.cancelled);
+    final trialCard = app.live && t.trialPrice != null && firstTime && t.id != app.me.id
+        ? Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: AppCard(
+              key: const Key('trial-card'),
+              color: AppColors.accentSoft,
+              borderColor: AppColors.accent,
+              child: Row(children: [
+                const Icon(Icons.emoji_objects_rounded, color: AppColors.accent),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    context.isAr
+                        ? 'درس تجريبي 20 دقيقة بـ ${money(t.trialPrice!)} — لأول درس مع هذا المدرس'
+                        : '20-minute trial for ${money(t.trialPrice!)} — for your first lesson with this tutor',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookingScreen(tutor: t, hourPrice: levelPrice, trial: true))),
+                  child: Text(context.isAr ? 'احجز' : 'Book'),
+                ),
+              ]),
+            ),
+          )
+        : const SizedBox.shrink();
+    final left = [header, const SizedBox(height: 12), trialCard, about, subjects, availability, reviews];
     final right = [video, const SizedBox(height: 12), fees, policies];
 
     return Scaffold(
@@ -318,7 +405,7 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
                   Expanded(flex: 2, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: right)),
                 ]),
               )
-            : ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 110), children: [header, const SizedBox(height: 12), video, const SizedBox(height: 12), about, subjects, fees, availability, reviews, policies]),
+            : ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 110), children: [header, const SizedBox(height: 12), trialCard, video, const SizedBox(height: 12), about, subjects, fees, availability, reviews, policies]),
       ),
       bottomNavigationBar: SafeArea(
         child: Container(
