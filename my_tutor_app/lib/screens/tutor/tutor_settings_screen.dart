@@ -119,10 +119,87 @@ class TutorSettingsScreen extends StatelessWidget {
                 ]),
               ),
               Text(context.isAr ? 'من 0% (بلا خصم) حتى 50%' : 'From 0% (no discount) to 50%', style: const TextStyle(color: AppColors.text3, fontSize: 12.5)),
+              if (app.live) ...[const SizedBox(height: 16), const _TrialPriceCard()],
             ]),
           ),
         ]),
       ),
+    );
+  }
+}
+
+/// Round H4: the tutor's 20-minute trial lesson (once per student, before the first lesson). The price is typed
+/// in pounds when pounds are shown and kept in dollars, like the rest of the money.
+class _TrialPriceCard extends StatefulWidget {
+  const _TrialPriceCard();
+  @override
+  State<_TrialPriceCard> createState() => _TrialPriceCardState();
+}
+
+class _TrialPriceCardState extends State<_TrialPriceCard> {
+  late final TextEditingController _price;
+
+  @override
+  void initState() {
+    super.initState();
+    final p = context.read<AppState>().myTrialPrice;
+    _price = TextEditingController(text: p == null ? '' : '${fromUsd(p).round()}');
+  }
+
+  @override
+  void dispose() {
+    _price.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    final ar = context.isAr;
+    final on = app.myTrialPrice != null;
+    return AppCard(
+      key: const Key('trial-settings'),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(ar ? 'درس تجريبي (20 دقيقة)' : 'Trial lesson (20 minutes)', style: const TextStyle(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 4),
+        Text(
+          ar ? 'يحجزه الطالب مرة واحدة كأول درس معك، بسعر أقل تحدده أنت.' : 'A student books it once, as the first lesson with you, at a lower price you choose.',
+          style: const TextStyle(color: AppColors.text2),
+        ),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(
+            child: TextField(
+              controller: _price,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                hintText: ar ? 'السعر' : 'Price',
+                suffixText: Money.syp ? (ar ? 'ل.س' : 'SYP') : null,
+                prefixText: Money.syp ? null : '\$ ',
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          FilledButton(
+            key: const Key('trial-save'),
+            onPressed: () {
+              final v = double.tryParse(_price.text.trim().replaceAll(',', '.'));
+              if (v == null || v <= 0) return;
+              app.setTrialPrice(double.parse(toUsd(v).toStringAsFixed(2)));
+            },
+            child: Text(ar ? 'حفظ' : 'Save'),
+          ),
+        ]),
+        if (on)
+          TextButton(
+            key: const Key('trial-off'),
+            onPressed: () {
+              _price.clear();
+              app.setTrialPrice(null);
+            },
+            child: Text(ar ? 'إيقاف الدرس التجريبي' : 'Turn the trial off'),
+          ),
+      ]),
     );
   }
 }

@@ -18,7 +18,8 @@ class BookingScreen extends StatefulWidget {
   final double hourPrice;
   /// The subject to book ("Book again" passes the lesson's subject); default: the tutor's first subject.
   final String? subjectId;
-  const BookingScreen({super.key, required this.tutor, required this.hourPrice, this.subjectId});
+  final bool trial; // Round H4: the 20-minute trial lesson at the tutor's trial price
+  const BookingScreen({super.key, required this.tutor, required this.hourPrice, this.subjectId, this.trial = false});
   @override
   State<BookingScreen> createState() => _BookingScreenState();
 }
@@ -56,11 +57,13 @@ class _BookingScreenState extends State<BookingScreen> {
   String get _subjectId => _pickedSubject ?? bookingSubject(widget.subjectId, _t.subjectIds);
   static double _r2(num v) => (v * 100).round() / 100;
   /// Same rule as the server: hourly price × minutes / 60, rounded to cents.
-  double _lessonPrice(int minutes) => _r2(_hourly * minutes / 60);
+  bool get _trial => widget.trial && widget.tutor.trialPrice != null;
+  double _lessonPrice(int minutes) => _trial ? (widget.tutor.trialPrice ?? 0) : _r2(_hourly * minutes / 60);
 
   @override
   void initState() {
     super.initState();
+    if (widget.trial) _minutes = 20;
     final app = context.read<AppState>();
     if (_loadingTutor) {
       app.tutorDetails(widget.tutor.id).then((t) {
@@ -93,7 +96,7 @@ class _BookingScreenState extends State<BookingScreen> {
     });
   }
 
-  int get _lessonMinutes => _package ? 60 : _minutes;
+  int get _lessonMinutes => _package ? 60 : (_trial ? 20 : _minutes);
 
   /// Start times on day [i] (from today), in my local time, with whether each one is already taken.
   List<({DateTime time, bool taken})> _timesFor(int i) {
@@ -151,7 +154,19 @@ class _BookingScreenState extends State<BookingScreen> {
     Widget body;
     switch (_current) {
       case 'step_type':
-        body = Column(children: [
+        body = _trial
+            ? Column(children: [
+                ChoiceTile(
+                  key: const Key('trial-tile'),
+                  title: ar ? 'درس تجريبي' : 'Trial lesson',
+                  subtitle: '${ar ? '20 دقيقة · مرة واحدة مع هذا المدرس' : '20 minutes · once with this tutor'} · ${money(_lessonPrice(20))}',
+                  icon: Icons.emoji_objects_rounded,
+                  color: AppColors.accent,
+                  selected: true,
+                  onTap: () {},
+                ),
+              ])
+            : Column(children: [
           ChoiceTile(
             title: context.tr('single_lesson'),
             subtitle: context.tr('single_lesson_d'),
@@ -525,7 +540,7 @@ class _BookingScreenState extends State<BookingScreen> {
                               tutor: t,
                               isPackage: _package,
                               hours: _hours,
-                              minutes: _minutes,
+                              minutes: _trial ? 20 : _minutes,
                               start: start,
                               online: _online,
                               total: total,
@@ -534,7 +549,8 @@ class _BookingScreenState extends State<BookingScreen> {
                               subjectId: _subjectId,
                               method: _method ?? 'bank',
                               notes: _notes.text,
-                              childId: _package ? null : _childId,
+                              childId: _package || _trial ? null : _childId,
+                              trial: _trial,
                             );
                           } catch (e) {
                             if (mounted) setState(() => _processing = false);

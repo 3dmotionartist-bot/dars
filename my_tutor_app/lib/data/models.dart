@@ -32,7 +32,10 @@ class Review {
   final int stars;
   final L text;
   final String date;
-  const Review(this.author, this.stars, this.text, this.date);
+  final String id; // backend review id ('' in demo)
+  final String reply; // the tutor's one answer ('' = none yet) — Round H3
+  final int lessons; // lessons the student had with the tutor when reviewing (0 = unknown)
+  const Review(this.author, this.stars, this.text, this.date, {this.id = '', this.reply = '', this.lessons = 0});
 }
 
 class Tutor {
@@ -63,6 +66,7 @@ class Tutor {
   final List<Review> reviews;
   final String photoUrl; // profile photo ('' = initials)
   final String videoUrl; // intro video ('' = none)
+  final double? trialPrice; // Round H4: price of the 20-minute first lesson (null = no trial)
   /// Only an id and a name are known (the tutor is not in the public list any more, or not loaded yet).
   /// Never priced or booked from: the booking screen loads the real tutor first.
   final bool stub;
@@ -95,6 +99,7 @@ class Tutor {
     this.reviews = const [],
     this.photoUrl = '',
     this.videoUrl = '',
+    this.trialPrice,
     this.stub = false,
   });
 
@@ -122,6 +127,9 @@ class Lesson {
   final String childName; // Round E3: booked by a parent for this child ('' = for the account holder)
   /// Round F: the server status when it says more than [status]: 'no_show' or 'disputed' ('' otherwise).
   final String state;
+  final bool isTrial; // Round H4: the 20-minute trial lesson
+  String summary; // Round H5: the tutor's short summary ('' = none)
+  bool firstRefunded; // Round H4: refunded as "first lesson not right"
 
   Lesson({
     required this.id,
@@ -141,6 +149,9 @@ class Lesson {
     this.subjectId = '',
     this.childName = '',
     this.state = '',
+    this.isTrial = false,
+    this.summary = '',
+    this.firstRefunded = false,
   });
 }
 

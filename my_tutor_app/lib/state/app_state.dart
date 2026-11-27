@@ -400,6 +400,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     } catch (_) {}
     final subjects = await _b.mySubjects();
     _me = Backend.tutorFromRow({...tp, 'id': _b.uid, 'full_name': name, 'subject_ids': subjects, 'avatar_url': avatarUrl});
+    myTrialPrice = tp['trial_price'] == null ? null : (tp['trial_price'] as num).toDouble();
     return name.trim().isNotEmpty && '${tp['headline'] ?? ''}'.trim().isNotEmpty;
   }
 
@@ -505,7 +506,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       final c = (r['comment'] as String?) ?? '';
       final d = Backend.time(r['created_at']);
       return Review(const L('طالب في درس', 'Dars student'), (r['stars'] as num?)?.toInt() ?? 5, L(c, c),
-          '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}');
+          '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}',
+          id: '${r['id'] ?? ''}', reply: '${r['reply'] ?? ''}', lessons: (r['student_lessons'] as num?)?.toInt() ?? 0);
     }).toList();
   }
 
@@ -1901,11 +1903,15 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     String method = 'bank', // pay-to key of the transfer method (used when credit does not cover it)
     String notes = '',
     String? childId, // Round E3: a parent books for a child profile
+    bool trial = false, // Round H4: the 20-minute trial lesson at the tutor's trial price
   }) async {
     if (live) {
       final pm = methodValue(method);
       final Map res;
-      if (isPackage) {
+      if (trial && !isPackage) {
+        res = await _b.bookTrialLesson(
+            tutorId: tutor.id, start: start, subject: subjectId ?? tutor.subjectIds.first, online: online, useWallet: balanceUsed > 0, method: pm);
+      } else if (isPackage) {
         res = await _b.rpc('buy_package', {'p_tutor': tutor.id, 'p_hours': hours, 'p_level': levelId, 'p_use_wallet': balanceUsed > 0, 'p_method': pm}) as Map;
       } else {
         res = await _b.rpc(childId == null ? 'book_lesson' : 'book_lesson_for_child', {
@@ -1970,6 +1976,51 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     conversationFor(tutor);
     notifyListeners();
     return created;
+  }
+
+  // ── Round H part 2 ──────────────────────────────────────────────────────────────────────────────────────
+  /// The tutor answers a review once (contact details are hidden by the server).
+  Future<bool> replyToReview(Review r, String text) =>
+      _run(() => _b.replyToReview(r.id, text.trim()), ok: _t('تم نشر ردّك', 'Your reply is published'));
+
+  /// The tutor's 20-minute trial price; null turns the trial off.
+  double? myTrialPrice;
+  Future<bool> setTrialPrice(double? price) async {
+    final ok = await _run(() => _b.setTrialPrice(price), ok: _t('تم الحفظ', 'Saved'));
+    if (ok) {
+      myTrialPrice = price;
+      notifyListeners();
+    }
+    return ok;
+  }
+
+  /// "First lesson not right": within 24 h after the first lesson with a tutor, once per tutor.
+  bool canAskFirstRefund(Lesson l) {
+    if (!live || l.firstRefunded || l.childName.isNotEmpty) return false;
+    final end = l.start.add(Duration(minutes: l.minutes));
+    final now = DateTime.now();
+    if (now.isBefore(end) || now.isAfter(end.add(const Duration(hours: 24)))) return false;
+    if (l.status == LessonStatus.cancelled || l.state.isNotEmpty) return false;
+    final same = lessons.where((o) => o.tutor.id == l.tutor.id && o.id != l.id);
+    if (same.any((o) => o.firstRefunded)) return false;
+    return !same.any((o) => o.status != LessonStatus.cancelled && o.start.isBefore(l.start));
+  }
+
+  Future<bool> firstLessonRefund(Lesson l) async {
+    final ok = await _run(() => _b.firstLessonRefund(l.id),
+        ok: _t('أُعيد مبلغ الدرس إلى رصيدك', 'The lesson amount is back in your balance'));
+    if (ok) await refresh();
+    return ok;
+  }
+
+  /// The tutor's short summary of a lesson, for the student (and the parent).
+  Future<bool> saveLessonSummary(Lesson l, String text) async {
+    final ok = await _run(() => _b.saveLessonSummary(l.id, text.trim()), ok: _t('تم إرسال الملخص', 'Summary sent'));
+    if (ok) {
+      l.summary = text.trim();
+      notifyListeners();
+    }
+    return ok;
   }
 
   /// Tutor-defined package discount for a number of hours (capped by the tutor's max).
