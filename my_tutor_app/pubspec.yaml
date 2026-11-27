@@ -21,6 +21,9 @@ dependencies:
   # Chat photos / videos, profile photo, tutor intro video
   image_picker: ^1.1.2
   video_player: ^2.9.2
+  # Round G2: documents in a chat, smaller videos before sending (Android)
+  file_picker: ^8.1.2
+  video_compress: 3.1.4
 
 dev_dependencies:
   flutter_test:

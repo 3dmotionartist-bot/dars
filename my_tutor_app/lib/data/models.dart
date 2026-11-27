@@ -155,6 +155,55 @@ class Lesson {
   });
 }
 
+/// Round G2: the kind of document a file is, from its name or stored path ('' when it is not a document).
+String docKind(String nameOrPath) {
+  final e = RegExp(r'\.([a-zA-Z0-9]{2,5})$').firstMatch(nameOrPath.trim())?.group(1)?.toLowerCase() ?? '';
+  return switch (e) {
+    'pdf' => 'PDF',
+    'doc' || 'docx' => 'Word',
+    'xls' || 'xlsx' => 'Excel',
+    'ppt' || 'pptx' => 'PowerPoint',
+    'txt' => 'TXT',
+    _ => '',
+  };
+}
+
+/// Round G2: the document types a chat takes, with the type the server expects for each.
+const docMimes = <String, String>{
+  'pdf': 'application/pdf',
+  'doc': 'application/msword',
+  'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'xls': 'application/vnd.ms-excel',
+  'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'ppt': 'application/vnd.ms-powerpoint',
+  'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'txt': 'text/plain',
+};
+
+/// Round G2: a file message's label ("ملف PDF" / "PDF file"), from the name I picked or the stored path.
+String fileLabel(Message m, {required bool ar}) {
+  final named = m.text.isNotEmpty && m.text != '📎' ? m.text : '';
+  final kind = docKind(named.isNotEmpty ? named : m.url);
+  if (named.isNotEmpty) return named;
+  if (kind.isEmpty) return ar ? 'ملف' : 'File';
+  return ar ? 'ملف $kind' : '$kind file';
+}
+
+/// Round G2: "last seen" under a chat's name ('' when unknown).
+String lastSeenLabel(DateTime? seen, DateTime now, {required bool ar}) {
+  if (seen == null) return '';
+  final s = seen.toLocal();
+  final d = now.difference(s);
+  if (d.inMinutes < 2) return ar ? 'متصل الآن' : 'Online now';
+  if (d.inMinutes < 60) return ar ? 'آخر ظهور منذ ${d.inMinutes} د' : 'Last seen ${d.inMinutes} min ago';
+  String hm() => '${s.hour.toString().padLeft(2, '0')}:${s.minute.toString().padLeft(2, '0')}';
+  final today = DateTime(now.year, now.month, now.day);
+  final day = DateTime(s.year, s.month, s.day);
+  if (day == today) return ar ? 'آخر ظهور اليوم ${hm()}' : 'Last seen today ${hm()}';
+  if (day == today.subtract(const Duration(days: 1))) return ar ? 'آخر ظهور أمس ${hm()}' : 'Last seen yesterday ${hm()}';
+  return ar ? 'آخر ظهور ${s.day}/${s.month}' : 'Last seen ${s.day}/${s.month}';
+}
+
 /// Round G1: how many different students a tutor has actually taught (delivered, not no-show or disputed).
 int studentsTaught(Iterable<Lesson> lessons) =>
     lessons.where((l) => l.status == LessonStatus.delivered && l.studentId.isNotEmpty && l.state.isEmpty).map((l) => l.studentId).toSet().length;

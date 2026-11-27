@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase/supabase.dart' show RealtimeChannel, RealtimeSubscribeStatus;
 
@@ -13,6 +15,7 @@ import '../../l10n.dart';
 import '../../services/board_sync.dart';
 import '../../services/call_logic.dart';
 import '../../services/call_native.dart';
+import '../../state/app_state.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart' show toast;
 
@@ -1408,6 +1411,40 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
     });
   }
 
+  // Round G2: the board as a picture, sent to the chat with the other person.
+  bool _savingBoard = false;
+  Future<void> _saveBoard() async {
+    final ar = context.isAr;
+    if (_strokes.isEmpty) {
+      toast(context, ar ? 'اللوح فارغ' : 'The board is empty', icon: Icons.info_outline);
+      return;
+    }
+    final app = context.read<AppState>();
+    setState(() => _savingBoard = true);
+    var ok = false;
+    try {
+      const side = 1080.0;
+      final rec = ui.PictureRecorder();
+      final canvas = Canvas(rec)..scale(side / 360); // lines as thick as on the phone's board
+      _BoardPainter(List.of(_strokes), AppColors.primary, _peerInk).paint(canvas, const Size(360, 360));
+      final img = await rec.endRecording().toImage(side.toInt(), side.toInt());
+      final data = await img.toByteData(format: ui.ImageByteFormat.png);
+      img.dispose();
+      if (data != null) ok = await app.sendBoardImage(widget.room, data.buffer.asUint8List());
+    } catch (_) {
+      ok = false;
+    }
+    if (!mounted) return;
+    setState(() => _savingBoard = false);
+    toast(
+      context,
+      ok
+          ? (ar ? 'حُفظ اللوح كصورة في المحادثة' : 'The board was saved to the chat as a picture')
+          : (ar ? 'تعذّر حفظ اللوح في المحادثة' : 'Could not save the board to the chat'),
+      icon: ok ? Icons.check_circle_outline : Icons.error_outline,
+    );
+  }
+
   Widget _boardView(BuildContext context) {
     final peer = _peerName.isEmpty ? (context.isAr ? 'الطرف الآخر' : 'Other person') : _peerName;
     return Column(children: [
@@ -1418,6 +1455,13 @@ class _LiveCallScreenState extends State<LiveCallScreen> {
           const SizedBox(width: 14),
           _legend(_peerInk, peer),
           const Spacer(),
+          IconButton(
+            tooltip: context.isAr ? 'حفظ اللوح في المحادثة' : 'Save the board to the chat',
+            onPressed: _savingBoard ? null : _saveBoard,
+            icon: _savingBoard
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white70))
+                : const Icon(Icons.save_alt_rounded, color: Colors.white70),
+          ),
           TextButton.icon(
             onPressed: _clearBoard,
             icon: const Icon(Icons.delete_sweep_outlined, color: Colors.white70),

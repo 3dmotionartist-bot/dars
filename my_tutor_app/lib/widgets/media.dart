@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../data/models.dart';
@@ -13,7 +14,7 @@ import 'common.dart';
 
 String _clock(int secs) => '${secs ~/ 60}:${two(secs % 60)}';
 
-/// Voice note in a chat bubble: tap to play / stop.
+/// Voice note in a chat bubble: tap to play / stop, tap or drag the bars to jump, 1× / 1.5× / 2×.
 class VoiceNote extends StatefulWidget {
   final Message m;
   const VoiceNote({super.key, required this.m});
@@ -21,17 +22,26 @@ class VoiceNote extends StatefulWidget {
   State<VoiceNote> createState() => _VoiceNoteState();
 }
 
+/// Round G2: the next voice-note speed after [r] (1 → 1.5 → 2 → 1).
+double nextVoiceSpeed(double r) => r < 1.25 ? 1.5 : (r < 1.75 ? 2 : 1);
+
 class _VoiceNoteState extends State<VoiceNote> {
   static _VoiceNoteState? _playing; // only one voice note plays at a time
+  static double _rate = 1; // the speed is kept for the next voice notes too
   bool _busy = false;
   bool _on = false;
-  int _left = 0;
+  int _pos = 0; // ms
+  int _len = 0; // ms
   Timer? _tick;
 
   int get _total => widget.m.seconds > 0 ? widget.m.seconds : 1;
+  int get _lenMs => _len > 0 ? _len : _total * 1000;
 
-  Future<void> _toggle() async {
-    if (_on) return _stop();
+  Future<void> _toggle({double? jumpTo}) async {
+    if (_on) {
+      if (jumpTo != null) return _seek(jumpTo);
+      return _stop();
+    }
     if (widget.m.url.isEmpty || _busy) return;
     _playing?._stop();
     setState(() => _busy = true);
@@ -44,33 +54,58 @@ class _VoiceNoteState extends State<VoiceNote> {
       return;
     }
     _playing = this;
-    final secs = ms > 0 ? (ms / 1000).ceil() : _total;
+    if (_rate != 1) unawaited(MediaBridge.speed(_rate));
     setState(() {
       _busy = false;
       _on = true;
-      _left = secs;
+      _pos = 0;
+      _len = ms;
     });
-    _tick = Timer.periodic(const Duration(seconds: 1), (t) {
+    if (jumpTo != null) unawaited(_seek(jumpTo));
+    var misses = 0;
+    _tick = Timer.periodic(const Duration(milliseconds: 250), (t) async {
       if (!mounted) return t.cancel();
-      if (_left <= 1) {
-        _stop(silent: true);
-      } else {
-        setState(() => _left--);
+      final p = await MediaBridge.position();
+      if (!mounted || !_on) return;
+      if (p == null) {
+        if (++misses >= 2) _stop(silent: true); // finished
+        return;
       }
+      misses = 0;
+      setState(() {
+        _pos = p[0];
+        if (p[1] > 0) _len = p[1];
+      });
     });
+  }
+
+  Future<void> _seek(double fraction) async {
+    final ms = (fraction.clamp(0.0, 1.0) * _lenMs).round();
+    setState(() => _pos = ms);
+    await MediaBridge.seek(ms);
+  }
+
+  void _cycleSpeed() {
+    setState(() => _rate = nextVoiceSpeed(_rate));
+    if (_on) unawaited(MediaBridge.speed(_rate));
   }
 
   void _stop({bool silent = false}) {
     _tick?.cancel();
     if (!silent) MediaBridge.stopPlaying();
     if (identical(_playing, this)) _playing = null;
-    if (mounted) setState(() => _on = false);
+    if (mounted) {
+      setState(() {
+        _on = false;
+        _pos = 0;
+      });
+    }
   }
 
   @override
   void dispose() {
+    _tick?.cancel();
     if (_on) {
-      _tick?.cancel();
       MediaBridge.stopPlaying();
       if (identical(_playing, this)) _playing = null;
     }
@@ -82,7 +117,16 @@ class _VoiceNoteState extends State<VoiceNote> {
     final m = widget.m;
     final fg = m.mine ? Colors.white : AppColors.ink;
     final accent = m.mine ? Colors.white : AppColors.primary;
-    final progress = _on ? 1 - (_left / _total).clamp(0.0, 1.0) : 0.0;
+    final progress = _on ? (_pos / _lenMs).clamp(0.0, 1.0) : 0.0;
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    const bars = 18;
+    const barsWidth = bars * 5.0;
+    double fractionAt(double dx) {
+      final f = (dx / barsWidth).clamp(0.0, 1.0);
+      return rtl ? 1 - f : f;
+    }
+
+    final left = _on ? ((_lenMs - _pos) / 1000).ceil() : _total;
     return Row(mainAxisSize: MainAxisSize.min, children: [
       SizedBox(
         width: 36,
@@ -96,19 +140,107 @@ class _VoiceNoteState extends State<VoiceNote> {
               ),
       ),
       const SizedBox(width: 6),
-      for (int i = 0; i < 18; i++)
-        Container(
-          width: 3,
-          height: 6.0 + (i * 7 % 17),
-          margin: const EdgeInsets.symmetric(horizontal: 1),
-          decoration: BoxDecoration(
-            color: (i / 18) < progress ? accent : fg.withOpacity(0.45),
-            borderRadius: BorderRadius.circular(2),
-          ),
+      GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapUp: m.sending ? null : (d) => _toggle(jumpTo: fractionAt(d.localPosition.dx)),
+        onHorizontalDragUpdate: _on ? (d) => setState(() => _pos = (fractionAt(d.localPosition.dx) * _lenMs).round()) : null,
+        onHorizontalDragEnd: _on ? (_) => MediaBridge.seek(_pos) : null,
+        child: SizedBox(
+          width: barsWidth,
+          height: 36,
+          child: Row(children: [
+            for (int i = 0; i < bars; i++)
+              Container(
+                width: 3,
+                height: 6.0 + (i * 7 % 17),
+                margin: const EdgeInsets.symmetric(horizontal: 1),
+                decoration: BoxDecoration(
+                  color: (i / bars) < progress ? accent : fg.withOpacity(0.45),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+          ]),
         ),
+      ),
       const SizedBox(width: 8),
-      Text(_clock(_on ? _left : _total), style: TextStyle(color: fg, fontSize: 12)),
+      Text(_clock(left < 0 ? 0 : left), style: TextStyle(color: fg, fontSize: 12)),
+      const SizedBox(width: 6),
+      InkWell(
+        onTap: _cycleSpeed,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(color: fg.withOpacity(0.15), borderRadius: BorderRadius.circular(10)),
+          child: Text('${_rate == 1.5 ? '1.5' : _rate.toInt()}×', style: TextStyle(color: fg, fontSize: 11.5, fontWeight: FontWeight.w800)),
+        ),
+      ),
     ]);
+  }
+}
+
+/// Round G2: a document in a chat bubble (PDF / Word / Excel / PowerPoint / text): tap to open it.
+class ChatFile extends StatefulWidget {
+  final Message m;
+  const ChatFile({super.key, required this.m});
+  @override
+  State<ChatFile> createState() => _ChatFileState();
+}
+
+class _ChatFileState extends State<ChatFile> {
+  bool _opening = false;
+
+  Future<void> _open() async {
+    final m = widget.m;
+    if (m.url.isEmpty || _opening) return;
+    setState(() => _opening = true);
+    final url = await context.read<AppState>().mediaUrl(m.url);
+    var ok = false;
+    if (url.isNotEmpty) {
+      try {
+        ok = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+      } catch (_) {
+        ok = false;
+      }
+    }
+    if (!mounted) return;
+    setState(() => _opening = false);
+    if (!ok) toast(context, context.isAr ? 'تعذّر فتح الملف' : 'Could not open the file', icon: Icons.error_outline);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final m = widget.m;
+    final fg = m.mine ? Colors.white : AppColors.ink;
+    final kind = docKind(m.text != '📎' && m.text.isNotEmpty ? m.text : m.url);
+    final icon = switch (kind) {
+      'PDF' => Icons.picture_as_pdf_rounded,
+      'Excel' => Icons.table_chart_rounded,
+      'PowerPoint' => Icons.slideshow_rounded,
+      _ => Icons.description_rounded,
+    };
+    return InkWell(
+      onTap: m.sending ? null : _open,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          SizedBox(
+            width: 30,
+            height: 30,
+            child: m.sending || _opening
+                ? Padding(padding: const EdgeInsets.all(6), child: CircularProgressIndicator(strokeWidth: 2.2, color: fg))
+                : Icon(icon, color: fg, size: 28),
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              Text(fileLabel(m, ar: context.isAr), maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: fg, fontWeight: FontWeight.w700)),
+              Text(context.isAr ? 'اضغط للفتح' : 'Tap to open', style: TextStyle(color: fg.withOpacity(0.7), fontSize: 11.5)),
+            ]),
+          ),
+        ]),
+      ),
+    );
   }
 }
 

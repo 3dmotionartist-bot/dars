@@ -82,6 +82,33 @@ class MediaBridge {
     }
   }
 
+  /// Round G2: where the playing voice note is ([position, length] in ms), or null when nothing plays.
+  static Future<List<int>?> position() async {
+    try {
+      if (kIsWeb) return web.position();
+      final r = await _ch.invokeListMethod<int>('playPos');
+      return r == null || r.length < 2 || r[0] < 0 ? null : r;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Round G2: jumps the playing voice note to [ms].
+  static Future<void> seek(int ms) async {
+    try {
+      if (kIsWeb) return web.seek(ms);
+      await _ch.invokeMethod('playSeek', {'ms': ms});
+    } catch (_) {}
+  }
+
+  /// Round G2: plays the voice note faster (1, 1.5 or 2).
+  static Future<void> speed(double rate) async {
+    try {
+      if (kIsWeb) return web.speed(rate);
+      await _ch.invokeMethod('playSpeed', {'rate': rate});
+    } catch (_) {}
+  }
+
   static Future<void> stopPlaying() async {
     try {
       if (kIsWeb) {
