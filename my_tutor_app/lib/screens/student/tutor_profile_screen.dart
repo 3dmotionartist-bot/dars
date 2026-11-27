@@ -431,7 +431,10 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
                 : Row(children: [
               Expanded(
                 child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('${money(levelPrice.round())}${context.tr('per_hour')}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+                  Text.rich(TextSpan(children: [
+                    ...moneySpans(levelPrice.round(), const TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppColors.ink)),
+                    TextSpan(text: context.tr('per_hour'), style: const TextStyle(fontSize: 12, color: AppColors.text3)),
+                  ])),
                   Text(level.name.of(context), style: const TextStyle(color: AppColors.text3, fontSize: 12.5)),
                 ]),
               ),

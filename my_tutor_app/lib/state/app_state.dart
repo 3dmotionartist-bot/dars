@@ -2256,11 +2256,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Students I have taught (delivered lessons), counted like the public profile does (build 46 test: the
   /// dashboard showed 0 from the profile row while the profile said 2).
-  int get taughtStudents => lessons
-      .where((l) => l.status == LessonStatus.delivered && l.studentId.isNotEmpty && l.state.isEmpty)
-      .map((l) => l.studentId)
-      .toSet()
-      .length;
+  int get taughtStudents => studentsTaught(tutorLessons);
 
   /// Round G1: delete my own message for both people (the admins keep a copy).
   Future<bool> deleteMessage(Conversation c, Message m) async {

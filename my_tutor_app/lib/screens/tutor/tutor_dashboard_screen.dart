@@ -172,7 +172,7 @@ class TutorDashboardScreen extends StatelessWidget {
                               color: app.dndHours == h ? AppColors.accent : (app.tutorAvailable ? const Color(0x26FFFFFF) : AppColors.surface),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: Text('${h}h', style: TextStyle(fontWeight: FontWeight.w700, color: app.tutorAvailable ? Colors.white : AppColors.ink)),
+                            child: Text(context.isAr ? '$h س' : '${h}h', style: TextStyle(fontWeight: FontWeight.w700, color: app.tutorAvailable ? Colors.white : AppColors.ink)),
                           ),
                         ),
                       ),

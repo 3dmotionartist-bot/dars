@@ -112,6 +112,19 @@ class _VoiceNoteState extends State<VoiceNote> {
   }
 }
 
+/// A spinner while a photo downloads (the bubble used to stay blank).
+Widget _loading(BuildContext context, Widget child, ImageChunkEvent? p) => p == null
+    ? child
+    : Container(
+        color: Colors.black12,
+        child: Center(
+          child: CircularProgressIndicator(
+            strokeWidth: 2.4,
+            value: p.expectedTotalBytes == null ? null : p.cumulativeBytesLoaded / p.expectedTotalBytes!,
+          ),
+        ),
+      );
+
 /// Photo in a chat bubble (tap to open full screen).
 class ChatImage extends StatelessWidget {
   final Message m;
@@ -126,7 +139,7 @@ class ChatImage extends StatelessWidget {
             future: context.read<AppState>().mediaUrl(m.url),
             builder: (_, s) => (s.data ?? '').isEmpty
                 ? Container(color: Colors.black12, child: const Center(child: CircularProgressIndicator(strokeWidth: 2.4)))
-                : Image.network(s.data!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.broken_image_outlined))),
+                : Image.network(s.data!, fit: BoxFit.cover, loadingBuilder: _loading, errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.broken_image_outlined))),
           );
     return GestureDetector(
       onTap: m.url.isEmpty && local == null ? null : () => Navigator.push(context, MaterialPageRoute(builder: (_) => PhotoViewer(m: m))),
@@ -160,7 +173,7 @@ class PhotoViewer extends StatelessWidget {
                 ? Image.memory(m.bytes!)
                 : FutureBuilder<String>(
                     future: context.read<AppState>().mediaUrl(m.url),
-                    builder: (_, s) => (s.data ?? '').isEmpty ? const CircularProgressIndicator(color: Colors.white) : Image.network(s.data!),
+                    builder: (_, s) => (s.data ?? '').isEmpty ? const CircularProgressIndicator(color: Colors.white) : Image.network(s.data!, loadingBuilder: _loading),
                   ),
           ),
         ),
