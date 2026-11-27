@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -10,6 +11,7 @@ import '../../data/models.dart';
 import '../../l10n.dart';
 import '../../services/calls.dart';
 import '../../services/media_bridge.dart';
+import '../../services/video_shrink.dart';
 import '../../state/app_state.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
@@ -38,6 +40,16 @@ class _ChatScreenState extends State<ChatScreen> {
   int _firstUnreadId = 0; // where the "unread messages" line goes (fixed when the chat opens)
   DateTime? _awaySince; // when I scrolled away from the newest message (null = at the bottom)
   Message? _replying; // Round G1: the message my next one answers (quote)
+  // Round G2: "typing…" and "last seen"
+  ({void Function() typing, Future<void> Function() close})? _typingLink;
+  bool _peerTyping = false;
+  Timer? _typingOff;
+  DateTime? _lastSeen;
+  Timer? _seenTimer;
+  // Round G2: hold the microphone to record, slide away to cancel
+  bool _held = false;
+  bool _slid = false;
+  Future<void>? _holdStart;
 
   @override
   void initState() {
@@ -49,12 +61,36 @@ class _ChatScreenState extends State<ChatScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _app.openConversation(widget.conversation);
     });
+    _linkTyping();
+    _loadLastSeen();
+    _seenTimer = Timer.periodic(const Duration(seconds: 60), (_) => _loadLastSeen());
+  }
+
+  void _linkTyping() {
+    if (_typingLink != null) return;
+    _typingLink = _app.typingLink(widget.conversation, () {
+      if (!mounted) return;
+      _typingOff?.cancel();
+      _typingOff = Timer(const Duration(seconds: 4), () {
+        if (mounted) setState(() => _peerTyping = false);
+      });
+      if (!_peerTyping) setState(() => _peerTyping = true);
+    });
+  }
+
+  Future<void> _loadLastSeen() async {
+    final t = await _app.lastSeen(widget.conversation);
+    if (mounted && t != null) setState(() => _lastSeen = t);
   }
 
   @override
   void dispose() {
     _app.closeConversation(widget.conversation);
     _timer?.cancel();
+    _typingOff?.cancel();
+    _seenTimer?.cancel();
+    final link = _typingLink;
+    if (link != null) unawaited(link.close());
     // Leaving the chat while recording: stop the microphone and drop the clip.
     if (_recording) MediaBridge.cancelRecording();
     _ctrl.dispose();
@@ -269,11 +305,17 @@ class _ChatScreenState extends State<ChatScreen> {
           if (!kIsWeb)
             ListTile(leading: const Icon(Icons.photo_camera_outlined, color: AppColors.primary), title: Text(context.tr('take_photo')), onTap: () => Navigator.pop(sheet, 'camera')),
           ListTile(leading: const Icon(Icons.video_library_outlined, color: AppColors.primary), title: Text(context.tr('send_video')), onTap: () => Navigator.pop(sheet, 'video')),
+          ListTile(
+            leading: const Icon(Icons.description_outlined, color: AppColors.primary),
+            title: Text(context.isAr ? 'إرسال ملف (PDF / Word / Excel)' : 'Send a file (PDF / Word / Excel)'),
+            onTap: () => Navigator.pop(sheet, 'file'),
+          ),
           const SizedBox(height: 8),
         ]),
       ),
     );
     if (choice == null || !mounted) return;
+    if (choice == 'file') return _attachFile(app);
     final picker = ImagePicker();
     XFile? f;
     try {
@@ -285,13 +327,93 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     if (f == null || !mounted) return;
-    final bytes = await f.readAsBytes();
+    var bytes = await f.readAsBytes();
     final video = choice == 'video';
+    // Round G2: a big video is made smaller first (with progress and Cancel).
+    if (video && VideoShrink.available && bytes.length > VideoShrink.minBytes && f.path.isNotEmpty) {
+      final r = await _shrinkVideo(f.path, bytes.length);
+      if (r.cancelled || !mounted) return;
+      final out = r.path;
+      if (out != null) {
+        try {
+          bytes = await XFile(out).readAsBytes();
+        } catch (_) {}
+      }
+    }
+    if (!mounted) return;
     final name = f.name.isNotEmpty ? f.name : (video ? 'video.mp4' : 'photo.jpg');
     final mime = f.mimeType ?? (video ? 'video/mp4' : 'image/jpeg');
     _toBottom();
     await app.sendMedia(widget.conversation, type: video ? MsgType.video : MsgType.image, bytes: bytes, name: name, mime: mime);
     _toBottom();
+  }
+
+  /// Round G2: a PDF / Word / Excel / PowerPoint / text file.
+  Future<void> _attachFile(AppState app) async {
+    PlatformFile? f;
+    try {
+      final res = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: docMimes.keys.toList(), withData: true);
+      f = res == null || res.files.isEmpty ? null : res.files.first;
+    } catch (_) {
+      if (mounted) toast(context, context.isAr ? 'تعذّر فتح الملفات' : 'Could not open your files', icon: Icons.error_outline);
+      return;
+    }
+    if (f == null || !mounted) return;
+    final ext = (f.extension ?? '').toLowerCase();
+    final mime = docMimes[ext];
+    final bytes = f.bytes;
+    if (mime == null || bytes == null || bytes.isEmpty) {
+      toast(context, context.isAr ? 'هذا النوع من الملفات غير مدعوم' : 'This kind of file is not supported', icon: Icons.error_outline);
+      return;
+    }
+    _toBottom();
+    await app.sendMedia(widget.conversation, type: MsgType.file, bytes: bytes, name: f.name.isNotEmpty ? f.name : 'file.$ext', mime: mime);
+    _toBottom();
+  }
+
+  /// Round G2: shrinks a video with a progress window; Cancel stops and sends nothing.
+  Future<({bool cancelled, String? path})> _shrinkVideo(String path, int size) async {
+    final ar = context.isAr;
+    final progress = ValueNotifier<double>(0);
+    final cancelled = Completer<String?>();
+    var open = true;
+    void close() {
+      if (open && mounted) Navigator.of(context, rootNavigator: true).pop();
+      open = false;
+    }
+
+    unawaited(showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (d) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          title: Text(ar ? 'تصغير الفيديو قبل الإرسال…' : 'Making the video smaller…'),
+          content: ValueListenableBuilder<double>(
+            valueListenable: progress,
+            builder: (_, v, __) => Column(mainAxisSize: MainAxisSize.min, children: [
+              LinearProgressIndicator(value: v <= 0 ? null : v),
+              const SizedBox(height: 10),
+              Text(v <= 0 ? '' : '${(v * 100).round()}%'),
+            ]),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                if (!cancelled.isCompleted) cancelled.complete(null);
+                unawaited(VideoShrink.cancel());
+              },
+              child: Text(ar ? 'إلغاء' : 'Cancel'),
+            ),
+          ],
+        ),
+      ),
+    ));
+    final out = await Future.any([VideoShrink.shrink(path, size, (v) => progress.value = v), cancelled.future]);
+    close();
+    final wasCancelled = cancelled.isCompleted;
+    Future<void>.delayed(const Duration(seconds: 1), progress.dispose);
+    return (cancelled: wasCancelled, path: wasCancelled ? null : out);
   }
 
   @override
@@ -311,7 +433,13 @@ class _ChatScreenState extends State<ChatScreen> {
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(c.name.of(context), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-              if (c.online) Text(context.tr('online_now'), style: const TextStyle(color: AppColors.success, fontSize: 12)),
+              if (_peerTyping)
+                Text(context.isAr ? 'يكتب…' : 'typing…', style: const TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w700))
+              else if (lastSeenLabel(_lastSeen, DateTime.now(), ar: context.isAr).isNotEmpty)
+                Text(lastSeenLabel(_lastSeen, DateTime.now(), ar: context.isAr),
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: DateTime.now().difference(_lastSeen!).inMinutes < 2 ? AppColors.success : AppColors.text3, fontSize: 12))
+              else if (c.online)
+                Text(context.tr('online_now'), style: const TextStyle(color: AppColors.success, fontSize: 12)),
             ]),
           ),
         ]),
@@ -516,13 +644,30 @@ class _ChatScreenState extends State<ChatScreen> {
                             const Icon(Icons.fiber_manual_record_rounded, color: AppColors.danger, size: 14),
                             const SizedBox(width: 8),
                             Text('${context.tr('recording')}  ${_secs ~/ 60}:${two(_secs % 60)}', style: const TextStyle(color: AppColors.danger, fontWeight: FontWeight.w700)),
+                            if (_held) ...[
+                              const Spacer(),
+                              Flexible(
+                                child: Text(
+                                  _slid ? (context.isAr ? 'اترك للإلغاء' : 'Let go to cancel') : (context.isAr ? '↔ اسحب للإلغاء' : '↔ Slide to cancel'),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(color: _slid ? AppColors.danger : AppColors.text3, fontSize: 12, fontWeight: _slid ? FontWeight.w800 : FontWeight.w500),
+                                ),
+                              ),
+                            ],
                           ]),
                         )
                       : TextField(
                           controller: _ctrl,
                           minLines: 1,
                           maxLines: 4,
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (t) {
+                            setState(() {});
+                            if (t.trim().isNotEmpty) {
+                              _linkTyping(); // a new chat gets its id with the first message
+                              _typingLink?.typing();
+                            }
+                          },
                           onSubmitted: (_) => _send(app),
                           decoration: InputDecoration(
                             hintText: context.tr('write_message'),
@@ -534,7 +679,32 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                 ),
                 const SizedBox(width: 6),
-                CircleAvatar(
+                GestureDetector(
+                  // Round G2: hold to record, let go to send, slide away to cancel (a tap still works as before)
+                  onLongPressStart: (_) {
+                    if (_ctrl.text.trim().isNotEmpty || _recording) return;
+                    _held = true;
+                    _slid = false;
+                    _holdStart = _toggleVoice(app);
+                  },
+                  onLongPressMoveUpdate: (d) {
+                    if (!_held) return;
+                    final slid = d.offsetFromOrigin.dx.abs() > 80;
+                    if (slid != _slid) setState(() => _slid = slid);
+                  },
+                  onLongPressEnd: (_) async {
+                    if (!_held) return;
+                    await _holdStart;
+                    _held = false;
+                    if (!mounted || !_recording) return;
+                    if (_slid) {
+                      setState(() => _slid = false);
+                      await _cancelVoice();
+                    } else {
+                      await _toggleVoice(app);
+                    }
+                  },
+                  child: CircleAvatar(
                   radius: 24,
                   backgroundColor: _recording ? AppColors.danger : AppColors.primary,
                   child: IconButton(
@@ -546,6 +716,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       }
                     },
                     icon: Icon(_ctrl.text.trim().isNotEmpty && !_recording ? Icons.send_rounded : (_recording ? Icons.stop_rounded : Icons.mic_rounded), color: Colors.white),
+                  ),
                   ),
                 ),
               ]),
@@ -649,11 +820,7 @@ class _Bubble extends StatelessWidget {
         ]);
         break;
       case MsgType.file:
-        content = Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(Icons.description_rounded, color: fg),
-          const SizedBox(width: 8),
-          Flexible(child: Text(m.text, style: TextStyle(color: fg, fontWeight: FontWeight.w700))),
-        ]);
+        content = ChatFile(m: m);
         break;
       default:
         final meetLink = Calls.fromUrl(m.text);
@@ -886,7 +1053,7 @@ class _QuoteText extends StatelessWidget {
             MsgType.voice => ar ? '🎤 رسالة صوتية' : '🎤 Voice message',
             MsgType.image => ar ? '📷 صورة' : '📷 Photo',
             MsgType.video => ar ? '🎬 فيديو' : '🎬 Video',
-            MsgType.file => '📎 ${m.text}',
+            MsgType.file => '📎 ${fileLabel(m, ar: ar)}',
             _ => m.text,
           };
     final c = color ?? AppColors.ink;

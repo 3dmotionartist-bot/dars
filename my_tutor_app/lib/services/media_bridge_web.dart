@@ -58,7 +58,15 @@ const _setup = r'''
         } catch (e) { res(-1); }
       });
     },
-    stopPlay: function () { if (this.audio) { this.audio.pause(); this.audio = null; } }
+    stopPlay: function () { if (this.audio) { this.audio.pause(); this.audio = null; } },
+    pos: function () {
+      var a = this.audio;
+      if (!a || a.ended) return null;
+      var d = isFinite(a.duration) ? Math.round(a.duration * 1000) : 0;
+      return [Math.round(a.currentTime * 1000), d];
+    },
+    seek: function (ms) { if (this.audio) { try { this.audio.currentTime = ms / 1000; } catch (e) {} } },
+    speed: function (r) { this.rate = r; if (this.audio) { this.audio.playbackRate = r; } }
   };
 })();
 ''';
@@ -106,6 +114,21 @@ Future<int> play(String url) async {
 
 void stopPlaying() {
   _media()?.callMethod<JSAny?>('stopPlay'.toJS);
+}
+
+List<int>? position() {
+  final r = _media()?.callMethod<JSAny?>('pos'.toJS);
+  final v = r.dartify();
+  if (v is! List || v.length < 2) return null;
+  return [(v[0] as num).toInt(), (v[1] as num).toInt()];
+}
+
+void seek(int ms) {
+  _media()?.callMethod<JSAny?>('seek'.toJS, ms.toJS);
+}
+
+void speed(double rate) {
+  _media()?.callMethod<JSAny?>('speed'.toJS, rate.toJS);
 }
 
 bool _linkTaken = false;

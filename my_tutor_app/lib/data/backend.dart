@@ -792,6 +792,19 @@ class Backend {
   /// Round G1: the sender deletes his message for both people (the admins keep a copy).
   Future<void> deleteMessage(int id) => db.rpc('delete_message', params: {'p_message': id});
 
+  /// Round G2: "I have Dars open" (the server writes it at most once a minute).
+  Future<void> touchPresence() => db.rpc('touch_presence');
+
+  /// Round G2: when the other person of my chat was last seen (null = unknown).
+  Future<DateTime?> lastSeen(String userId) async {
+    final r = await db.rpc('last_seen', params: {'p_user': userId});
+    return r == null ? null : DateTime.tryParse('$r');
+  }
+
+  /// Round G2: "typing…" signals of one chat (nothing is stored).
+  RealtimeChannel typingChannel(String conversationId) =>
+      db.channel('dars-typing-$conversationId', opts: const RealtimeChannelConfig(self: false));
+
   static WalletTx txFromRow(Map<String, dynamic> r) {
     final note = (r['note'] as String?) ?? '';
     final title = switch ('${r['kind']}') {

@@ -57,6 +57,16 @@ class MainActivity : FlutterActivity() {
     private var recordFile: File? = null
     private var recordStarted = 0L
     private var player: MediaPlayer? = null
+    private var playRate = 1.0f
+
+    private fun applyRate() {
+        val p = player ?: return
+        if (Build.VERSION.SDK_INT < 23) return
+        try {
+            if (p.isPlaying) p.playbackParams = p.playbackParams.setSpeed(playRate)
+        } catch (ignored: Exception) {
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -288,6 +298,23 @@ class MainActivity : FlutterActivity() {
                         stopAudio()
                         result.success(true)
                     }
+                    // Round G2: voice notes — where it is, jump, faster.
+                    "playPos" -> {
+                        val p = player
+                        result.success(
+                            if (p == null) listOf(-1, 0)
+                            else try { listOf(p.currentPosition, p.duration) } catch (e: Exception) { listOf(-1, 0) }
+                        )
+                    }
+                    "playSeek" -> {
+                        try { player?.seekTo(call.argument<Int>("ms") ?: 0) } catch (ignored: Exception) {}
+                        result.success(true)
+                    }
+                    "playSpeed" -> {
+                        playRate = (call.argument<Double>("rate") ?: 1.0).toFloat()
+                        applyRate()
+                        result.success(true)
+                    }
                     // Older app code paths: screen sharing alone (now part of the call service).
                     "shareStart" -> {
                         val i = Intent(this, CallService::class.java).setAction(CallService.SHARE_ON)
@@ -384,6 +411,7 @@ class MainActivity : FlutterActivity() {
             p.setDataSource(this, Uri.parse(url))
             p.setOnPreparedListener {
                 it.start()
+                applyRate()
                 if (!answered) {
                     answered = true
                     result.success(it.duration)

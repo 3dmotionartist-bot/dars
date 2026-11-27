@@ -7,3 +7,6 @@ void cancelRecording() {}
 Future<int> play(String url) async => -1;
 void stopPlaying() {}
 Uri? takeLaunchLink() => null;
+List<int>? position() => null;
+void seek(int ms) {}
+void speed(double rate) {}

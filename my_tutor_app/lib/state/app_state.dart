@@ -48,6 +48,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
     _foreground = s == AppLifecycleState.resumed;
+    _presenceTick(); // Round G2: "last seen" only while Dars is open
     if (!_foreground) {
       // No reloading while in the background (saves the server and the battery); one reload on return.
       _poll?.cancel();
@@ -899,8 +900,65 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     );
   }
 
+  // ---- Round G2: "last seen" ----
+  Timer? _presence;
+  void _presenceTick() {
+    _presence?.cancel();
+    _presence = null;
+    if (!live || !_foreground || _b.uid == null) return;
+    unawaited(_b.touchPresence().catchError((_) {}));
+    _presence = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (_foreground && _b.uid != null) unawaited(_b.touchPresence().catchError((_) {}));
+    });
+  }
+
+  /// When the other person of this chat was last seen (null = unknown or an older server).
+  Future<DateTime?> lastSeen(Conversation c) async {
+    final other = c.counterpartId ?? '';
+    if (!live || other.isEmpty) return null;
+    try {
+      return await _b.lastSeen(other);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// "typing…" for one chat: [onTyping] runs when the other person types; returns a sender for my typing
+  /// and a closer. Nothing when the chat is not on the server yet.
+  ({void Function() typing, Future<void> Function() close})? typingLink(Conversation c, void Function() onTyping) {
+    if (!live || c.id.isEmpty || _b.uid == null) return null;
+    final me = _b.uid!;
+    final ch = _b.typingChannel(c.id);
+    try {
+      ch.onBroadcast(event: 'typing', callback: (p) {
+        final inner = p['payload'];
+        final body = inner is Map ? inner : p;
+        if ('${body['u'] ?? ''}' != me) onTyping();
+      }).subscribe();
+    } catch (_) {
+      return null;
+    }
+    var last = DateTime.fromMillisecondsSinceEpoch(0);
+    return (
+      typing: () {
+        final now = DateTime.now();
+        if (now.difference(last).inMilliseconds < 2500) return; // a few signals, not one per key
+        last = now;
+        unawaited(_sendTyping(ch, me));
+      },
+      close: () => _b.closeChannel(ch),
+    );
+  }
+
+  Future<void> _sendTyping(RealtimeChannel ch, String me) async {
+    try {
+      await ch.sendBroadcastMessage(event: 'typing', payload: {'u': me});
+    } catch (_) {}
+  }
+
   void _startRealtime() {
     _stopRealtime();
+    _presenceTick();
     try {
       _channel = _b.listen(
         onMessage: _onRemoteMessage,
@@ -2382,7 +2440,42 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (conversations.remove(c)) conversations.insert(0, c);
     notifyListeners();
     if (live) await _push(c, m);
+    _roomConv[room] = c;
     await joinCall(room: room, video: video, peer: _nameOf(c.name), outgoing: true, direct: true);
+  }
+
+  // ---- Round G2: the call board saved into the chat as a picture ----
+  final Map<String, Conversation> _roomConv = {}; // calls I started from a chat
+  final Map<String, String> _roomConvId = {}; // calls that rang me (the chat id came with the ring)
+
+  /// The chat with the person in a call room (null when it cannot be found).
+  Future<Conversation?> conversationForRoom(String room) async {
+    if (room.startsWith('lesson-')) {
+      final id = room.substring(7);
+      Lesson? l;
+      for (final x in [...lessons, ...tutorLessons]) {
+        if (x.id == id) l = x;
+      }
+      if (l == null) return null;
+      return role == UserRole.tutor ? await chatWithStudent(l.studentId, l.studentName) : conversationFor(l.tutor);
+    }
+    final known = _roomConv[room];
+    if (known != null) return known;
+    final id = _roomConvId[room] ?? '';
+    for (final c in conversations) {
+      if (id.isNotEmpty && c.id == id) return c;
+      for (final m in c.messages.reversed) {
+        if (m.type == MsgType.call && Calls.parse(m.text)?.room == room) return c;
+      }
+    }
+    return null;
+  }
+
+  /// Sends a picture of the call board to the chat with the other person.
+  Future<bool> sendBoardImage(String room, Uint8List png) async {
+    final c = await conversationForRoom(room);
+    if (c == null) return false;
+    return sendMedia(c, type: MsgType.image, bytes: png, name: 'board.png', mime: 'image/png');
   }
 
   /// Video room for a booked lesson — the student and the tutor both join from "Join lesson".
@@ -2445,6 +2538,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (!mayRingCall(callsOn: notifyCalls, foreground: _foreground)) return; // "Calls" off, Dars not on screen
     _ringing = (room: room, video: video, who: who);
     _ringingConv = conversationId;
+    if (conversationId.isNotEmpty) _roomConvId[room] = conversationId;
     Ringer.ring(
       title: who,
       body: video ? _t('مكالمة فيديو واردة', 'Incoming video call') : _t('مكالمة صوتية واردة', 'Incoming voice call'),
@@ -2572,6 +2666,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     final video = '${call['video']}' != 'false';
     final who = '${call['name'] ?? ''}';
     final conv = '${call['conversation_id'] ?? ''}';
+    if (conv.isNotEmpty) _roomConvId[room] = conv;
     if (call['action'] == 'join') {
       if (_ringing?.room == room) {
         _answer(true);
