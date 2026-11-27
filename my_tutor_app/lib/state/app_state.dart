@@ -24,6 +24,7 @@ import '../services/calls.dart';
 import '../services/media_bridge.dart';
 import '../services/push.dart';
 import '../services/ringer.dart';
+import '../services/server_text.dart';
 import 'poll_policy.dart';
 import 'tutor_lookup.dart';
 import '../widgets/common.dart' show Money;
@@ -40,6 +41,7 @@ final navigatorKey = GlobalKey<NavigatorState>();
 class AppState extends ChangeNotifier with WidgetsBindingObserver {
   AppState() {
     WidgetsBinding.instance.addObserver(this);
+    unawaited(ServerText.loadCache()); // Arabic for server texts, from the last start (Round H1)
     if (live) _boot();
   }
 
@@ -601,12 +603,23 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void notifyListeners() {
     Money.arabic = locale.languageCode == 'ar';
+    ServerText.arabic = Money.arabic;
     super.notifyListeners();
+  }
+
+  /// Round H1: the Arabic for the server's English texts (kept for offline starts).
+  Future<void> loadServerTexts() async {
+    if (!live) return;
+    try {
+      await ServerText.save(await _b.serverTexts());
+      notifyListeners();
+    } catch (_) {/* older server or offline: the saved copy, or English */}
   }
 
   Future<void> checkAppVersion() async {
     unawaited(loadPhoneSetting());
     unawaited(loadCurrency());
+    unawaited(loadServerTexts());
     if (!live || DarsConfig.build <= 0) return;
     try {
       final v = await _b.setting('min_app_build');

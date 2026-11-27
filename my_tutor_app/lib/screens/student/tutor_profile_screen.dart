@@ -217,7 +217,8 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
                       Expanded(
                         child: Wrap(spacing: 6, runSpacing: 4, children: [
                           for (final p in sched.periods.where((p) => p.weekday == day))
-                            Pill('${WorkPeriod.hm(p.start)}–${WorkPeriod.hm(p.end)}', bg: AppColors.surface, fg: AppColors.ink),
+                            // Left-to-right inside Arabic text, so 10:00–14:00 isn't drawn as 14:00–10:00 (Round H).
+                            Pill('\u2066${WorkPeriod.hm(p.start)}–${WorkPeriod.hm(p.end)}\u2069', bg: AppColors.surface, fg: AppColors.ink),
                         ]),
                       ),
                     ]),
