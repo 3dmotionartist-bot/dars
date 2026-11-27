@@ -2254,6 +2254,28 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     return true;
   }
 
+  /// Students I have taught (delivered lessons), counted like the public profile does (build 46 test: the
+  /// dashboard showed 0 from the profile row while the profile said 2).
+  int get taughtStudents => lessons
+      .where((l) => l.status == LessonStatus.delivered && l.studentId.isNotEmpty && l.state.isEmpty)
+      .map((l) => l.studentId)
+      .toSet()
+      .length;
+
+  /// Round G1: delete my own message for both people (the admins keep a copy).
+  Future<bool> deleteMessage(Conversation c, Message m) async {
+    if (!m.mine || m.deleted) return false;
+    if (live) {
+      if (m.remoteId == 0) return false;
+      final ok = await _run(() => _b.deleteMessage(m.remoteId), reload: false);
+      if (!ok) return false;
+    }
+    final i = c.messages.indexOf(m);
+    if (i >= 0) c.messages[i] = m.asDeleted();
+    notifyListeners();
+    return true;
+  }
+
   /// Posts a message to the server after everything sent before it in this chat.
   Future<void> _push(Conversation c, Message m) => _inOrder(c, () => _pushNow(c, m));
 
@@ -2274,7 +2296,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         _ => 'text',
       };
       final text = m.type == MsgType.voice ? '🎤' : m.text;
-      final row = await _b.sendMessage(id, text, kind: kind, seconds: m.seconds > 0 ? m.seconds : null, fileUrl: m.url, clientId: m.clientId);
+      final row = await _b.sendMessage(id, text, kind: kind, seconds: m.seconds > 0 ? m.seconds : null, fileUrl: m.url, clientId: m.clientId,
+          replyTo: m.replyTo > 0 ? m.replyTo : null);
       // Swap in the server's copy (id for read ticks, and whether the contact filter hid it).
       final server = Backend.messageFromRow(row, _b.uid);
       final i = c.messages.indexOf(m);

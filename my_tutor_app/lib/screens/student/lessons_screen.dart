@@ -282,6 +282,7 @@ class LessonCard extends StatelessWidget {
           ],
         ];
       case LessonStatus.cancelled:
+        if (tutorView) return []; // "book again" is for students (build 46 test)
         return [btn(context.tr('book_again'), Icons.replay_rounded, () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookingScreen(tutor: l.tutor, hourPrice: l.tutor.pricePerHour.toDouble(), subjectId: l.subjectId))))];
     }
   }

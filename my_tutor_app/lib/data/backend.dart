@@ -474,7 +474,7 @@ class Backend {
   /// [clientId] is made once per message: if an earlier attempt already reached the server
   /// (only the answer was lost), the server refuses the copy and the stored message is returned.
   Future<Map<String, dynamic>> sendMessage(String conversationId, String text,
-      {String kind = 'text', int? seconds, String? fileUrl, String? clientId}) async {
+      {String kind = 'text', int? seconds, String? fileUrl, String? clientId, int? replyTo}) async {
     try {
       return await db
           .from('messages')
@@ -486,6 +486,7 @@ class Backend {
             if (seconds != null) 'duration_sec': seconds,
             if (fileUrl != null && fileUrl.isNotEmpty) 'file_url': fileUrl,
             if (clientId != null) 'client_id': clientId,
+            if (replyTo != null && replyTo > 0) 'reply_to': replyTo,
           })
           .select()
           .single();
@@ -783,8 +784,13 @@ class Backend {
       readAt: r['read_at'] == null ? null : time(r['read_at']),
       blocked: r['blocked'] == true,
       clientId: r['client_id'] as String?,
+      replyTo: _int(r['reply_to']),
+      deleted: r['deleted_at'] != null,
     );
   }
+
+  /// Round G1: the sender deletes his message for both people (the admins keep a copy).
+  Future<void> deleteMessage(int id) => db.rpc('delete_message', params: {'p_message': id});
 
   static WalletTx txFromRow(Map<String, dynamic> r) {
     final note = (r['note'] as String?) ?? '';

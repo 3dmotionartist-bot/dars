@@ -8,13 +8,23 @@ import '../../theme.dart';
 import '../../widgets/common.dart';
 import 'chat_screen.dart';
 
-class MessagesScreen extends StatelessWidget {
+class MessagesScreen extends StatefulWidget {
   const MessagesScreen({super.key});
+
+  @override
+  State<MessagesScreen> createState() => _MessagesScreenState();
+}
+
+class _MessagesScreenState extends State<MessagesScreen> {
+  String _q = ''; // Round G1: search chats by name
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
-    final list = app.conversations;
+    final q = _q.trim().toLowerCase();
+    final list = q.isEmpty
+        ? app.conversations
+        : app.conversations.where((c) => c.name.ar.toLowerCase().contains(q) || c.name.en.toLowerCase().contains(q)).toList();
     return SafeArea(
       child: MaxWidth(
         max: 760,
@@ -23,6 +33,19 @@ class MessagesScreen extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
               child: Text(context.tr('messages_title'), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
+            ),
+          if (app.conversations.length > 3)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+              child: TextField(
+                key: const Key('chat-search'),
+                onChanged: (v) => setState(() => _q = v),
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  hintText: context.isAr ? 'ابحث بالاسم' : 'Search by name',
+                  isDense: true,
+                ),
+              ),
             ),
           Expanded(
             child: list.isEmpty
@@ -35,7 +58,9 @@ class MessagesScreen extends StatelessWidget {
                       final c = list[i];
                       final last = c.last;
                       String preview = '';
-                      if (last != null) {
+                      if (last != null && last.deleted) {
+                        preview = context.isAr ? 'تم حذف رسالة' : 'A message was deleted';
+                      } else if (last != null) {
                         preview = switch (last.type) {
                           MsgType.voice => '🎤 ${context.tr('voice_msg')}',
                           MsgType.file => '📎 ${context.tr('file_msg')}',
