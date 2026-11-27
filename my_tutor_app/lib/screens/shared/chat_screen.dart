@@ -454,6 +454,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       quoted: quoted,
                       quotedMissing: m.replyTo > 0 && quoted == null,
                       onLongPress: () => _menu(app, c, m),
+                      peer: c.name.of(context),
                     );
                   },
                 ),
@@ -480,7 +481,7 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Row(children: [
                 const Icon(Icons.reply_rounded, color: AppColors.primary, size: 20),
                 const SizedBox(width: 8),
-                Expanded(child: _QuoteText(m: _replying!)),
+                Expanded(child: _QuoteText(m: _replying!, peer: c.name.of(context))),
                 IconButton(
                   tooltip: context.isAr ? 'إلغاء الرد' : 'Cancel reply',
                   onPressed: () => setState(() => _replying = null),
@@ -563,7 +564,8 @@ class _Bubble extends StatelessWidget {
   final Message? quoted; // Round G1: the message this one answers
   final bool quotedMissing; // it answers a message not loaded here
   final VoidCallback? onLongPress;
-  const _Bubble({super.key, required this.m, required this.color, this.onRetry, this.quoted, this.quotedMissing = false, this.onLongPress});
+  final String peer;
+  const _Bubble({super.key, required this.m, required this.color, this.onRetry, this.quoted, this.quotedMissing = false, this.onLongPress, this.peer = ''});
 
   @override
   Widget build(BuildContext context) => GestureDetector(onLongPress: onLongPress, child: _build(context));
@@ -657,7 +659,7 @@ class _Bubble extends StatelessWidget {
         final meetLink = Calls.fromUrl(m.text);
         final url = meetLink == null ? RegExp(r'https?://[^\s]+').firstMatch(m.text)?.group(0) : null;
         content = Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-          SelectableText(m.text, textDirection: directionOf(m.text), style: TextStyle(color: fg, height: 1.5)),
+          Text(m.text, textDirection: directionOf(m.text), style: TextStyle(color: fg, height: 1.5)),
           if (meetLink != null) ...[
             const SizedBox(height: 8),
             _JoinButton(mine: m.mine, label: context.tr('join_meeting'), onTap: () => _join(context, meetLink.room, meetLink.video)),
@@ -703,7 +705,7 @@ class _Bubble extends StatelessWidget {
                   border: BorderDirectional(start: BorderSide(color: m.mine ? Colors.white70 : AppColors.primary, width: 3)),
                 ),
                 child: quoted != null
-                    ? _QuoteText(m: quoted!, color: fg)
+                    ? _QuoteText(m: quoted!, color: fg, peer: peer)
                     : Text(context.isAr ? 'رسالة سابقة' : 'An earlier message', style: TextStyle(color: fg.withOpacity(0.8), fontSize: 12.5)),
               ),
             content,
@@ -872,11 +874,12 @@ class _JoinButton extends StatelessWidget {
 class _QuoteText extends StatelessWidget {
   final Message m;
   final Color? color;
-  const _QuoteText({required this.m, this.color});
+  final String peer;
+  const _QuoteText({required this.m, this.color, this.peer = ''});
   @override
   Widget build(BuildContext context) {
     final ar = context.isAr;
-    final who = m.mine ? (ar ? 'أنت' : 'You') : (ar ? 'الطرف الآخر' : 'Them');
+    final who = m.mine ? (ar ? 'أنت' : 'You') : (peer.isNotEmpty ? peer : (ar ? 'الطرف الآخر' : 'Them'));
     final what = m.deleted
         ? (ar ? 'رسالة محذوفة' : 'Deleted message')
         : switch (m.type) {

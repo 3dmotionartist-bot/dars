@@ -31,6 +31,12 @@ String moneyMain(num v) => Money.syp ? '${_grouped((v * Money.sypPerUsd).round()
 /// The price as shown everywhere: pounds with the dollar amount small after it ("125,000 ل.س ($10)").
 String money(num v) => Money.syp ? '${moneyMain(v)} (${usd(v)})' : usd(v);
 
+/// A price for big text: the pounds in [big], the dollar amount small and grey after them.
+List<TextSpan> moneySpans(num v, TextStyle big) => [
+      TextSpan(text: moneyMain(v), style: big),
+      if (Money.syp) TextSpan(text: ' (${usd(v)})', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.text3)),
+    ];
+
 /// An amount the user typed (pounds when pounds are shown) → dollars for the server.
 double toUsd(num typed) => Money.syp ? typed / Money.sypPerUsd : typed.toDouble();
 
@@ -384,7 +390,7 @@ class TutorCard extends StatelessWidget {
           Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
             Text.rich(TextSpan(children: [
               TextSpan(text: '${context.tr('from')} ', style: const TextStyle(fontSize: 12, color: AppColors.text3)),
-              TextSpan(text: money(t.pricePerHour), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.ink)),
+              ...moneySpans(t.pricePerHour, const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.ink)),
               TextSpan(text: context.tr('per_hour'), style: const TextStyle(fontSize: 12, color: AppColors.text3)),
             ])),
             if (t.hasPackages)

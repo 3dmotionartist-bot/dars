@@ -155,6 +155,10 @@ class Lesson {
   });
 }
 
+/// Round G1: how many different students a tutor has actually taught (delivered, not no-show or disputed).
+int studentsTaught(Iterable<Lesson> lessons) =>
+    lessons.where((l) => l.status == LessonStatus.delivered && l.studentId.isNotEmpty && l.state.isEmpty).map((l) => l.studentId).toSet().length;
+
 class HoursPackage {
   final String id;
   final Tutor tutor;
