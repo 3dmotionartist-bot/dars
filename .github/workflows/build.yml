@@ -161,7 +161,7 @@ jobs:
   pages:
     name: Publish to GitHub Pages
     needs: [app, site]
-    # Website: /  ·  Web app: /app/  ·  Dashboard: /admin/  ·  Android APK: /Dars.apk
+    # Website: /  ·  Web app: /app/  ·  Dashboard: /admin/  ·  Call page: /call/  (APKs: GitHub releases)
     # (Free GitHub Pages needs a public repo; on a private repo this job is skipped.)
     if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
@@ -177,12 +177,7 @@ jobs:
         with:
           name: web-app
           path: _site/app
-      # Old app download address https://<user>.github.io/<repo>/Dars.apk: only for app builds up to 25, whose
-      # "please update" screen still opens it. Remove these 4 lines once min_app_build is 26 or more.
-      - uses: actions/download-artifact@v4
-        with:
-          name: Dars-apk
-          path: _site
+      # (Round H6: the old address /Dars.apk is gone — min_app_build is 39, so no app that still opens it can run.)
       # Admin dashboard: https://<user>.github.io/<repo>/admin/ — call page: /call/
       - uses: actions/checkout@v4
         with:

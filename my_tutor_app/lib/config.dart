@@ -37,7 +37,7 @@ class DarsConfig {
 
   /// Latest Android app files, attached to every GitHub release: Dars-arm64.apk (most phones),
   /// Dars-arm32.apk (older 32-bit phones) and Dars.apk (works on all, larger).
-  /// (Builds up to 25 download https://3dmotionartist-bot.github.io/dars/Dars.apk, which stays on the site for now.)
+  /// (Builds up to 25 downloaded https://3dmotionartist-bot.github.io/dars/Dars.apk; that copy was removed in Round H6.)
   static const apkBase = 'https://github.com/3dmotionartist-bot/dars/releases/latest/download/';
   static const apkUrl = '${apkBase}Dars.apk';
 

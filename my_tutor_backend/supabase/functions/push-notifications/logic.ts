@@ -160,8 +160,9 @@ export function notificationPush(n: NotificationRow, lang: Lang, now = Date.now(
   const urgent = data.urgent === true || data.urgent === "true"; // live-help requests ring like a call
   return {
     kind: "general",
-    title: lang === "ar" ? AR_TITLES[n.title] ?? n.title : n.title,
-    body: n.body ?? "",
+    // Round H1: the Arabic saved with the notification (server_texts), else the usual titles.
+    title: lang === "ar" ? (typeof data.title_ar === "string" ? data.title_ar : AR_TITLES[n.title] ?? n.title) : n.title,
+    body: lang === "ar" && typeof data.body_ar === "string" ? data.body_ar : n.body ?? "",
     data: str,
     urgent,
   };

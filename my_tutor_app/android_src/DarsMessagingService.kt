@@ -18,9 +18,10 @@ class DarsMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         val d = message.data
         val type = d["type"] ?: return
-        val title = d["title"] ?: "Dars"
-        val body = d["body"] ?: ""
         val ar = (DarsNotify.prefs(this).getString("lang", "ar") ?: "ar") != "en"
+        // Round H1: server notifications carry their Arabic (title_ar / body_ar) in their data.
+        val title = (if (ar) d["title_ar"] else null) ?: d["title"] ?: "Dars"
+        val body = (if (ar) d["body_ar"] else null) ?: d["body"] ?: ""
         val open = DarsNotify.appVisible(this)
         // One short line per push (no message text), so a phone log shows what arrived and what was done.
         val out = DarsNotify.signedOut(this)

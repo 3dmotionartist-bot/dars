@@ -120,6 +120,10 @@ const msg = (over = {}) => ({ id: 7, conversation_id: CONV, sender_id: STU, kind
   ok(arMinutes(2) === "دقيقتين" && arMinutes(11) === "11 دقيقة", "Arabic number words");
   const g = notificationPush({ id: 8, user_id: STU, title: "Payment & booking confirmed", body: "Your payment was received.", data: { payment_id: "P1" } }, "ar", NOW);
   ok(g.kind === "general" && g.title === "تم تأكيد الدفع والحجز" && g.data.payment_id === "P1", "other notices: Arabic title, original details");
+  const h1 = { id: 10, user_id: STU, title: "Lesson cancelled", body: "Lesson #12 was cancelled.", data: { lesson_id: "L", title_ar: "تم إلغاء الدرس", body_ar: "تم إلغاء الدرس رقم 12." } };
+  const h1ar = notificationPush(h1, "ar", NOW), h1en = notificationPush(h1, "en", NOW);
+  ok(h1ar.title === "تم إلغاء الدرس" && h1ar.body === "تم إلغاء الدرس رقم 12." && h1en.body === "Lesson #12 was cancelled." && h1en.title === "Lesson cancelled",
+    "Round H1: the Arabic saved with a notification is used for Arabic phones, the English for English ones");
   const live = notificationPush({ id: 9, user_id: TUT, title: "Real time request!", body: "x", data: { live_request_id: "Q", urgent: true } }, "en", NOW);
   ok(live.urgent && live.title === "Real time request!", "live-help requests are high priority");
   const { d, calls } = deps();

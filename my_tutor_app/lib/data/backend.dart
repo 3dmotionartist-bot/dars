@@ -9,6 +9,7 @@ import 'package:supabase/supabase.dart';
 
 import '../config.dart';
 import '../l10n.dart';
+import '../services/server_text.dart';
 import 'mock_data.dart';
 import 'models.dart';
 
@@ -800,9 +801,12 @@ class Backend {
     final body = (r['body'] as String?) ?? '';
     final data = (r['data'] as Map?) ?? const {};
     final urgent = data['urgent'] == true;
+    // Round H1: the Arabic saved with the notification, else the server's list, else the usual titles.
+    final titleAr = (data['title_ar'] as String?) ?? ServerText.ar(title) ?? _arTitles[title] ?? title;
+    final bodyAr = (data['body_ar'] as String?) ?? ServerText.ar(body) ?? body;
     return AppNotification(
-      L(_arTitles[title] ?? title, title),
-      L(body, body),
+      L(titleAr, title),
+      L(bodyAr, body),
       time(r['created_at']),
       urgent ? Icons.bolt_rounded : Icons.notifications_rounded,
       urgent ? const Color(0xFFF59E0B) : const Color(0xFF0E8F7E),
@@ -834,10 +838,15 @@ class Backend {
     'Your profile needs changes': 'ملفك يحتاج تعديلات',
   };
 
+  /// A server refusal or failure as the person should read it: in Arabic when the app is in Arabic (Round H1).
   static String errorText(Object e) {
-    if (e is AuthException) return e.message;
-    if (e is PostgrestException) return e.message;
+    if (e is AuthException) return ServerText.show(e.message);
+    if (e is PostgrestException) return ServerText.show(e.message);
     final s = '$e';
-    return s.startsWith('Exception: ') ? s.substring(11) : s;
+    return ServerText.show(s.startsWith('Exception: ') ? s.substring(11) : s);
   }
+
+  /// Round H1: the English → Arabic list of server texts (anyone may read it).
+  Future<List<Map<String, dynamic>>> serverTexts() async =>
+      List<Map<String, dynamic>>.from(await db.from('server_texts').select('id, pattern, ar').order('id'));
 }
