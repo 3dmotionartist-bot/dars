@@ -194,7 +194,7 @@ class TutorDashboardScreen extends StatelessWidget {
                       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EarningsScreen()))),
                   _stat(context.tr('stat_hours'), '${me.hoursTaught}', Icons.schedule_rounded, AppColors.info),
                   _stat(context.tr('stat_rating'), me.rating.toStringAsFixed(1), Icons.star_rounded, AppColors.accent),
-                  _stat(context.tr('stat_students'), '${me.students}', Icons.groups_rounded, AppColors.lavenderInk),
+                  _stat(context.tr('stat_students'), '${app.live ? app.taughtStudents : me.students}', Icons.groups_rounded, AppColors.lavenderInk),
                 ],
               ),
 

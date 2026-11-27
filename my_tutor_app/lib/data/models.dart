@@ -198,6 +198,8 @@ class Message {
   /// (phone test 23 Nov 2026: hidden messages reached the other side through the live connection).
   bool get hiddenFromMe => blocked && !mine;
   final String? clientId; // made once per message, sent on every attempt (no duplicates on retry)
+  final int replyTo; // Round G1: the backend id of the quoted message (0 = none)
+  final bool deleted; // Round G1: the sender deleted it (shown as "message deleted")
   const Message({
     required this.mine,
     required this.text,
@@ -212,6 +214,8 @@ class Message {
     this.readAt,
     this.blocked = false,
     this.clientId,
+    this.replyTo = 0,
+    this.deleted = false,
   });
 
   Message copyWith({bool? sending, bool? failed, String? text, String? url, DateTime? readAt, String? clientId}) => Message(
@@ -228,6 +232,8 @@ class Message {
         readAt: readAt ?? this.readAt,
         blocked: blocked,
         clientId: clientId ?? this.clientId,
+        replyTo: replyTo,
+        deleted: deleted,
       );
 
   /// The server's copy of this message, keeping the local photo preview.
@@ -235,7 +241,11 @@ class Message {
       ? this
       : Message(
           mine: mine, text: text, time: time, type: type, seconds: seconds, remoteId: remoteId, url: url,
-          bytes: local.bytes, readAt: readAt, blocked: blocked, clientId: clientId);
+          bytes: local.bytes, readAt: readAt, blocked: blocked, clientId: clientId, replyTo: replyTo, deleted: deleted);
+
+  /// The same message after its sender deleted it (Round G1).
+  Message asDeleted() => Message(mine: mine, text: '', time: time, type: type == MsgType.call || type == MsgType.system ? type : MsgType.text,
+      remoteId: remoteId, readAt: readAt, blocked: blocked, clientId: clientId, replyTo: replyTo, deleted: true);
 }
 
 class Conversation {

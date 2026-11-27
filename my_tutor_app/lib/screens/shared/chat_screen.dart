@@ -37,6 +37,7 @@ class _ChatScreenState extends State<ChatScreen> {
   late final AppState _app;
   int _firstUnreadId = 0; // where the "unread messages" line goes (fixed when the chat opens)
   DateTime? _awaySince; // when I scrolled away from the newest message (null = at the bottom)
+  Message? _replying; // Round G1: the message my next one answers (quote)
 
   @override
   void initState() {
@@ -121,15 +122,78 @@ class _ChatScreenState extends State<ChatScreen> {
     if (ok) toast(context, context.tr('report_sent'));
   }
 
+  /// The next upcoming lesson with the other person of this chat (null = none).
+  Lesson? _nextLesson(AppState app, Conversation c, bool tutorSide) {
+    if (!app.live) return null;
+    final now = DateTime.now();
+    Lesson? next;
+    for (final l in app.lessons) {
+      if (l.status != LessonStatus.upcoming || l.start.add(Duration(minutes: l.minutes)).isBefore(now)) continue;
+      final same = tutorSide ? (c.counterpartId != null && l.studentId == c.counterpartId) : (c.tutor != null && l.tutor.id == c.tutor!.id);
+      if (same && (next == null || l.start.isBefore(next.start))) next = l;
+    }
+    return next;
+  }
+
+  /// Round G1: long-press a message — copy, reply, or delete my own (for both people; the admins keep a copy).
+  Future<void> _menu(AppState app, Conversation c, Message m) async {
+    if (m.type == MsgType.system || m.hiddenFromMe || m.deleted) return;
+    final ar = context.isAr;
+    final canCopy = m.type == MsgType.text && m.text.isNotEmpty;
+    final canReply = m.remoteId > 0 && !m.failed && !m.blocked;
+    final canDelete = m.mine && m.remoteId > 0 && m.type != MsgType.call;
+    final pick = await showModalBottomSheet<String>(
+      context: context,
+      builder: (s) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          if (canReply)
+            ListTile(leading: const Icon(Icons.reply_rounded), title: Text(ar ? 'ردّ' : 'Reply'), onTap: () => Navigator.pop(s, 'reply')),
+          if (canCopy)
+            ListTile(leading: const Icon(Icons.copy_rounded), title: Text(ar ? 'نسخ' : 'Copy'), onTap: () => Navigator.pop(s, 'copy')),
+          if (canDelete)
+            ListTile(
+              leading: const Icon(Icons.delete_outline_rounded, color: AppColors.danger),
+              title: Text(ar ? 'حذف عند الجميع' : 'Delete for everyone', style: const TextStyle(color: AppColors.danger)),
+              onTap: () => Navigator.pop(s, 'delete'),
+            ),
+        ]),
+      ),
+    );
+    if (!mounted || pick == null) return;
+    switch (pick) {
+      case 'reply':
+        setState(() => _replying = m);
+      case 'copy':
+        await Clipboard.setData(ClipboardData(text: m.text));
+        if (mounted) toast(context, ar ? 'تم النسخ' : 'Copied');
+      case 'delete':
+        final yes = await showDialog<bool>(
+          context: context,
+          builder: (d) => AlertDialog(
+            title: Text(ar ? 'حذف الرسالة؟' : 'Delete the message?'),
+            content: Text(ar ? 'ستُحذف عندك وعند الطرف الآخر.' : 'It will be deleted for you and the other person.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(d, false), child: Text(ar ? 'إلغاء' : 'Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(d, true), child: Text(ar ? 'حذف' : 'Delete')),
+            ],
+          ),
+        );
+        if (yes == true) await app.deleteMessage(c, m);
+    }
+  }
+
   void _send(AppState app) {
     final text = _ctrl.text.trim();
     if (text.isEmpty) return;
-    final ok = app.sendMessage(widget.conversation, Message(mine: true, text: text, time: DateTime.now()));
+    final quote = _replying;
+    final ok = app.sendMessage(widget.conversation,
+        Message(mine: true, text: text, time: DateTime.now(), replyTo: quote != null && quote.remoteId > 0 ? quote.remoteId : 0));
     if (!ok) {
       toast(context, context.tr('blocked_contact'), icon: Icons.block_rounded);
       return;
     }
     _ctrl.clear();
+    if (_replying != null) setState(() => _replying = null);
     _toBottom();
     if (app.live) return;
     // Demo auto-reply
@@ -319,7 +383,28 @@ class _ChatScreenState extends State<ChatScreen> {
               Expanded(child: Text(context.tr('chat_warning'), style: const TextStyle(fontSize: 12, color: Color(0xFF7A5414)))),
             ]),
           ),
-          if (c.tutor != null && !isTutorSide)
+          // Round G1: the next lesson with this person at the top of the chat.
+          if (_nextLesson(app, c, isTutorSide) case final next?)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              child: AppCard(
+                key: const Key('chat-next-lesson'),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Row(children: [
+                  const Icon(Icons.event_rounded, color: AppColors.primary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '${context.isAr ? 'الدرس القادم' : 'Next lesson'}: ${next.start.day}/${next.start.month} · ${timeOf(context, next.start)}',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  if (next.start.difference(DateTime.now()).inMinutes < 30)
+                    FilledButton(onPressed: () => app.joinLesson(next), child: Text(context.tr('join_lesson'))),
+                ]),
+              ),
+            )
+          else if (c.tutor != null && !isTutorSide)
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
               child: SizedBox(
@@ -355,11 +440,20 @@ class _ChatScreenState extends State<ChatScreen> {
                     if (day != null) return _DayHeader(key: ValueKey('d${day.year}-${day.month}-${day.day}'), day: day);
                     if (it.unreadLine) return const _UnreadLine(key: ValueKey('unread'));
                     final m = it.message!;
+                    Message? quoted;
+                    if (m.replyTo > 0) {
+                      for (final x in c.messages) {
+                        if (x.remoteId == m.replyTo) quoted = x;
+                      }
+                    }
                     return _Bubble(
                       key: ValueKey(m.remoteId != 0 ? 'r${m.remoteId}' : identityHashCode(m)),
                       m: m,
                       color: c.color,
                       onRetry: m.failed ? () => app.retryMessage(c, m) : null,
+                      quoted: quoted,
+                      quotedMissing: m.replyTo > 0 && quoted == null,
+                      onLongPress: () => _menu(app, c, m),
                     );
                   },
                 ),
@@ -378,6 +472,22 @@ class _ChatScreenState extends State<ChatScreen> {
               ]);
             }),
           ),
+          if (_replying != null)
+            Container(
+              key: const Key('reply-bar'),
+              padding: const EdgeInsetsDirectional.fromSTEB(14, 8, 4, 8),
+              decoration: const BoxDecoration(color: AppColors.surface, border: Border(top: BorderSide(color: AppColors.line))),
+              child: Row(children: [
+                const Icon(Icons.reply_rounded, color: AppColors.primary, size: 20),
+                const SizedBox(width: 8),
+                Expanded(child: _QuoteText(m: _replying!)),
+                IconButton(
+                  tooltip: context.isAr ? 'إلغاء الرد' : 'Cancel reply',
+                  onPressed: () => setState(() => _replying = null),
+                  icon: const Icon(Icons.close_rounded, size: 20),
+                ),
+              ]),
+            ),
           SafeArea(
             top: false,
             child: Container(
@@ -450,10 +560,15 @@ class _Bubble extends StatelessWidget {
   final Message m;
   final Color color;
   final VoidCallback? onRetry; // set for a failed message of mine
-  const _Bubble({super.key, required this.m, required this.color, this.onRetry});
+  final Message? quoted; // Round G1: the message this one answers
+  final bool quotedMissing; // it answers a message not loaded here
+  final VoidCallback? onLongPress;
+  const _Bubble({super.key, required this.m, required this.color, this.onRetry, this.quoted, this.quotedMissing = false, this.onLongPress});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => GestureDetector(onLongPress: onLongPress, child: _build(context));
+
+  Widget _build(BuildContext context) {
     if (m.type == MsgType.system) {
       return Center(
         child: Container(
@@ -466,6 +581,14 @@ class _Bubble extends StatelessWidget {
     }
     final fg = m.mine ? Colors.white : AppColors.ink;
     Widget content;
+    if (m.deleted) {
+      content = Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.block_rounded, size: 16, color: fg.withOpacity(0.7)),
+        const SizedBox(width: 6),
+        Text(context.isAr ? 'تم حذف هذه الرسالة' : 'This message was deleted',
+            style: TextStyle(color: fg.withOpacity(0.8), fontStyle: FontStyle.italic)),
+      ]);
+    } else {
     switch (m.type) {
       case MsgType.voice:
         content = VoiceNote(m: m);
@@ -550,6 +673,7 @@ class _Bubble extends StatelessWidget {
           ],
         ]);
     }
+    }
 
     return _withStatus(context, Align(
       alignment: m.mine ? AlignmentDirectional.centerEnd : AlignmentDirectional.centerStart,
@@ -569,6 +693,19 @@ class _Bubble extends StatelessWidget {
             ),
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
+            if (!m.deleted && (quoted != null || quotedMissing))
+              Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsetsDirectional.fromSTEB(8, 6, 8, 6),
+                decoration: BoxDecoration(
+                  color: (m.mine ? Colors.white : AppColors.primary).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: BorderDirectional(start: BorderSide(color: m.mine ? Colors.white70 : AppColors.primary, width: 3)),
+                ),
+                child: quoted != null
+                    ? _QuoteText(m: quoted!, color: fg)
+                    : Text(context.isAr ? 'رسالة سابقة' : 'An earlier message', style: TextStyle(color: fg.withOpacity(0.8), fontSize: 12.5)),
+              ),
             content,
             const SizedBox(height: 2),
             _Footer(m: m, color: fg.withOpacity(0.7)),
@@ -728,5 +865,31 @@ class _JoinButton extends StatelessWidget {
       icon: Icon(icon, size: 18),
       label: Text(label),
     );
+  }
+}
+
+/// Round G1: a one-line preview of a quoted message.
+class _QuoteText extends StatelessWidget {
+  final Message m;
+  final Color? color;
+  const _QuoteText({required this.m, this.color});
+  @override
+  Widget build(BuildContext context) {
+    final ar = context.isAr;
+    final who = m.mine ? (ar ? 'أنت' : 'You') : (ar ? 'الطرف الآخر' : 'Them');
+    final what = m.deleted
+        ? (ar ? 'رسالة محذوفة' : 'Deleted message')
+        : switch (m.type) {
+            MsgType.voice => ar ? '🎤 رسالة صوتية' : '🎤 Voice message',
+            MsgType.image => ar ? '📷 صورة' : '📷 Photo',
+            MsgType.video => ar ? '🎬 فيديو' : '🎬 Video',
+            MsgType.file => '📎 ${m.text}',
+            _ => m.text,
+          };
+    final c = color ?? AppColors.ink;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+      Text(who, style: TextStyle(color: c, fontWeight: FontWeight.w800, fontSize: 12)),
+      Text(what, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: c.withOpacity(0.85), fontSize: 12.5)),
+    ]);
   }
 }

@@ -206,7 +206,9 @@ class _TutorProfileScreenState extends State<TutorProfileScreen> {
       ]),
       const SizedBox(height: 12),
       Row(children: [
-        Text(money(levelPrice.round()), style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
+        // Pounds large, dollars small (owner decision 24 Nov; build 46 test showed both the same size).
+        Text(moneyMain(levelPrice.round()), style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
+        if (Money.syp) Text(' (${usd(levelPrice.round())})', style: const TextStyle(color: AppColors.text3, fontSize: 13)),
         Text(' ${context.tr('per_hour')}', style: const TextStyle(color: AppColors.text3)),
         const Spacer(),
         Pill('30 ${context.tr('min')}: ${money((levelPrice / 2 * 100).round() / 100)}', bg: AppColors.surface, fg: AppColors.text2),
