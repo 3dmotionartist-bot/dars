@@ -155,6 +155,14 @@ class Lesson {
   });
 }
 
+/// Round G3: pinned chats first (in pin order), then the rest in their given order.
+List<Conversation> orderChats(List<Conversation> chats, List<String> pinned) {
+  final byId = {for (final c in chats) if (c.id.isNotEmpty) c.id: c};
+  final top = [for (final id in pinned) if (byId[id] != null) byId[id]!];
+  final topIds = {for (final c in top) c.id};
+  return [...top, ...chats.where((c) => !topIds.contains(c.id))];
+}
+
 /// Round G2: the kind of document a file is, from its name or stored path ('' when it is not a document).
 String docKind(String nameOrPath) {
   final e = RegExp(r'\.([a-zA-Z0-9]{2,5})$').firstMatch(nameOrPath.trim())?.group(1)?.toLowerCase() ?? '';
