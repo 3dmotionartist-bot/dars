@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import '../services/doc_open.dart';
 import 'package:video_player/video_player.dart';
 
 import '../data/models.dart';
@@ -20,6 +22,15 @@ class VoiceNote extends StatefulWidget {
   const VoiceNote({super.key, required this.m});
   @override
   State<VoiceNote> createState() => _VoiceNoteState();
+}
+
+/// Round G2: the bar heights of a voice note differ from note to note (6..22), always the same for one note.
+double voiceBarHeight(String key, int i) {
+  var h = 0x811c9dc5;
+  for (final c in '$key#$i'.codeUnits) {
+    h = ((h ^ c) * 0x01000193) & 0x7fffffff;
+  }
+  return 6.0 + (h % 17);
 }
 
 /// Round G2: the next voice-note speed after [r] (1 → 1.5 → 2 → 1).
@@ -152,7 +163,7 @@ class _VoiceNoteState extends State<VoiceNote> {
             for (int i = 0; i < bars; i++)
               Container(
                 width: 3,
-                height: 6.0 + (i * 7 % 17),
+                height: voiceBarHeight(m.url.isNotEmpty ? m.url : '${m.remoteId}', i),
                 margin: const EdgeInsets.symmetric(horizontal: 1),
                 decoration: BoxDecoration(
                   color: (i / bars) < progress ? accent : fg.withOpacity(0.45),
@@ -196,10 +207,18 @@ class _ChatFileState extends State<ChatFile> {
     final url = await context.read<AppState>().mediaUrl(m.url);
     var ok = false;
     if (url.isNotEmpty) {
+      // On the phone: download and open in a viewer app (a browser only downloads it).
       try {
-        ok = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+        ok = await openDocument(url, docFileName(m), docMimes[docExt(m.url)] ?? 'application/octet-stream');
       } catch (_) {
         ok = false;
+      }
+      if (!ok) {
+        try {
+          ok = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+        } catch (_) {
+          ok = false;
+        }
       }
     }
     if (!mounted) return;
