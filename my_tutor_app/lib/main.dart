@@ -10,11 +10,13 @@ import 'screens/shared/live_call_screen.dart';
 import 'screens/shared/update_required_screen.dart';
 import 'screens/student/student_shell.dart';
 import 'screens/tutor/tutor_shell.dart';
+import 'services/crash_report.dart';
 import 'state/app_state.dart';
 import 'theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  CrashReport.install(); // Round H2: errors on users' phones reach the admins
   runApp(ChangeNotifierProvider(create: (_) => AppState(), child: const DarsApp()));
 }
 

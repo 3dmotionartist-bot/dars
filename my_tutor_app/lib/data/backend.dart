@@ -792,6 +792,9 @@ class Backend {
   /// Round G1: the sender deletes his message for both people (the admins keep a copy).
   Future<void> deleteMessage(int id) => db.rpc('delete_message', params: {'p_message': id});
 
+  /// Round H2: an app error for the admins (also before sign-in).
+  Future<void> reportError(Map<String, dynamic> params) => db.rpc('report_app_error', params: params);
+
   /// Round G2: "I have Dars open" (the server writes it at most once a minute).
   Future<void> touchPresence() => db.rpc('touch_presence');
 

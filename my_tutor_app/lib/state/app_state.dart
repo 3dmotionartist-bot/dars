@@ -22,6 +22,7 @@ import '../services/call_logic.dart';
 import '../services/call_native.dart';
 import '../services/calls.dart';
 import '../services/chat_cache.dart';
+import '../services/crash_report.dart';
 import '../services/media_bridge.dart';
 import '../services/push.dart';
 import '../services/ringer.dart';
@@ -245,6 +246,10 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       _error(e);
     }
     await _loadChatPrefs();
+    if (live) {
+      CrashReport.build = DarsConfig.build;
+      CrashReport.send = _b.reportError;
+    }
     checkAppVersion();
     try {
       await _loadTutors();
@@ -861,7 +866,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   void setDraft(Conversation c, String text, {bool now = false}) {
     if (c.id.isEmpty) return;
     final t = text.trim().isEmpty ? '' : text;
-    if ((drafts[c.id] ?? '') == t) return;
+    if ((drafts[c.id] ?? '') == t) {
+      // typed changes were already kept without refreshing the list: closing the chat refreshes it now
+      if (now) Future(notifyListeners);
+      return;
+    }
     if (t.isEmpty) {
       drafts.remove(c.id);
     } else {
