@@ -61,6 +61,7 @@ class _ChatScreenState extends State<ChatScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _app.openConversation(widget.conversation);
     });
+    _ctrl.text = _app.draftOf(c); // Round G3: what I typed last time and did not send
     _linkTyping();
     _loadLastSeen();
     _seenTimer = Timer.periodic(const Duration(seconds: 60), (_) => _loadLastSeen());
@@ -85,6 +86,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _app.setDraft(widget.conversation, _ctrl.text, now: true);
     _app.closeConversation(widget.conversation);
     _timer?.cancel();
     _typingOff?.cancel();
@@ -229,6 +231,7 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     _ctrl.clear();
+    app.setDraft(widget.conversation, '');
     if (_replying != null) setState(() => _replying = null);
     _toBottom();
     if (app.live) return;
@@ -460,6 +463,11 @@ class _ChatScreenState extends State<ChatScreen> {
                 final link = await app.createMeeting(c);
                 await Clipboard.setData(ClipboardData(text: link));
                 if (context.mounted) toast(context, context.tr('meeting_created'));
+              } else if (v == 'mute') {
+                app.toggleMute(c);
+                if (context.mounted) {
+                  toast(context, app.isMuted(c) ? (context.isAr ? 'لن تصلك إشعارات من هذه المحادثة' : 'No notifications from this chat') : (context.isAr ? 'عادت إشعارات هذه المحادثة' : 'Notifications are back on'));
+                }
               } else if (v == 'block' || v == 'unblock') {
                 final id = c.counterpartId ?? '';
                 if (v == 'block') {
@@ -485,6 +493,16 @@ class _ChatScreenState extends State<ChatScreen> {
                 PopupMenuItem(
                   value: 'meeting',
                   child: Row(children: [const Icon(Icons.add_link_rounded, color: AppColors.primary), const SizedBox(width: 10), Text(context.tr('create_meeting'))]),
+                ),
+              if (c.id.isNotEmpty)
+                PopupMenuItem(
+                  key: const Key('mute-chat'),
+                  value: 'mute',
+                  child: Row(children: [
+                    Icon(app.isMuted(c) ? Icons.notifications_active_outlined : Icons.notifications_off_outlined, color: AppColors.primary),
+                    const SizedBox(width: 10),
+                    Text(app.isMuted(c) ? (context.isAr ? 'إلغاء كتم الإشعارات' : 'Unmute') : (context.isAr ? 'كتم الإشعارات' : 'Mute notifications')),
+                  ]),
                 ),
               PopupMenuItem(value: 'report', child: Text(context.tr('report_chat'))),
               if (app.live && (c.counterpartId ?? '').isNotEmpty)
@@ -668,6 +686,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           maxLines: 4,
                           onChanged: (t) {
                             setState(() {});
+                            app.setDraft(c, t);
                             if (t.trim().isNotEmpty) {
                               _linkTyping(); // a new chat gets its id with the first message
                               _typingLink?.typing();

@@ -15,6 +15,16 @@ class DarsMessagingService : FirebaseMessagingService() {
         DarsNotify.prefs(this).edit().putString("token", token).apply()
     }
 
+    private fun muted(conversationId: String): Boolean {
+        if (conversationId.isEmpty()) return false
+        return try {
+            val p = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+            (p.getString("flutter.dars_muted", "") ?: "").split(",").contains(conversationId)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     override fun onMessageReceived(message: RemoteMessage) {
         val d = message.data
         val type = d["type"] ?: return
@@ -49,7 +59,8 @@ class DarsMessagingService : FirebaseMessagingService() {
                 // Always in the notification bar: the in-app notice can be hidden (behind the lock screen).
                 DarsNotify.missedCall(this, title, body, d["conversation_id"] ?: "")
             }
-            "message" -> if (!open) DarsNotify.message(this, d["conversation_id"] ?: "", title, body)
+            // Round G3: a chat muted in Dars makes no notification on this phone (calls still ring).
+            "message" -> if (!open && !muted(d["conversation_id"] ?: "")) DarsNotify.message(this, d["conversation_id"] ?: "", title, body)
             "reminder" -> DarsNotify.notice(
                 this, DarsNotify.REMINDERS, 30000 + ((d["lesson_id"] ?: "") + (d["kind"] ?: "")).hashCode().and(0xffff),
                 title, body, true, mapOf("dars_open" to "lessons"),

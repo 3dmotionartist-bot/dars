@@ -21,6 +21,7 @@ import '../screens/shared/transfer_screens.dart';
 import '../services/call_logic.dart';
 import '../services/call_native.dart';
 import '../services/calls.dart';
+import '../services/chat_cache.dart';
 import '../services/media_bridge.dart';
 import '../services/push.dart';
 import '../services/ringer.dart';
@@ -243,6 +244,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     } catch (e) {
       _error(e);
     }
+    await _loadChatPrefs();
     checkAppVersion();
     try {
       await _loadTutors();
@@ -266,6 +268,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
           await refresh();
           _startRealtime();
         }
+        await _loadChatCache(); // offline start: the chats saved on the phone (nothing if they loaded)
       }
     }
     booting = false;
@@ -780,6 +783,125 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     final names = await _b.names(others.values);
     await _ensureTutors([for (final r in rows) if (r['student_id'] == uid) '${r['tutor_id']}']);
     final msgs = await _b.messagesFor(rows.map((r) => '${r['id']}').toList());
+    if (!changedOnly) unawaited(ChatCache.save(uid, {'rows': rows, 'names': names, 'msgs': msgs}));
+    chatsFromCache = false;
+    _applyConversations(uid, rows, names, msgs, changedOnly: changedOnly);
+    return true;
+  }
+
+  // ---- Round G3: mute, pin and drafts (kept on this phone) ----
+  /// Muted chats: no notification on this phone for their messages (calls still ring). The phone's own
+  /// notification code reads the same list ("dars_muted", ids joined by commas).
+  final Set<String> mutedChats = {};
+  final List<String> pinnedChats = []; // newest pin first
+  final Map<String, String> drafts = {};
+  static const maxPinned = 3;
+  static const _mutedKey = 'dars_muted';
+  static const _pinnedKey = 'dars_pinned';
+  static const _draftsKey = 'dars.drafts';
+  Timer? _draftSave;
+
+  Future<void> _loadChatPrefs() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      List<String> ids(String? v) => (v ?? '').split(',').where((x) => x.isNotEmpty).toList();
+      mutedChats
+        ..clear()
+        ..addAll(ids(p.getString(_mutedKey)));
+      pinnedChats
+        ..clear()
+        ..addAll(ids(p.getString(_pinnedKey)));
+      final d = jsonDecode(p.getString(_draftsKey) ?? '{}');
+      drafts.clear();
+      if (d is Map) {
+        for (final e in d.entries) {
+          if ('${e.value}'.trim().isNotEmpty) drafts['${e.key}'] = '${e.value}';
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveChatPrefs() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setString(_mutedKey, mutedChats.join(','));
+      await p.setString(_pinnedKey, pinnedChats.join(','));
+      await p.setString(_draftsKey, jsonEncode(drafts));
+    } catch (_) {}
+  }
+
+  bool isMuted(Conversation c) => c.id.isNotEmpty && mutedChats.contains(c.id);
+  bool isPinned(Conversation c) => c.id.isNotEmpty && pinnedChats.contains(c.id);
+
+  void toggleMute(Conversation c) {
+    if (c.id.isEmpty) return;
+    if (!mutedChats.remove(c.id)) mutedChats.add(c.id);
+    unawaited(_saveChatPrefs());
+    notifyListeners();
+  }
+
+  /// False when [maxPinned] chats are already pinned.
+  bool togglePin(Conversation c) {
+    if (c.id.isEmpty) return false;
+    if (!pinnedChats.remove(c.id)) {
+      if (pinnedChats.length >= maxPinned) return false;
+      pinnedChats.insert(0, c.id);
+    }
+    unawaited(_saveChatPrefs());
+    notifyListeners();
+    return true;
+  }
+
+  /// The chat list: pinned chats first (newest pin first), then the others in their usual order.
+  List<Conversation> get sortedConversations => orderChats(conversations, pinnedChats);
+
+  String draftOf(Conversation c) => c.id.isEmpty ? '' : (drafts[c.id] ?? '');
+
+  /// Keeps what I typed but did not send (saved shortly after I stop typing).
+  void setDraft(Conversation c, String text, {bool now = false}) {
+    if (c.id.isEmpty) return;
+    final t = text.trim().isEmpty ? '' : text;
+    if ((drafts[c.id] ?? '') == t) return;
+    if (t.isEmpty) {
+      drafts.remove(c.id);
+    } else {
+      drafts[c.id] = t.length > 4000 ? t.substring(0, 4000) : t;
+    }
+    _draftSave?.cancel();
+    if (now) {
+      unawaited(_saveChatPrefs());
+      Future(notifyListeners); // called while a chat screen closes: the list shows the draft after that
+    } else {
+      _draftSave = Timer(const Duration(milliseconds: 800), () => unawaited(_saveChatPrefs()));
+    }
+  }
+
+  // ---- Round G3: the chats are kept on the phone, so they still show when Dars starts offline ----
+  bool chatsFromCache = false;
+
+  /// Shows the chats saved on the phone (only when nothing is shown yet). True when some were shown.
+  Future<bool> _loadChatCache() async {
+    final uid = _b.uid ?? _b.savedUid;
+    if (!live || uid == null || conversations.isNotEmpty) return false;
+    final m = await ChatCache.read(uid);
+    if (m == null) return false;
+    try {
+      final rows = [for (final r in (m['rows'] as List)) Map<String, dynamic>.from(r as Map)];
+      final names = {for (final e in (m['names'] as Map).entries) '${e.key}': '${e.value}'};
+      final msgs = [for (final r in (m['msgs'] as List)) Map<String, dynamic>.from(r as Map)];
+      if (rows.isEmpty) return false;
+      _applyConversations(uid, rows, names, msgs, changedOnly: false, fromCache: true);
+      chatsFromCache = true;
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  void _applyConversations(String uid, List<Map<String, dynamic>> rows, Map<String, String> names, List<Map<String, dynamic>> msgs,
+      {required bool changedOnly, bool fromCache = false}) {
+    final others = {for (final r in rows) '${r['id']}': '${r['student_id'] == uid ? r['tutor_id'] : r['student_id']}'};
     final byConv = <String, List<Map<String, dynamic>>>{};
     for (final m in msgs) {
       byConv.putIfAbsent('${m['conversation_id']}', () => []).add(m);
@@ -870,8 +992,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         if (c.id == id) _announce(c, m);
       }
     }
-    _seenReady = true;
-    return true;
+    if (!fromCache) _seenReady = true;
   }
 
   Future<void> _loadLiveRequests() async {
@@ -1193,6 +1314,12 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     try {
       (await SharedPreferences.getInstance()).remove(_profileKey);
     } catch (_) {}
+    unawaited(ChatCache.clear()); // Round G3: the chats saved on this phone go too
+    chatsFromCache = false;
+    mutedChats.clear();
+    pinnedChats.clear();
+    drafts.clear();
+    unawaited(_saveChatPrefs());
     // The phone itself drops this account's pushes from now on, even if the server cannot be told below
     // (phone test, 22 Nov 2026: a signed-out dual app still rang).
     await Push.setAccount('');
@@ -2518,6 +2645,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       });
       return;
     }
+    if (isMuted(c)) return; // Round G3: a muted chat makes no notification (calls above still ring)
     if ((!_foreground || kIsWeb) && !_pushReady) {
       final body = switch (m.type) {
         MsgType.voice => _t('🎤 رسالة صوتية', '🎤 Voice message'),
