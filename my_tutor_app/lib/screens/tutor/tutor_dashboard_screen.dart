@@ -160,6 +160,8 @@ class TutorDashboardScreen extends StatelessWidget {
                     const SizedBox(width: 6),
                     Text('${context.tr('dnd')} ${context.tr('dnd_for')}:', style: TextStyle(color: app.tutorAvailable ? Colors.white : AppColors.text2, fontSize: 13)),
                     const SizedBox(width: 6),
+                    // Round G2: the four buttons stay together (they move to the next line as one group)
+                    Row(mainAxisSize: MainAxisSize.min, children: [
                     for (final h in [1, 2, 4, 8])
                       Padding(
                         padding: const EdgeInsetsDirectional.only(end: 6),
@@ -176,6 +178,7 @@ class TutorDashboardScreen extends StatelessWidget {
                           ),
                         ),
                       ),
+                    ]),
                   ]),
                 ]),
               ),

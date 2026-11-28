@@ -180,6 +180,18 @@ const docMimes = <String, String>{
   'txt': 'text/plain',
 };
 
+/// Round G2: the extension of a stored path or name ('' when none), lower case.
+String docExt(String nameOrPath) => RegExp(r'\.([a-zA-Z0-9]{2,5})$').firstMatch(nameOrPath.trim())?.group(1)?.toLowerCase() ?? '';
+
+/// Round G2: the name a document is saved under to open it (my own file keeps its name).
+String docFileName(Message m) {
+  final ext = docExt(m.url).isNotEmpty ? docExt(m.url) : docExt(m.text);
+  final named = ext.isNotEmpty && m.text != '📎' && docExt(m.text) == ext ? m.text : '';
+  final base = named.isNotEmpty ? named.substring(0, named.length - ext.length - 1) : 'Dars-${m.remoteId > 0 ? m.remoteId : m.url.hashCode.abs()}';
+  final safe = base.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1f]'), '_').trim();
+  return '${safe.isEmpty ? 'Dars' : safe}.${ext.isEmpty ? 'bin' : ext}';
+}
+
 /// Round G2: a file message's label ("ملف PDF" / "PDF file"), from the name I picked or the stored path.
 String fileLabel(Message m, {required bool ar}) {
   final named = m.text.isNotEmpty && m.text != '📎' ? m.text : '';

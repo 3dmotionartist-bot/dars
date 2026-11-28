@@ -643,12 +643,17 @@ class _ChatScreenState extends State<ChatScreen> {
                           child: Row(children: [
                             const Icon(Icons.fiber_manual_record_rounded, color: AppColors.danger, size: 14),
                             const SizedBox(width: 8),
-                            Text('${context.tr('recording')}  ${_secs ~/ 60}:${two(_secs % 60)}', style: const TextStyle(color: AppColors.danger, fontWeight: FontWeight.w700)),
-                            if (_held) ...[
-                              const Spacer(),
-                              Flexible(
+                            if (!_held)
+                              Text('${context.tr('recording')}  ${_secs ~/ 60}:${two(_secs % 60)}', style: const TextStyle(color: AppColors.danger, fontWeight: FontWeight.w700))
+                            else ...[
+                              // Round G2: while the mic is held, say how to send and how to cancel
+                              Text('${_secs ~/ 60}:${two(_secs % 60)}', style: const TextStyle(color: AppColors.danger, fontWeight: FontWeight.w700)),
+                              const SizedBox(width: 10),
+                              Expanded(
                                 child: Text(
-                                  _slid ? (context.isAr ? 'اترك للإلغاء' : 'Let go to cancel') : (context.isAr ? '↔ اسحب للإلغاء' : '↔ Slide to cancel'),
+                                  _slid
+                                      ? (context.isAr ? 'اترك للإلغاء' : 'Let go to cancel')
+                                      : (context.isAr ? 'اترك للإرسال · ↔ اسحب للإلغاء' : 'Let go to send · ↔ slide to cancel'),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(color: _slid ? AppColors.danger : AppColors.text3, fontSize: 12, fontWeight: _slid ? FontWeight.w800 : FontWeight.w500),
@@ -689,7 +694,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   },
                   onLongPressMoveUpdate: (d) {
                     if (!_held) return;
-                    final slid = d.offsetFromOrigin.dx.abs() > 80;
+                    final slid = d.offsetFromOrigin.dx.abs() > 56;
                     if (slid != _slid) setState(() => _slid = slid);
                   },
                   onLongPressEnd: (_) async {

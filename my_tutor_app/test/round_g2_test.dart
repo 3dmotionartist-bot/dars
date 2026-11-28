@@ -31,6 +31,26 @@ void main() {
     expect(fileLabel(unknown, ar: true), 'ملف');
   });
 
+  test('the name a document is opened under', () {
+    final theirs = Backend.messageFromRow({
+      'id': 77, 'sender_id': 'u2', 'kind': 'file', 'body': '📎', 'file_url': 'chat-files/u2/c/1764200000001.pdf',
+      'created_at': '2026-11-28T10:00:00Z',
+    }, 'u1');
+    expect(docFileName(theirs), 'Dars-77.pdf');
+    final mine = Message(mine: true, text: 'واجب: 3?.docx', time: DateTime(2026), type: MsgType.file, url: 'chat-files/u1/c/1.docx');
+    expect(docFileName(mine), 'واجب_ 3_.docx');
+    expect(docExt('x/Y.PDF'), 'pdf');
+    expect(docExt('noext'), '');
+  });
+
+  test('voice-note bars differ between notes and stay the same for one note', () {
+    final a = [for (var i = 0; i < 18; i++) voiceBarHeight('chat-files/a.m4a', i)];
+    final b = [for (var i = 0; i < 18; i++) voiceBarHeight('chat-files/b.m4a', i)];
+    expect(a, [for (var i = 0; i < 18; i++) voiceBarHeight('chat-files/a.m4a', i)]);
+    expect(a, isNot(equals(b)));
+    expect(a.every((h) => h >= 6 && h <= 22), isTrue);
+  });
+
   test('voice-note speed goes 1 → 1.5 → 2 → 1', () {
     expect(nextVoiceSpeed(1), 1.5);
     expect(nextVoiceSpeed(1.5), 2);
